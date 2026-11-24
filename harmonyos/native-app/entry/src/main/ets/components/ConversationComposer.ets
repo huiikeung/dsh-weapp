@@ -2771,16 +2771,11 @@ export struct ConversationComposer {
       // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
-      // 玻璃直接做在卡片上：backgroundEffect = 模糊 + 色调 + 饱和度 + 亮度四件套，
-      // 形状就是卡片本体（圆角 24），按钮/输入行全部落在玻璃上，不再是「挤在椭圆里」
-      .backgroundEffect({
-        radius: 60,
-        color: this.isDark ? 'rgba(18,20,26,0.40)' : 'rgba(255,255,255,0.38)',
-        saturation: 1.9,
-        brightness: 1.05
-      })
+      // 玻璃 = 身后的 HDS IMMERSIVE 椭圆背板（与输入卡像素级重合）：
+      // 卡片本体全透明，文字/按钮直接坐在那块系统玻璃上（材质不能挂到内容区组件，
+      // 但重合堆叠后视觉效果等同「材质用在输入框上」）
       .backgroundColor(Color.Transparent)
-      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.85)' })
+      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.65)' })
       .clip(true)
 
       }
