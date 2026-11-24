@@ -2767,11 +2767,10 @@ export struct ConversationComposer {
       // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
-      // 与原生玻璃弹窗完全同一套材质（imagePreviewSheet / fileDiffSheet 的 teamSheetMaterial）：
-      // THICK 厚玻璃 + colorInvert 自动反色 + 材质自带阴影 —— 弹窗长什么样，输入框就长什么样
+      // 输入区已在 HdsTabs 悬浮 TabBar 内，玻璃由 barFloatingStyle 的
+      // ULTRA_THIN 材质提供（胶囊自动包裹输入区实际高度）；卡片本体保持透明
       .backgroundColor(Color.Transparent)
-      .systemMaterial(this.composerSheetMaterial())
-      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.60)' })
       .clip(true)
 
       }

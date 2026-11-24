@@ -5838,57 +5838,43 @@ export struct ConversationPage {
       .hitTestBehavior(HitTestMode.None)
   }
 
-  /** 底部 HDS 材质（与顶栏玻璃同一套 IMMERSIVE，仅在 HDS 悬浮 TabBar 上渲染） */
-  private dockGlassMaterial(): SystemMaterialParams {
-    return { materialType: hdsMaterial.MaterialType.IMMERSIVE, materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE };
-  }
-
-  /** tabBar 占位内容：只提供高度，不画任何东西 */
+  /**
+   * 底部输入区 = HdsTabs 悬浮 TabBar 的内容（对照《沉浸式系统材质视效》官方示例）：
+   * 输入区放进 tabBar，玻璃胶囊自动包裹输入区的实际高度（展开/收起都跟随）；
+   * ULTRA_THIN + colorInvert 让滚动到背后的内容清晰透出；maskHeight 0 关闭自带的渐变遮罩。
+   */
   @Builder
-  dockBackplateBar() {
-    Row().width('100%').height(this.dockHeight > 0 ? this.dockHeight : 300)
-  }
-
-  /** 材质背板：官方《沉浸式系统材质视效》悬浮 TabBar 配方（ULTRA_THIN + colorInvert + maskHeight:0） */
-  @Builder
-  dockMaterialBackplate() {
+  dockAsFloatingGlass() {
     Tabs({ barPosition: BarPosition.End, index: 0 }) {
       TabContent() {
-        Row().width(1).height(1).opacity(0)
+        // 内容区不用：只借 TabBar 的位置与材质
+        Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
       }
-      .tabBar(this.dockBackplateBar())
+      .tabBar(this.bottomDockLayer())
     }
     .barMode(BarMode.Fixed)
+    .scrollable(false)
     .barOverlap(true)
-    // 胶囊几何 = 输入卡几何：左右 14、宽度 pageW-28、高度=实测 dock 高、底部=安全区+18
-    .barFloatingStyle(this.dockFloatingStyle())
-    .barHeight(Math.max(120, this.dockHeight - 18 - this.bottomInset - (this.wideInset() > 0 ? 14 : 0)))
-    .width('100%')
-    .height(this.dockHeight > 0 ? this.dockHeight : 300)
-    .hitTestBehavior(HitTestMode.None)
-    .accessibilityLevel('no')
-  }
-
-  /** 悬浮栏样式：官方配方 ULTRA_THIN + colorInvert + interactive + lightEffect + maskHeight 0 */
-  private dockFloatingStyle(): FloatingTabBarStyle {
-    const widthOpt: FloatingTabBarWidth = {
-      smallBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-      mediumBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-      largeBarWidth: this.pageW > 0 ? this.pageW - 28 : 320
-    };
-    return {
+    .barFloatingStyle({
+      adaptToHandedness: true,
+      maskHeight: 0,
       barSideMargin: 14,
       barBottomMargin: 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0),
-      barWidth: widthOpt,
-      // 官方示例：悬浮栏默认自带底部渐变遮罩，会洗淡玻璃效果，显式关掉
-      maskHeight: 0,
+      barWidth: {
+        smallBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+        mediumBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+        largeBarWidth: this.pageW > 0 ? this.pageW - 28 : 320
+      },
       systemMaterial: new uiMaterial.ImmersiveMaterial({
         style: uiMaterial.ImmersiveStyle.ULTRA_THIN,
         colorInvert: true,
         interactive: true,
         lightEffect: {}
       })
-    };
+    })
+    .width('100%')
+    .height('100%')
+    .hitTestBehavior(HitTestMode.Transparent)
   }
 
   @Builder
@@ -6228,13 +6214,8 @@ export struct ConversationPage {
       // 轨迹 Tab 不显示输入条：避免在只读轨迹页误触发送
       Column() {
         if (this.sessionTab === 0) {
-          Stack({ alignContent: Alignment.Bottom }) {
-            // HDS 材质背板：与顶栏同一套 IMMERSIVE 材质（借悬浮 TabBar 的位置渲染）
-            this.dockMaterialBackplate()
-            // 输入区浮层：透明底，露出下面的系统玻璃
-            this.bottomDockLayer()
-          }
-          .width('100%')
+          // 输入区 = 悬浮 TabBar（玻璃胶囊自动包裹输入区实际高度）
+          this.dockAsFloatingGlass()
         }
       }
       .width('100%')
