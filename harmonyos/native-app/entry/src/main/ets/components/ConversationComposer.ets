@@ -2682,14 +2682,23 @@ export struct ConversationComposer {
       // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
-      // 沉浸光感：不再自己画模糊，交给系统 ImmersiveMaterial（API 26，应用级开关已在 module.json5 打开）
-      // 材质不可用时退回半透明纯色（不带模糊），保证文字可读
-      .backgroundColor(this.glassMaterial() === undefined
-        ? (this.isDark ? 'rgba(28,30,36,0.62)' : 'rgba(255,255,255,0.62)')
-        : Color.Transparent)
+      // 自绘玻璃（系统材质在内容区不生效，改为可控的渐变玻璃）：
+      // 纵向由亮到暗，模拟玻璃受光后的明暗层次
+      .linearGradient({
+        angle: 180,
+        colors: this.isDark
+          ? [['rgba(60,62,70,0.70)', 0], ['rgba(36,38,44,0.62)', 0.55], ['rgba(24,26,31,0.58)', 1]]
+          : [['rgba(255,255,255,0.92)', 0], ['rgba(250,251,253,0.80)', 0.55], ['rgba(242,244,248,0.72)', 1]]
+      })
       .systemMaterial(this.glassMaterial())
-      // 材质自带高光/阴影，这里只留一条极细的边界，避免叠出「白框」
-      .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.75)' })
+      // 玻璃边缘：外圈白色细描边 + 柔和外阴影（托起悬浮感）
+      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.95)' })
+      .shadow({
+        radius: 18,
+        color: this.isDark ? 'rgba(0,0,0,0.42)' : 'rgba(36,44,64,0.16)',
+        offsetX: 0,
+        offsetY: 8
+      })
       // 裁到圆角：顶沿高光只亮在卡片内部
       .clip(true)
       // 光感：玻璃表面一层很轻的纵向明暗（上亮下暗）+ 顶沿受光边，
