@@ -5838,52 +5838,6 @@ export struct ConversationPage {
       .hitTestBehavior(HitTestMode.None)
   }
 
-  /** 底部悬浮 TabBar 的系统材质（文档：悬浮样式 + barPosition End 时生效，默认 THIN） */
-  private dockGlassMaterial(): uiMaterial.ImmersiveMaterial | undefined {
-    if (!this.immersiveSupported()) {
-      return undefined;
-    }
-    try {
-      return new uiMaterial.ImmersiveMaterial({
-        style: uiMaterial.ImmersiveStyle.THIN,
-        interactive: true,
-        lightEffect: {},
-        applyShadow: true
-      });
-    } catch (err) {
-      return undefined;
-    }
-  }
-
-  /**
-   * 底部悬浮 TabBar 背板（对照《组件适配沉浸光感》的「底部页签」）：
-   * 沉浸光感对普通容器不生效，只认 Navigation 标题栏 / 横向 Tabs 的底部 TabBar。
-   * 这里用一个只有 TabBar、内容区高度为 0 的 Tabs，把整块输入区放进 tabBar，
-   * 背板交给 barFloatingStyle.systemMaterial（悬浮样式：barOverlap(true) + barPosition End）。
-   */
-  @Builder
-  bottomDockTabs() {
-    Tabs({ barPosition: BarPosition.End, index: 0 }) {
-      TabContent() {
-        // 内容区高度为 0：这个 Tabs 只承载底部悬浮 TabBar 的材质背板
-        Row().width(1).height(1).opacity(0)
-      }
-      .tabBar(this.bottomDockLayer())
-    }
-    .barMode(BarMode.Fixed)
-    .barOverlap(true)
-    .barBackgroundColor(Color.Transparent)
-    .barFloatingStyle({
-      barSideMargin: 0,
-      barBottomMargin: 0,
-      systemMaterial: this.dockGlassMaterial()
-    })
-    .width('100%')
-    // 高度要给 tabBar 内容留余量：等于实测高度会把内容压到刚好，展开态 chip 行会被裁掉
-    .height(this.dockHeight > 0 ? this.dockHeight + 28 : 300)
-    .hitTestBehavior(HitTestMode.Transparent)
-  }
-
   @Builder
   bottomDockLayer() {
     Stack({ alignContent: Alignment.Bottom }) {
@@ -6221,7 +6175,7 @@ export struct ConversationPage {
       // 轨迹 Tab 不显示输入条：避免在只读轨迹页误触发送
       Column() {
         if (this.sessionTab === 0) {
-          this.bottomDockTabs()
+          this.bottomDockLayer()
         }
       }
       .width('100%')
