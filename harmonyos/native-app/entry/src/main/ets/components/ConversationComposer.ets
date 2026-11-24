@@ -854,12 +854,14 @@ export struct ConversationComposer {
         this.onFocusChange(true);
       })
       .onBlur(() => {
-        // 菜单弹出瞬间可能短暂抢焦点：延迟确认，chip 菜单在开时不收起输入态
+        // 菜单弹出瞬间可能短暂抢焦点：稍等一帧再确认（chip 菜单在开时不收起输入态）。
+        // 这里不能等太久：收键盘（系统返回键/键盘收起键）时如果延迟 140ms 才开始塌回，
+        // 会变成「键盘先落完 → 输入条再塌一次」两段式，看着就是卡；30ms 能和键盘动画重叠。
         setTimeout(() => {
           if (!this.permissionOpen && !this.modelOpen && !this.modelRootShown && !this.modelListShown) {
             this.onFocusChange(false);
           }
-        }, 140);
+        }, 30);
       })
       .onChange((value: string) => {
         if (this.draftToken.length === 0) {
