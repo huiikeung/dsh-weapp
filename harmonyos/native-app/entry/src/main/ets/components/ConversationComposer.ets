@@ -603,6 +603,38 @@ export struct ConversationComposer {
     }
   }
 
+  /** 玻璃表面：一层极轻的纵向明暗 + 顶沿受光边（不模糊，只做光感） */
+  @Builder
+  glassSurface() {
+    Column() {
+      // 受光边
+      Column()
+        .width('100%')
+        .height(1)
+        .linearGradient({
+          angle: 90,
+          colors: [
+            [this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.55)', 0],
+            [this.isDark ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.98)', 0.5],
+            [this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.55)', 1]
+          ]
+        })
+      // 表面明暗：顶部微亮、底部微暗，像一块受光的玻璃
+      Column()
+        .width('100%')
+        .layoutWeight(1)
+        .linearGradient({
+          angle: 180,
+          colors: this.isDark
+            ? [['rgba(255,255,255,0.10)', 0], ['rgba(255,255,255,0.02)', 0.5], ['rgba(0,0,0,0.10)', 1]]
+            : [['rgba(255,255,255,0.18)', 0], ['rgba(255,255,255,0.04)', 0.5], ['rgba(0,0,0,0.02)', 1]]
+        })
+    }
+    .width('100%')
+    .height('100%')
+    .hitTestBehavior(HitTestMode.None)
+  }
+
   /** 顶沿高光：中间亮、两端收敛的 1vp 细线，给玻璃一个「受光边」 */
   @Builder
   topGlint() {
@@ -2651,16 +2683,18 @@ export struct ConversationComposer {
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
       // 沉浸光感：不再自己画模糊，交给系统 ImmersiveMaterial（API 26，应用级开关已在 module.json5 打开）
+      // 材质不可用时退回半透明纯色（不带模糊），保证文字可读
       .backgroundColor(this.glassMaterial() === undefined
-        ? (this.isDark ? 'rgba(30,30,34,0.72)' : 'rgba(255,255,255,0.72)')
+        ? (this.isDark ? 'rgba(28,30,36,0.62)' : 'rgba(255,255,255,0.62)')
         : Color.Transparent)
       .systemMaterial(this.glassMaterial())
       // 材质自带高光/阴影，这里只留一条极细的边界，避免叠出「白框」
       .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.75)' })
       // 裁到圆角：顶沿高光只亮在卡片内部
       .clip(true)
-      // 光感：顶沿一道很淡的受光边（系统材质之外的点缀，不抢材质本身的观感）
-      .overlay(() => { this.topGlint() }, { align: Alignment.Top })
+      // 光感：玻璃表面一层很轻的纵向明暗（上亮下暗）+ 顶沿受光边，
+      // 不依赖模糊，也能读成「一块玻璃」
+      .overlay(() => { this.glassSurface() }, { align: Alignment.Top })
 
       }
       .width('100%')

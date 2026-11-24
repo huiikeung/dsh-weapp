@@ -6050,21 +6050,9 @@ export struct ConversationPage {
       .width('100%')
     }
     .width('100%')
-    // 底部整块：与顶部标题栏同一套系统 IMMERSIVE 玻璃材质（不再是手写 backdropBlur）
+    // 底部整块：透明容器，不铺模糊也不铺渐隐 —— 内容直接滚到输入框玻璃下面，
+    // 由输入框自身的材质/半透明底去「盖住」它（这才是玻璃能看见背景变化的前提）
     .backgroundColor(Color.Transparent)
-    // 宽屏下输入条已居中限宽，底部不铺整条材质带
-    .systemMaterial(this.wideInset() > 0
-      ? undefined
-      : new uiMaterial.ImmersiveMaterial({
-        // 底部要托住整块输入区：THICK 提供最强模糊，贴近顶部渐变模糊的强度
-        style: uiMaterial.ImmersiveStyle.THICK,
-        interactive: true,
-        lightEffect: {}
-      }))
-    // 材质自身模糊偏柔和，再叠一层背景模糊把「透出的内容」压得更糊（对齐顶部观感）
-    .backdropBlur(this.wideInset() > 0 ? 0 : 20)
-    // 上沿渐变过渡：内容进入玻璃条前先柔和淡出（对齐顶部「渐变模糊」的观感，避免硬切边）
-    .overlay(() => { this.bottomFadeOverlay() }, { align: Alignment.Top })
     .onAreaChange((oldArea: Area, newArea: Area) => {
       const height: number = Number(newArea.height);
       if (height > 0 && Math.abs(height - this.dockHeight) > 1) {
