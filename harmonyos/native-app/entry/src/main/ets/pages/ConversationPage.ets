@@ -531,6 +531,8 @@ export struct ConversationPage {
   private tabDotsTimer: number = -1;
   /** 输入条 chip 弹层：'' | model（权限改用系统菜单） */
   @State composerSheet: string = '';
+  /** 团队协作开关的 ⓘ 说明气泡 */
+  @State private teamInfoOpen: boolean = false;
   /** 权限菜单展开态（仅用于 ▾ 旋转与底色） */
   @State permissionMenuOpen: boolean = false;
   /** 模型弹窗展开态 */
@@ -7438,6 +7440,19 @@ export struct ConversationPage {
     return -1;
   }
 
+  /** 团队协作开关说明气泡（点 ⓘ 弹出） */
+  @Builder
+  teamInfoTip() {
+    Text('通过共享任务板协调多个智能体的分工与进度，复杂任务表现更佳，token 开销也相应更高。')
+      .fontSize(13)
+      .lineHeight(19.5)
+      .fontColor('#FFFFFF')
+      .constraintSize({ maxWidth: 270 })
+      .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+      .backgroundColor('rgba(28,30,36,0.96)')
+      .borderRadius(10)
+  }
+
   /** 输入条 chip 弹层：底部卡片（权限列表 / 模型列表 + 推理等级）。 */
   @Builder
   composerSheetPanel() {
@@ -7556,6 +7571,23 @@ export struct ConversationPage {
                 Text('ⓘ')
                   .fontSize(11)
                   .fontColor(this.subColor())
+                  .padding(4)
+                  .onClick(() => {
+                    this.teamInfoOpen = !this.teamInfoOpen;
+                  })
+                  .bindPopup(this.teamInfoOpen, {
+                    builder: this.teamInfoTip(),
+                    placement: Placement.Top,
+                    popupColor: Color.Transparent,
+                    enableArrow: false,
+                    autoCancel: true,
+                    radius: 10,
+                    onStateChange: (event) => {
+                      if (!event.isVisible) {
+                        this.teamInfoOpen = false;
+                      }
+                    }
+                  })
                 Blank()
                 // 命中区域严格限制在开关本体（40×24），点文字/空白不切换
                 Stack() {
