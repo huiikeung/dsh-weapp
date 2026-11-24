@@ -3433,6 +3433,20 @@ export struct ConversationPage {
     return 26;
   }
 
+  /** 沉浸光感材质（与悬浮 TabBar 背板同一套 uiMaterial） */
+  private dockMaterial(): uiMaterial.Material {
+    return new uiMaterial.ImmersiveMaterial({
+      style: uiMaterial.ImmersiveStyle.THIN,
+      interactive: true,
+      lightEffect: {}
+    });
+  }
+
+  /** 材质组的边缘：亮度对齐悬浮 TabBar 材质自带的边缘（深色实测峰值 ~76/255，即 22% 白） */
+  private dockMaterialEdge(): string {
+    return this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.90)';
+  }
+
   /** 会话节点弹窗玻璃：比系统菜单更通透（模糊更重时基色再降一点不透明度） */
   private turnNavGlass(): string {
     return this.isDark ? 'rgba(58,58,60,0.56)' : 'rgba(250,250,252,0.62)';
@@ -4976,32 +4990,37 @@ export struct ConversationPage {
     return out;
   }
 
-  /** 左上角模式胶囊（输入框同款玻璃：半透明底 + 背景模糊 + 白色细描边） */
+  /** 左上角模式胶囊（与输入条胶囊同一套玻璃：同底色 + 同细亮边） */
   @Builder
   modeChip() {
     // 平板/宽屏：rpx 会按整屏宽度放大（42rpx≈80vp，显得巨大），这里直接用 vp 定死小尺寸
-    Row({ space: this.wideInset() > 0 ? 5 : this.rpx(8) }) {
-      Text(this.modeChipLabel)
-        .fontSize(this.wideInset() > 0 ? 11 : 12.5)
-        .fontColor(this.textColor())
-        .maxLines(1)
-      Image($r('app.media.chev_right_gray'))
-        .width(this.wideInset() > 0 ? 12 : this.rpx(18))
-        .height(this.wideInset() > 0 ? 12 : this.rpx(18))
-        .objectFit(ImageFit.Contain)
-        .rotate({ angle: -90 })
-        .opacity(0.7)
+    // 用 Button 承载：systemMaterial（沉浸光感液态玻璃）只在这种自带材质层的组件上渲染，
+    // 普通 Row 上挂 systemMaterial 是画不出来的 —— 这样它才和悬浮 TabBar 输入条是同一种玻璃。
+    Button({ type: ButtonType.Capsule, stateEffect: true }) {
+      Row({ space: this.wideInset() > 0 ? 5 : this.rpx(8) }) {
+        Text(this.modeChipLabel)
+          .fontSize(this.wideInset() > 0 ? 11 : 12.5)
+          .fontColor(this.textColor())
+          .maxLines(1)
+        Image($r('app.media.chev_right_gray'))
+          .width(this.wideInset() > 0 ? 12 : this.rpx(18))
+          .height(this.wideInset() > 0 ? 12 : this.rpx(18))
+          .objectFit(ImageFit.Contain)
+          .rotate({ angle: -90 })
+          .opacity(0.7)
+      }
+      .alignItems(VerticalAlign.Center)
+      .padding({
+        left: this.wideInset() > 0 ? 12 : this.rpx(22),
+        right: this.wideInset() > 0 ? 10 : this.rpx(18)
+      })
     }
     .constraintSize({ minHeight: this.wideInset() > 0 ? 32 : this.rpx(56) })
-    .padding({
-      left: this.wideInset() > 0 ? 12 : this.rpx(22),
-      right: this.wideInset() > 0 ? 10 : this.rpx(18)
-    })
-    .alignItems(VerticalAlign.Center)
-    .borderRadius(this.rpx(999))
-    .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
-    .backdropBlur(14)
-    .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+    .buttonStyle(ButtonStyleMode.NORMAL)
+    // 沉浸光感材质（与悬浮 TabBar 背板同一套 uiMaterial），不要再铺 backgroundColor
+    .systemMaterial(this.dockMaterial())
+    // 材质自带的边缘太淡（实测峰值只有 30/255），补 1vp 细亮边对齐 TabBar 胶囊的 76/255
+    .border({ width: 1, color: this.dockMaterialEdge() })
     .onClick(() => {
       this.modeChipOpen = !this.modeChipOpen;
     })
@@ -9374,9 +9393,9 @@ export struct ConversationPage {
             .height(40)
             // 去掉 Button 默认的系统蓝底
             .buttonStyle(ButtonStyleMode.NORMAL)
-            // 与输入条胶囊同一套玻璃：同底色 + 同细亮边（不再是浅色液态玻璃盘）
-            .backgroundColor(this.dockGlassFill())
-            .border({ width: 1, color: this.dockGlassEdge() })
+            // 与悬浮 TabBar 同一套沉浸光感材质（systemMaterial），不铺 backgroundColor
+            .systemMaterial(this.dockMaterial())
+            .border({ width: 1, color: this.dockMaterialEdge() })
             .onClick(() => {
               this.autoStick = true;
               this.scroller.scrollEdge(Edge.Bottom);
