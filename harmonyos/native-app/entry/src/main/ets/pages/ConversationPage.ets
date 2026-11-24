@@ -2,7 +2,7 @@ import { abilityAccessCtrl, common, Want } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
-import { curves, display, KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
+import { curves, display, KeyboardAvoidMode, uiMaterial, window as arkWindow } from '@kit.ArkUI';
 import { wideSideInset } from '../common/Responsive';
 import {
   APP_GLASS_RADIUS,
@@ -696,6 +696,8 @@ export struct ConversationPage {
     // 其他页面（首页/设置）把全局键盘避让设成了 NONE，进对话页必须恢复：
     // RESIZE = 键盘弹出时根布局收缩，输入条整体上浮到输入法上方（标题栏不动）
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+    // 键盘收起（系统返回键 / 键盘自带收起键）时在同一刻折叠输入条
+    this.bindKeyboardHeightListener();
     // 状态栏内容色跟随页面背景：深色纯黑 → 白，浅色灰底 → 黑
     this.applyStatusBarColor();
     this.syncWorkStepPrefs();
@@ -786,6 +788,7 @@ export struct ConversationPage {
   }
 
   aboutToDisappear(): void {
+    this.unbindKeyboardHeightListener();
     this.stopStickTimer();
     HoldingHand.stop();
     this.ready = false;
@@ -5929,6 +5932,49 @@ export struct ConversationPage {
   private composerExpanded(): boolean {
     // 与 ConversationComposer.expanded() 保持一致：草稿不再算展开（草稿不丢，重新点输入框会带出来）
     return this.composerFocused || this.pickedAttachments.length > 0;
+  }
+
+  /** 系统键盘高度监听（收起键盘时立即折叠输入条，不等 onBlur） */
+  private keyboardHeightCallback: ((height: number) => void) | null = null;
+  private hostWindowRef: arkWindow.Window | null = null;
+
+  /**
+   * 监听系统键盘高度：键盘完全收起的同一刻就折叠输入条。
+   * 之前只靠 TextArea 的 onBlur —— 键盘先落完、输入条再塌一次，必然两段；
+   * 这里和「点输入框以外」走同一条 collapseComposer，时序一致。
+   */
+  private bindKeyboardHeightListener(): void {
+    if (this.keyboardHeightCallback !== null) {
+      return;
+    }
+    const ctx = this.getUIContext().getHostContext();
+    if (ctx === undefined) {
+      return;
+    }
+    const cb = (height: number): void => {
+      if (height <= 0) {
+        this.collapseComposer();
+      }
+    };
+    this.keyboardHeightCallback = cb;
+    arkWindow.getLastWindow(ctx).then((win: arkWindow.Window) => {
+      this.hostWindowRef = win;
+      win.on('keyboardHeightChange', cb);
+    }).catch(() => {
+    });
+  }
+
+  private unbindKeyboardHeightListener(): void {
+    const cb = this.keyboardHeightCallback;
+    const win = this.hostWindowRef;
+    this.keyboardHeightCallback = null;
+    this.hostWindowRef = null;
+    if (win !== null && cb !== null) {
+      try {
+        win.off('keyboardHeightChange', cb);
+      } catch (err) {
+      }
+    }
   }
 
   /**
