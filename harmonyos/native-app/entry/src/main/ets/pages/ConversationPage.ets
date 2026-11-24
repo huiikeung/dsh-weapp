@@ -5946,7 +5946,7 @@ export struct ConversationPage {
     this.metricPopover = '';
     // 收键盘 + 收起输入条同时开始：两者都用 200ms 补间，视觉上是同步的一次过渡
     this.getUIContext().getFocusController().clearFocus();
-    this.getUIContext().animateTo({ duration: 200, curve: Curve.EaseOut }, () => {
+    this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
       this.composerFocused = false;
     });
   }
@@ -6117,7 +6117,8 @@ export struct ConversationPage {
                 return;
               }
               // 展开/收起用补间过渡：卡片高度和胶囊高度一起变，避免瞬间跳变看着卡
-              this.getUIContext().animateTo({ duration: 200, curve: Curve.EaseOut }, () => {
+              // 250ms 与系统键盘收起动画同时长，两条动画同起同落，不会出现「键盘落完、卡片还在缩」
+              this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
                 this.composerFocused = focused;
               });
             },
