@@ -1613,10 +1613,10 @@ export struct ConversationComposer {
           this.onToggleTeam(isOn);
         })
     }
-    // 再向内收一点：左右都比原生行多缩进 2vp，避免比上面两行宽出来
+    // 左边文字保持与原生行对齐；开关右移边界与上面箭头右边对齐（右内边距加大 8vp）
     .width(246)
     .height(44)
-    .padding({ left: 12, right: 4 })
+    .padding({ left: 12, right: 12 })
   }
 
   /** 第二层：全部模型按提供商分组（自带滚动、隐藏滑块）/ 推理等级保持原生菜单样式，✓ 放最右 */
