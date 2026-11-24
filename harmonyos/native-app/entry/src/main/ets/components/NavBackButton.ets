@@ -55,7 +55,11 @@ export struct NavBackButton {
       // 系统液态玻璃材质（与原生标题栏 systemMaterialEffect 同一套 IMMERSIVE 材质），
       // 不再用「半透明白 + backdropBlur」的手写玻璃
       .systemMaterial(this.glass
-        ? new uiMaterial.ImmersiveMaterial({ style: uiMaterial.ImmersiveStyle.THIN })
+        ? new uiMaterial.ImmersiveMaterial({
+          style: uiMaterial.ImmersiveStyle.THIN,
+          interactive: true,
+          lightEffect: {}
+        })
         : undefined)
       // 与系统菜单同款 1vp 中性描边（Button 自己画，避免被外层圆角影响）
       .border(this.glass

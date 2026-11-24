@@ -5816,6 +5816,21 @@ export struct ConversationPage {
   }
 
   /** 底部浮层：队列/任务/目标 + 输入条（下方内容透过玻璃模糊，与顶部遮罩对称） */
+  /** 底部玻璃条上沿的渐变过渡（透明 → 页面底色），避免内容与玻璃之间出现硬切边 */
+  @Builder
+  bottomFadeOverlay() {
+    Column()
+      .width('100%')
+      .height(26)
+      .linearGradient({
+        direction: GradientDirection.Bottom,
+        colors: this.isDark
+          ? [['rgba(0,0,0,0)', 0.0], ['rgba(0,0,0,0.55)', 1.0]]
+          : [['rgba(242,242,247,0)', 0.0], ['rgba(242,242,247,0.80)', 1.0]]
+      })
+      .hitTestBehavior(HitTestMode.None)
+  }
+
   @Builder
   bottomDockLayer() {
     Stack({ alignContent: Alignment.Bottom }) {
@@ -6033,7 +6048,14 @@ export struct ConversationPage {
     // 宽屏下输入条已居中限宽，底部不铺整条材质带
     .systemMaterial(this.wideInset() > 0
       ? undefined
-      : new uiMaterial.ImmersiveMaterial({ style: uiMaterial.ImmersiveStyle.THIN }))
+      : new uiMaterial.ImmersiveMaterial({
+        // 底部要托住整块输入区，用 REGULAR（比顶部 THIN 更厚）才能接近顶部的模糊强度
+        style: uiMaterial.ImmersiveStyle.REGULAR,
+        interactive: true,
+        lightEffect: {}
+      }))
+    // 上沿渐变过渡：内容进入玻璃条前先柔和淡出（对齐顶部「渐变模糊」的观感，避免硬切边）
+    .overlay(() => { this.bottomFadeOverlay() }, { align: Alignment.Top })
     .onAreaChange((oldArea: Area, newArea: Area) => {
       const height: number = Number(newArea.height);
       if (height > 0 && Math.abs(height - this.dockHeight) > 1) {
