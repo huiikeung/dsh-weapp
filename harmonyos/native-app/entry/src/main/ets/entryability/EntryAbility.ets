@@ -285,6 +285,7 @@ export default class EntryAbility extends UIAbility {
   onForeground(): void {
     // 回到前台：连接器未注册时自动重试，不用每次手动点「重新注册」
     try {
+      DeviceConnectors.setForeground(true);
       DeviceConnectors.onAppForeground();
     } catch (err) {
     }
@@ -324,6 +325,11 @@ export default class EntryAbility extends UIAbility {
 
   onBackground(): void {
     AppStorage.setOrCreate<string>('appLifecycle', 'background');
+    // 后台立即中断在途连接器调用（写类工具回 outcome_unknown，照片选择器除外）
+    try {
+      DeviceConnectors.setForeground(false);
+    } catch (err) {
+    }
     Logger.info('EntryAbility background: websocket lifecycle retained');
     // 只要内嵌隧道开启就保持后台存活：回到 App 时无需等隧道冷启动（约 8–10 秒）。
     const tunnelOn: boolean = AppStorage.get<boolean>('tailscaleTunnelEnabled') ?? false;

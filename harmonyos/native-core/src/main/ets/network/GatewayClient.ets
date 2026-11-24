@@ -1617,6 +1617,30 @@ export class GatewayClient {
     return true;
   }
 
+  /**
+   * 设备工具控制帧（手机 → 网关）：只在已连接时发送，且 type 必须命中白名单、长度不超过 180KB。
+   * 与 RPC 请求不同，这类帧不占用正向 lane，也不会被重试/合并。
+   */
+  sendDeviceToolFrame(json: string): boolean {
+    if (!this.isConnected() || json.length > 180_000) {
+      return false;
+    }
+    let type: string = '';
+    try {
+      const rec: Record<string, Object> = JSON.parse(json) as Record<string, Object>;
+      const raw: Object | undefined = rec['type'];
+      type = typeof raw === 'string' ? raw as string : '';
+    } catch (err) {
+      return false;
+    }
+    if (type !== 'device-tools-register' && type !== 'device-tools-status'
+      && type !== 'device-tool-state' && type !== 'device-tool-result'
+      && type !== 'device-tool-cancelled') {
+      return false;
+    }
+    return this.send(json);
+  }
+
   /** 请求/响应：按 requestId 或帧 kind 关联，超时失败。 */
   request(body: string, matchType: string, timeoutMs: number = 10000, tolerateTimeout: boolean = false): Promise<GatewayFrame> {
     let payload: RequestPayload = {};
