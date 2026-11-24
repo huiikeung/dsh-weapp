@@ -25,7 +25,7 @@ import { ConversationRowView } from '../components/ConversationRowView';
 import { ConversationComposer, MetricMenuPair, RefChipItem, RefDirItem, RefSessionItem, SkillItem } from '../components/ConversationComposer';
 import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
 import { NavBackButton } from '../components/NavBackButton';
-import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, HdsTabs, HdsBarWidthRangeOptions, HdsTabsFloatingStyle, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
+import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { ConversationProgress } from '../components/ConversationProgress';
 import { TrajectoryPanel } from '../components/TrajectoryPanel';
 import { FluKeCoin } from '../components/FluKeCoin';
@@ -396,9 +396,7 @@ export struct ConversationPage {
   /** 拉取失败的图片 id：主机不允许读取「还没进会话」的排队附件，失败就不再重试 */
   private queueThumbFailed: Set<string> = new Set<string>();
   /** 底部玻璃材质：HDS 管线 IMMERSIVE（与顶栏同一套，仅 HDS 悬浮 TabBar 渲染） */
-  private dockGlassMaterial(): SystemMaterialParams {
-    return { materialType: hdsMaterial.MaterialType.IMMERSIVE, materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE };
-  }
+
 
   /** 底部 dock（队列/任务/目标+输入条）实测高度：时间线底部留白与「回到底部」按钮避让用 */
   @State private dockHeight: number = 220;
@@ -5884,45 +5882,7 @@ export struct ConversationPage {
     .hitTestBehavior(HitTestMode.Transparent)
   }
 
-  /** 胶囊几何：左右 14、宽 pageW-28、高=输入卡实测高+2、底部=18+安全区+42（指标行） */
-  private dockFloatingStyle(): HdsTabsFloatingStyle {
-    const widthOpt: HdsBarWidthRangeOptions = {
-      smallWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-      mediumWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-      largeWidth: this.pageW > 0 ? this.pageW - 28 : 320
-    };
-    return {
-      adaptToHandedness: true,
-      barSideMargin: 14,
-      barBottomMargin: 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0) + 42,
-      barWidth: widthOpt,
-      systemMaterialEffect: this.dockGlassMaterial()
-    };
-  }
 
-  /** tabBar 占位：高度=输入卡实测高，透明 */
-  @Builder
-  dockBackplateBar() {
-    Row().width('100%').height(this.dockCardHeight > 0 ? this.dockCardHeight + 2 : 200)
-  }
-
-  /** 椭圆玻璃背板：HdsTabs 悬浮 TabBar 承载 IMMERSIVE 材质，垫在输入卡身后 */
-  @Builder
-  dockMaterialBackplate() {
-    HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
-      TabContent() {
-        Row().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
-      }
-      .tabBar(this.dockBackplateBar())
-    }
-    .barMode(BarMode.Fixed)
-    .barOverlap(true)
-    .barFloatingStyle(this.dockFloatingStyle())
-    .width('100%')
-    .height(this.dockCardHeight > 0 ? this.dockCardHeight + 2 + 18 + this.bottomInset + 42 : 320)
-    .hitTestBehavior(HitTestMode.None)
-    .accessibilityLevel('no')
-  }
 
   @Builder
   bottomDockLayer() {
@@ -6264,13 +6224,8 @@ export struct ConversationPage {
       // 轨迹 Tab 不显示输入条：避免在只读轨迹页误触发送
       Column() {
         if (this.sessionTab === 0) {
-          Stack({ alignContent: Alignment.Bottom }) {
-            // 椭圆玻璃背板：HDS IMMERSIVE 材质（与顶栏同管线），几何=输入卡
-            this.dockMaterialBackplate()
-            // 输入框：本体透明，文字/按钮直接呈现在背板玻璃上
-            this.bottomDockLayer()
-          }
-          .width('100%')
+          // 输入框：自带磨砂玻璃（backgroundEffect），无独立椭圆
+          this.bottomDockLayer()
         }
       }
       .width('100%')
