@@ -402,6 +402,10 @@ export struct ConversationPage {
   @State private dockHeight: number = 220;
   /** 输入卡实测高度（composer 上报）：玻璃背板用它精确对齐 */
   @State dockCardHeight: number = 0;
+  /** 胶囊高度：单独用状态驱动并参与补间，保证它和输入卡同一条动画收缩 */
+  @State private dockBarHeight: number = 52;
+  /** 最近一次「展开态」输入卡高度（展开/收起切换时作为动画目标值） */
+  private lastExpandedCardHeight: number = 96;
   /** 指标行高度（实测：13vp 文字 + 8vp 上边距 ≈ 26vp） */
   private dockMetricsRowHeight: number = 26;
   /**
@@ -5908,9 +5912,9 @@ export struct ConversationPage {
     .barOverlap(true)
     // 材质走 HDS 管线：systemMaterialEffect = IMMERSIVE + ADAPTIVE
     .barFloatingStyle(this.dockFloatingStyle())
-    // 胶囊高度跟随输入区实测高度（折叠矮、展开高）。输入区不在胶囊内部，
-    // 所以测量值不会被胶囊裁剪，不会出现「改高度 → 重新测量 → 再改高度」的震荡。
-    .barHeight(this.dockGlassHeight())
+    // 胶囊高度用状态驱动、参与补间：和输入卡在同一个 animateTo 里变，
+    // 收缩是一整条变形，不会「先出现展开高度的椭圆、再跳到胶囊」
+    .barHeight(this.dockBarHeight)
     .width('100%')
     .height('100%')
     // 背板只负责渲染材质：不能抢触摸，也不能抢焦点 —— 否则点输入框时焦点被 Tabs 拿走，
@@ -5995,6 +5999,7 @@ export struct ConversationPage {
     this.getUIContext().getFocusController().clearFocus();
     this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
       this.composerFocused = false;
+      this.dockBarHeight = 52;
     });
   }
 
@@ -6166,11 +6171,15 @@ export struct ConversationPage {
               this.pickedAttachments = this.pickedAttachments.filter((item: PickedAttachment) => item.uri !== uri);
             },
             onCardHeightChange: (height: number) => {
-              // 量化到 2vp：输入卡每帧的高度微变都去改 HdsTabs 的 barHeight 会让系统 bar
-              // 频繁重新布局，表现就是卡；2vp 步进肉眼看不出来
               const quantized: number = Math.round(height / 2) * 2;
+              // 记录实测（收起态胶囊底边对齐用）
               if (Math.abs(quantized - this.dockCardHeight) >= 2) {
                 this.dockCardHeight = quantized;
+              }
+              // 只有展开态才跟随（多行输入长高）；收起态目标固定 52，由补间负责
+              if (this.composerFocused && Math.abs(quantized - this.lastExpandedCardHeight) >= 2) {
+                this.lastExpandedCardHeight = quantized;
+                this.dockBarHeight = quantized;
               }
             },
             metricPairsFor: (kind: string): MetricMenuPair[] => {
@@ -6192,6 +6201,7 @@ export struct ConversationPage {
               // 250ms 与系统键盘收起动画同时长，两条动画同起同落，不会出现「键盘落完、卡片还在缩」
               this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
                 this.composerFocused = focused;
+                this.dockBarHeight = focused ? this.lastExpandedCardHeight : 52;
               });
             },
             onDraft: (value: string) => {
