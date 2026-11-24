@@ -304,13 +304,21 @@ export class CredentialStore {
    * 以前直接拿地址当 id，每换一次网络就多出一条「新主机」：
    * 切换列表里同一台重复出现，「最近使用」也永远落在最后一条地址档案上。
    */
-  findExisting(relayNodeId: string, name: string, wsUrl: string): SavedGateway | null {
+  findExisting(relayNodeId: string, gatewayId: string, wsUrl: string): SavedGateway | null {
     this.ensureLoaded();
     if (relayNodeId.length > 0) {
       const byRelay: SavedGateway | undefined =
         this.cached.find((item: SavedGateway) => item.relayNodeId === relayNodeId);
       if (byRelay !== undefined) {
         return byRelay;
+      }
+    }
+    // 网关实例 id（hello 帧 gatewayId）：跨网络、跨 IP 都稳定，是最可靠的身份
+    if (gatewayId.length > 0) {
+      const byGateway: SavedGateway | undefined =
+        this.cached.find((item: SavedGateway) => item.id === gatewayId || item.relayNodeId === gatewayId);
+      if (byGateway !== undefined) {
+        return byGateway;
       }
     }
     // 不再按「网关名」复用档案：不同主机可能同名，按名字命中会把新主机写进旧档案，

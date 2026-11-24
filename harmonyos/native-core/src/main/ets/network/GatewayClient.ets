@@ -2578,6 +2578,10 @@ export class GatewayClient {
     if (frame.gatewayName !== undefined && frame.gatewayName.length > 0) {
       AppStorage.setOrCreate<string>('gatewayName', frame.gatewayName);
     }
+    if (frame.gatewayId !== undefined && frame.gatewayId.length > 0) {
+      // 网关实例 id：跨网络稳定，用作主机档案的稳定身份，避免换 IP 就多一条主机
+      AppStorage.setOrCreate<string>('gatewayId', frame.gatewayId);
+    }
     AppStorage.setOrCreate<string>('lastFrameKind', frame.kind);
     // 临时诊断：每 5 秒打一次「收到的帧种类直方图 + 是否带 sessionId」，
     // 用于判断实时事件到底有没有从网关发到手机（问题定位后移除）。
@@ -2717,11 +2721,13 @@ export class GatewayClient {
     // 同一台物理主机在不同网络下地址不同（局域网 IP / *.ts.net / 中继）：
     // 以前直接拿地址当 id，换一次网络就多一条「新主机」，切换列表重复、
     // 「最近使用」也永远落在最后一条地址档案上。这里按 中继 id → 网关名 → 地址 复用既有档案。
+    const helloGatewayId: string = AppStorage.get<string>('gatewayId') ?? '';
     const existing: SavedGateway | null =
-      CredentialStore.get().findExisting(relayNodeId, helloName, profile.wsUrl);
+      CredentialStore.get().findExisting(relayNodeId, helloGatewayId, profile.wsUrl);
     const gatewayId: string = existing !== null
       ? existing.id
-      : (relayNodeId.length > 0 ? relayNodeId : profile.wsUrl);
+      : (relayNodeId.length > 0 ? relayNodeId
+        : (helloGatewayId.length > 0 ? helloGatewayId : profile.wsUrl));
     // 端点取并集：换网络时既要记住新地址，也不能丢掉之前能用的地址
     const endpoints: string[] = existing !== null && existing.endpoints !== undefined
       ? existing.endpoints.slice() : [];
