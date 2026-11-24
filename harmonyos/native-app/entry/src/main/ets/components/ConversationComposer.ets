@@ -2394,6 +2394,26 @@ export struct ConversationComposer {
     })
   }
 
+  /**
+   * 展开态的自绘磨砂玻璃：系统沉浸光感材质只能用在底部 TabBar 背板，
+   * 展开态这张内容卡片只能自绘模糊 —— 这里把半径和饱和度调大，做出「背景透出但明显糊掉」的质感。
+   */
+  private expandedFrost(): BackgroundEffectOptions {
+    const effect: BackgroundEffectOptions = {
+      radius: 40,
+      saturation: 1.35,
+      brightness: 1,
+      color: this.isDark ? 'rgba(24,24,26,0.58)' : 'rgba(252,252,255,0.42)'
+    };
+    return effect;
+  }
+
+  /** 收起态不叠自绘模糊（玻璃来自底部 TabBar 的系统材质，不要盖住它） */
+  private noFrost(): BackgroundEffectOptions {
+    const effect: BackgroundEffectOptions = { radius: 0, saturation: 1, brightness: 1, color: Color.Transparent };
+    return effect;
+  }
+
   // ==================== 骨架（与小程序的同构做法：DOM 不变，只切样式与可见性） ====================
   //
   // 关键：TextArea 必须**常驻同一个节点**。小程序也是同一个 <textarea>，只靠 CSS 改变高度、
@@ -2578,11 +2598,9 @@ export struct ConversationComposer {
         ? { left: 14, right: 14, top: 12, bottom: 12 }
         : { left: 8, right: 8, top: 8, bottom: 8 })
       // 收起态：不铺底色、不画描边，玻璃由底部系统 TabBar 材质渲染（一条细玻璃条）；
-      // 展开态：回到修改前那张默认卡片 —— 半透明深底 + 1vp 细亮边 + 28 圆角。
+      // 展开态：自绘磨砂玻璃 —— 半径 40 / 饱和度 1.35 / 半透明深底，背后内容明显糊掉但仍透出光影。
       .borderRadius(this.expanded() ? 28 : 26)
-      .backgroundColor(this.expanded()
-        ? (this.isDark ? 'rgba(35,35,35,0.90)' : 'rgba(255,255,255,0.60)')
-        : Color.Transparent)
+      .backgroundEffect(this.expanded() ? this.expandedFrost() : this.noFrost())
       .border({ width: this.expanded() ? 1 : 0, color: '#66FFFFFF' })
 
       }
