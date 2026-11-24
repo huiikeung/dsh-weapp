@@ -5838,6 +5838,55 @@ export struct ConversationPage {
       .hitTestBehavior(HitTestMode.None)
   }
 
+  /** 底部悬浮区的系统材质（对照文档：悬浮 TabBar 才能挂 ImmersiveMaterial） */
+  private dockGlassMaterial(): uiMaterial.ImmersiveMaterial | undefined {
+    if (!this.immersiveSupported()) {
+      return undefined;
+    }
+    try {
+      return new uiMaterial.ImmersiveMaterial({
+        style: uiMaterial.ImmersiveStyle.THIN,
+        interactive: false,
+        lightEffect: {},
+        applyShadow: true
+      });
+    } catch (err) {
+      return undefined;
+    }
+  }
+
+  /** tabBar 的占位内容：只提供高度，不画任何东西 */
+  @Builder
+  dockBackplateBar() {
+    Row().width('100%').height(this.dockHeight > 0 ? this.dockHeight : 300)
+  }
+
+  /**
+   * 材质背板：一个只有 TabBar 的 Tabs，背板区域与输入区等高、叠在输入区下面。
+   * 输入区布局仍走原来的浮层（不受 Tabs 约束），只是把系统材质放到它身后。
+   */
+  @Builder
+  dockMaterialBackplate() {
+    Tabs({ barPosition: BarPosition.End, index: 0 }) {
+      TabContent() {
+        Row().width(1).height(1).opacity(0)
+      }
+      .tabBar(this.dockBackplateBar())
+    }
+    .barMode(BarMode.Fixed)
+    .barOverlap(true)
+    .barBackgroundColor(Color.Transparent)
+    .barFloatingStyle({
+      barSideMargin: 0,
+      barBottomMargin: 0,
+      systemMaterial: this.dockGlassMaterial()
+    })
+    .width('100%')
+    .height(this.dockHeight > 0 ? this.dockHeight : 300)
+    .hitTestBehavior(HitTestMode.None)
+    .accessibilityLevel('no')
+  }
+
   @Builder
   bottomDockLayer() {
     Stack({ alignContent: Alignment.Bottom }) {
@@ -6175,7 +6224,13 @@ export struct ConversationPage {
       // 轨迹 Tab 不显示输入条：避免在只读轨迹页误触发送
       Column() {
         if (this.sessionTab === 0) {
-          this.bottomDockLayer()
+          Stack({ alignContent: Alignment.Bottom }) {
+            // 系统材质背板（内容区容器不吃 systemMaterial，只能借 TabBar 的位置）
+            this.dockMaterialBackplate()
+            // 输入区：仍是原来的浮层布局，透明底，露出下面的材质
+            this.bottomDockLayer()
+          }
+          .width('100%')
         }
       }
       .width('100%')
