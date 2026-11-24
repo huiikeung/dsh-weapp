@@ -914,9 +914,6 @@ export struct AddProviderPage {
       Column() {
         Row() {
           NavBackButton({ isDark: this.isDark })
-            .onClick(() => {
-              this.pageStack.pop();
-            })
           Text('添加模型提供商')
             .fontSize(17)
             .fontWeight(FontWeight.Medium)

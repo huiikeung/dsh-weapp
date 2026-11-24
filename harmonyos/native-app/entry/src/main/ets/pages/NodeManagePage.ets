@@ -100,9 +100,6 @@ export struct NodeManagePage {
         // 头部：返回 + 标题
         Row() {
           NavBackButton({ isDark: this.isDark })
-            .onClick(() => {
-              this.pageStack.pop();
-            })
           Blank()
           Text('节点管理')
             .fontSize(17)

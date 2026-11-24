@@ -311,9 +311,6 @@ export struct PreferencePickerPage {
         Stack({ alignContent: Alignment.TopStart }) {
         Row() {
           NavBackButton({ isDark: this.isDark })
-            .onClick(() => {
-              this.pageStack.pop();
-            })
 
           Text(titleFor(this.kind))
             .fontSize(17)

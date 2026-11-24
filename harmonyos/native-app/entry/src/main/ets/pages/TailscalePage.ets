@@ -1764,9 +1764,6 @@ export struct TailscalePage {
       // 导航栏
       Row() {
         NavBackButton({ isDark: this.isDark })
-          .onClick(() => {
-            this.pageStack.pop();
-          })
 
         Text('Tailscale 内嵌隧道')
           .fontSize(17)
@@ -2351,6 +2348,7 @@ export struct TailscalePage {
       .scrollBar(BarState.Off)
               .padding({ top: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) })
               .margin({ top: -(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) })
+        .hitTestBehavior(HitTestMode.Transparent)
       .align(Alignment.Top)
       // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
       .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })

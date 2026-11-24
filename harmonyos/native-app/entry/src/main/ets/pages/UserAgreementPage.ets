@@ -127,9 +127,6 @@ export struct UserAgreementPage {
 
       Row() {
         NavBackButton({ isDark: this.isDark })
-          .onClick(() => {
-            this.pageStack.pop();
-          })
         Text('用户协议')
           .fontSize(17)
           .fontWeight(FontWeight.Medium)

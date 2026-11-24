@@ -111,9 +111,6 @@ export struct PrivacyPolicyPage {
 
       Row() {
         NavBackButton({ isDark: this.isDark })
-          .onClick(() => {
-            this.pageStack.pop();
-          })
         Text('隐私政策')
           .fontSize(17)
           .fontWeight(FontWeight.Medium)

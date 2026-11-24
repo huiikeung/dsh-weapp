@@ -232,9 +232,6 @@ export struct StatusStylesPage {
         // 导航：与「设置」「会话设置」「Tailscale 内嵌隧道」一致
         Row() {
           NavBackButton({ isDark: this.isDark })
-            .onClick(() => {
-              this.pageStack.pop();
-            })
 
           Text('对话状态条')
             .fontSize(17)

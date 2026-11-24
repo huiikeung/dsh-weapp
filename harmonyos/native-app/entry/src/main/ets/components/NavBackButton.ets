@@ -6,6 +6,8 @@
  *   也就是深色白 16% / 浅色黑 10% 的中性 1vp 细边，配系统菜单那种柔和投影。
  *   底色用中性玻璃（不偏蓝），不加外发光——菜单本身也没有发光。
  */
+import { Logger } from 'nativecore';
+
 @Component
 export struct NavBackButton {
   /** 深色主题 */
@@ -55,6 +57,16 @@ export struct NavBackButton {
         ? { width: 1, color: this.menuOutline() }
         : { width: 0, color: Color.Transparent })
       .accessibilityText(this.label)
+      // 返回逻辑内置：不依赖各页面自己挂 onClick（漏挂/被覆盖时点了没反应）
+      .onClick(() => {
+        const stack: NavPathStack | undefined = AppStorage.get<NavPathStack>('navPathStack');
+        if (stack !== undefined && stack.size() > 0) {
+          Logger.info('nav back pop size=' + stack.size().toString());
+          stack.pop();
+        } else {
+          Logger.warn('nav back: pageStack empty/unavailable');
+        }
+      })
     }
     .width(this.diameter)
     .height(this.diameter)

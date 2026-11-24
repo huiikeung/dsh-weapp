@@ -227,9 +227,6 @@ export struct AddNodePage {
         // 导航
         Row() {
           NavBackButton({ isDark: this.isDark })
-            .onClick(() => {
-              this.pageStack.pop();
-            })
           Blank()
           Text('添加节点')
             .fontSize(17)

@@ -1728,9 +1728,6 @@ export struct AppSettingsPage {
 
           Row() {
             NavBackButton({ isDark: this.isDark })
-              .onClick(() => {
-                this.pageStack.pop();
-              })
 
           Text('设置')
             .fontSize(17)
@@ -2082,6 +2079,7 @@ export struct AppSettingsPage {
         // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
         .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
         .margin({ top: -(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) })
+        .hitTestBehavior(HitTestMode.Transparent)
       }
       .width('100%')
       .height('100%')

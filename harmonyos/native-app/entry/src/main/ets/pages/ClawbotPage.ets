@@ -514,9 +514,6 @@ export struct ClawbotPage {
 
       Row() {
         NavBackButton({ isDark: this.isDark })
-          .onClick(() => {
-            this.pageStack.pop();
-          })
         Text('微信 ClawBot')
           .fontSize(17)
           .fontWeight(FontWeight.Medium)

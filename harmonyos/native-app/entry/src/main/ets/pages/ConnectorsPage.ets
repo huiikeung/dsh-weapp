@@ -142,9 +142,6 @@ export struct ConnectorsPage {
       Column() {
         Row() {
           NavBackButton({ isDark: this.isDark })
-            .onClick(() => {
-              this.pageStack.pop();
-            })
           Blank()
           Row().width(40)
         }

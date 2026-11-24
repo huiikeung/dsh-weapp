@@ -262,9 +262,6 @@ export struct FontSizePage {
 
         Row() {
           NavBackButton({ isDark: this.isDark })
-            .onClick(() => {
-              this.pageStack.pop();
-            })
 
           Text('字号大小')
             .fontSize(17)
@@ -380,6 +377,7 @@ export struct FontSizePage {
         .scrollBar(BarState.Off)
         .padding({ top: 56 + this.topInset() })
         .margin({ top: -(56 + this.topInset()) })
+        .hitTestBehavior(HitTestMode.Transparent)
         .align(Alignment.Top)
         // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
         .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })

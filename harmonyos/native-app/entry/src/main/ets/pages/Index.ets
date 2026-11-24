@@ -84,6 +84,8 @@ struct Index {
 
   aboutToAppear(): void {
     Logger.info('UIBOOT Index aboutToAppear');
+    // 让 NavBackButton 能自己 pop：组件内部读这个共享栈，不依赖各页面挂 onClick
+    AppStorage.setOrCreate<NavPathStack>('navPathStack', this.pageStack);
     // 路由切换时同步状态栏归属页面：首页 NavBar 记为 ''，其它记 NavDestination 名字
 // 必须用箭头函数包一层：直接传方法引用会丢 this（回调里的 this 不是页面实例），
     // 之后在回调里读写页面状态会抛 TypeError，框架回调里的异常无法捕获，进程会被直接杀掉。

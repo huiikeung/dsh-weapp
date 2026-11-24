@@ -66,9 +66,6 @@ export struct SettingsPage {
 
           Row() {
             NavBackButton({ isDark: this.isDark })
-              .onClick(() => {
-                this.pageStack.pop();
-              })
 
             Text('设置')
               .fontSize(17)

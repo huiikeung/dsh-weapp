@@ -599,9 +599,6 @@ export struct NetworkPage {
 
           Row() {
             NavBackButton({ isDark: this.isDark })
-              .onClick(() => {
-                this.pageStack.pop();
-              })
             Text('网络检测')
               .fontSize(17)
               .fontWeight(FontWeight.Medium)
@@ -856,6 +853,7 @@ export struct NetworkPage {
         .align(Alignment.Top)
         .scrollBar(BarState.Off)
         .margin({ top: -(56 + this.topInset()) })
+        .hitTestBehavior(HitTestMode.Transparent)
         // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
         .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
       }

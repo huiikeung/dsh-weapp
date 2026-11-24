@@ -535,6 +535,8 @@ export struct SessionSettingsPage {
       Stack({ alignContent: Alignment.TopStart }) {
         Column() {
         // 导航（标题字号/字重/缩进与「Tailscale 内嵌隧道」页完全一致）
+        // 命中修复：下方 Scroll 因负 margin 上移，加了 hitTestBehavior(Transparent)，
+        // 点击会同时命中导航，返回键才点得到（不要再把导航挪到根 Stack，会导致顶部内容被遮挡）。
         Stack({ alignContent: Alignment.TopStart }) {
           Column()
             .width('100%')
@@ -545,9 +547,6 @@ export struct SessionSettingsPage {
 
           Row() {
           NavBackButton({ isDark: this.isDark })
-            .onClick(() => {
-              this.pageStack.pop();
-            })
 
           Text('会话设置')
             .fontSize(17)
@@ -701,6 +700,7 @@ export struct SessionSettingsPage {
         // 小程序（webview）没有橡皮筋回弹；这里关掉，避免滚动到顶/底时页面「抖」
         .edgeEffect(EdgeEffect.None)
         .margin({ top: -(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) })
+        .hitTestBehavior(HitTestMode.Transparent)
       }
       .width('100%')
       .height('100%')

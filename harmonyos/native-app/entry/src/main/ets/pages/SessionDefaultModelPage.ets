@@ -673,9 +673,6 @@ export struct SessionDefaultModelPage {
         Stack({ alignContent: Alignment.TopStart }) {
         Row() {
           NavBackButton({ isDark: this.isDark })
-            .onClick(() => {
-              this.pageStack.pop();
-            })
           Text('默认模型')
             .fontSize(17)
             .fontWeight(FontWeight.Medium)

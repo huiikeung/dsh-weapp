@@ -7543,6 +7543,33 @@ export struct ConversationPage {
                   this.selectEffort(row.id);
                 })
               }, (row: EffortRow) => row.id)
+
+              // 智能体团队协作（对齐 dsh-mobile：推理等级下方）
+              Divider()
+                .color(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
+                .margin({ top: 6, bottom: 6 })
+              Row({ space: 6 }) {
+                Text('启用智能体团队协作')
+                  .fontSize(14)
+                  .fontColor(this.hasTeamSession() ? this.textColor() : this.subColor())
+                  .maxLines(1)
+                Text('ⓘ')
+                  .fontSize(11)
+                  .fontColor(this.subColor())
+                Blank()
+                Toggle({ type: ToggleType.Switch, isOn: this.teamEnabled })
+                  .selectedColor('#2E6BE6')
+                  .switchPointColor('#FFFFFF')
+                  .width(40)
+                  .height(24)
+                  .enabled(this.hasTeamSession())
+                  .onChange((isOn: boolean) => {
+                    this.toggleTeamEnabled(isOn);
+                  })
+              }
+              .width('100%')
+              .height(44)
+              .padding({ left: 8, right: 8 })
             }
             .width('100%')
           }
@@ -9849,31 +9876,6 @@ export struct ConversationPage {
     .opacity(enabled ? 1 : 0.4)
   }
 
-  /** 智能体团队协作开关行（对齐 dsh-mobile 三点菜单里的 toggle） */
-  @Builder
-  teamMenuRow() {
-    Row({ space: 8 }) {
-      Text('启用智能体团队协作')
-        .fontSize(15.4)
-        .fontColor(this.hasTeamSession() ? this.textColor() : this.subColor())
-        .maxLines(1)
-      Text('ⓘ')
-        .fontSize(12)
-        .fontColor(this.subColor())
-      Blank()
-      Toggle({ type: ToggleType.Switch, isOn: this.teamEnabled })
-        .selectedColor('#2E6BE6')
-        .width(42)
-        .height(24)
-        .enabled(false)
-    }
-    .width(232)
-    .height(52)
-    .padding({ left: 16, right: 16 })
-    .hoverEffect(HoverEffect.Highlight)
-    .opacity(this.hasTeamSession() ? 1 : 0.4)
-  }
-
   /** 菜单分组分隔线（对齐小程序 session-menu-group 的模块间隔） */
   @Builder
   moreMenuDivider() {
@@ -9950,17 +9952,7 @@ export struct ConversationPage {
 
       MenuItem(this.moreMenuDivider()).enabled(false)
 
-      // ⑤ 智能体团队协作开关（对齐 dsh-mobile 三点菜单）
-      MenuItem(this.teamMenuRow())
-        .id('menu-team-enabled')
-        .enabled(this.hasTeamSession())
-        .onClick(() => {
-          this.toggleTeamEnabled(!this.teamEnabled);
-        })
-
-      MenuItem(this.moreMenuDivider()).enabled(false)
-
-      // ⑥ 原有入口
+      // ⑤ 原有入口
       MenuItem(this.moreMenuRow($r('app.media.menu_ic_sliders'),
         '会话设置', true))
         .id('menu-session-settings')

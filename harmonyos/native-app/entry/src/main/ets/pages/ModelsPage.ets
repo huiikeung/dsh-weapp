@@ -969,9 +969,6 @@ export struct ModelsPage {
         // 导航浮层：独立于滚动内容，避免负 margin 造成点按区域错位
         Row() {
           NavBackButton({ isDark: this.isDark })
-            .onClick(() => {
-              this.pageStack.pop();
-            })
           Text('模型')
             .fontSize(17)
             .fontWeight(FontWeight.Bold)
