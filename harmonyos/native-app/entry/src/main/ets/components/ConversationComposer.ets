@@ -10,7 +10,7 @@
  * 视觉来源：miniprogram/pages/session/session.wxss 5569-5602（两态）、893-1050、2694-2800。
  * 约束：ArkTS 严格模式；颜色全部字符串字面量。
  */
-import { display, LengthMetrics, uiMaterial } from '@kit.ArkUI';
+import { display, LengthMetrics } from '@kit.ArkUI';
 import { KeyCode } from '@kit.InputKit';
 import type { ModelMenuItem, PickedAttachment } from 'nativecore';
 
@@ -220,61 +220,8 @@ export struct ConversationComposer {
   @State private cardHeight: number = 0;
   /** 卡片高度回调 */
   onCardHeightChange: (height: number) => void = () => {};
-  /** 流光位置（-0.6 ~ 1.8 循环），让玻璃表面有一道缓慢移动的高光 */
-  @State private sheen: number = -0.6;
-  /** 外发光呼吸相位（0~1） */
-  @State private glow: number = 0;
-  private sheenTimer: number = -1;
-
-  /** 原生玻璃弹窗同款材质：THICK + materialColor + colorInvert + applyShadow */
-  private composerSheetMaterial(): uiMaterial.Material | undefined {
-    try {
-      if (!uiMaterial.isImmersiveMaterialSupported()) {
-        return undefined;
-      }
-      return new uiMaterial.ImmersiveMaterial({
-        style: uiMaterial.ImmersiveStyle.THICK,
-        materialColor: this.isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.34)',
-        colorInvert: true,
-        applyShadow: true
-      });
-    } catch (err) {
-      return undefined;
-    }
-  }
-
-  /** 沉浸光感材质（对照官方示例：@State 成员，ULTRA_THIN + 交互形变 + 白色流光） */
-  @State myMaterial: uiMaterial.Material = new uiMaterial.ImmersiveMaterial({
-    style: uiMaterial.ImmersiveStyle.ULTRA_THIN,
-    interactive: true,
-    lightEffect: { color: undefined }
-  });
-
   aboutToAppear(): void {
     this.resolveDraftToken(this.draft);
-    this.startSheen();
-  }
-
-  aboutToDisappear(): void {
-    this.stopSheen();
-  }
-
-  private startSheen(): void {
-    if (this.sheenTimer >= 0) {
-      return;
-    }
-    this.sheenTimer = setInterval(() => {
-      // 6 秒扫一轮，亮度和速度都比之前明显
-      this.sheen = this.sheen + 0.028 > 1.9 ? -0.6 : this.sheen + 0.028;
-      this.glow = (this.glow + 0.05) % 1;
-    }, 60);
-  }
-
-  private stopSheen(): void {
-    if (this.sheenTimer >= 0) {
-      clearInterval(this.sheenTimer);
-      this.sheenTimer = -1;
-    }
   }
 
   /** 页面改写草稿（如从「+」菜单选目标/计划、发送后清空）时重新解析指令前缀 */
@@ -484,21 +431,10 @@ export struct ConversationComposer {
   }
 
   // ==================== 色板 ====================
-  /** 卡片底色：对齐系统菜单（权限弹窗）的材质色 —— 半透明 + 模糊 */
-  private cardBackground(): string {
-    // 与系统菜单（模型/权限弹窗）实测色彩对齐：模糊材质会把基色压暗到约 0.6 倍
-    return this.isDark ? 'rgba(61,61,61,0.90)' : 'rgba(244,244,245,0.92)';
-  }
-
   /** 描边：对齐系统菜单（右上角「⋯」弹窗）的细亮边 */
   private cardEdge(): string {
     // 与返回按钮玻璃盘的内缘细边同值
     return this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)';
-  }
-
-  /** 阴影：菜单浮层的柔和投影 */
-  private cardShadowColor(): string {
-    return this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.12)';
   }
 
   private inputText(): string {
@@ -614,146 +550,6 @@ export struct ConversationComposer {
   private chipIconOpacity(): number {
     return this.isDark ? 0.72 : 0.62;
   }
-
-  /**
-   * 卡片底色：浅色=接近纯白的半透明（比光边暗一档，0.50→0.80 让内部更亮但不抢过白环）；
-   * 深色=贴近对话页纯黑背景的深色半透明（不发灰发亮）
-   */
-  /** 输入框上方浮层（权限 / 模型菜单卡片）底色：与页面卡片同色 */
-  private surfaceColor(): string {
-    return this.isDark ? '#1C1C1E' : '#FFFFFF';
-  }
-
-  private sheetCardFill(): string {
-    // 输入卡玻璃底：降低不透明度，让时间线文字滚到输入框下面时也能透出来（模糊仍保留）
-    return this.isDark ? 'rgba(8,8,10,0.30)' : 'rgba(255,255,255,0.34)';
-  }
-
-  /**
-   * 最外圈光圈颜色：深色与系统菜单（权限弹窗）的光边完全一致。
-   * 系统菜单的描边在 HomePage 里显式设为 separatorColor()（深色 rgba(255,255,255,0.16)、浅色 rgba(0,0,0,0.10)），
-   * 这里取同一值，保证输入框光边和权限弹窗边缘是同一个亮度。
-   */
-  private ringColor(): string {
-    return this.isDark ? 'rgba(255,255,255,0.26)' : 'rgba(255,255,255,0.96)';
-  }
-
-  /** 光圈外的投影：与返回按钮同为中性色（深色黑色、浅色淡灰），不再用白色光晕 */
-  /**
-   * 输入框的沉浸光感材质（对照《组件适配沉浸光感》）：
-   * 薄玻璃 THIN + 交互形变 + 光感交互反馈；设备不支持时返回 undefined，
-   * 卡片退化为半透明纯色底（不再自己画 backdropBlur）。
-   */
-  private glassMaterial(): uiMaterial.Material | undefined {
-    try {
-      if (!uiMaterial.isImmersiveMaterialSupported()) {
-        return undefined;
-      }
-      return new uiMaterial.ImmersiveMaterial({
-        style: uiMaterial.ImmersiveStyle.THIN,
-        interactive: true,
-        lightEffect: {},
-        applyShadow: true
-      });
-    } catch (err) {
-      return undefined;
-    }
-  }
-
-  /**
-   * 玻璃表面（光感来源，全部自绘、不依赖系统材质）：
-   * 1) 顶沿受光边：中间最亮、两端收敛；
-   * 2) 斜向流光：一道 40% 宽的柔光带缓慢扫过（60ms 推进，12s 一轮）；
-   * 3) 内阴影：底部压暗 + 左侧冷光，做出玻璃的厚度与折射感；
-   * 4) 聚焦时整体提亮（lightEffect 的交互反馈近似）。
-   */
-  @Builder
-  glassSurface() {
-    Stack({ alignContent: Alignment.TopStart }) {
-      // 1) 顶沿受光边
-      Column()
-        .width('100%')
-        .height(1.2)
-        .linearGradient({
-          angle: 90,
-          colors: [
-            [this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.65)', 0],
-            [this.isDark ? 'rgba(255,255,255,0.78)' : 'rgba(255,255,255,1)', 0.5],
-            [this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.65)', 1]
-          ]
-        })
-      // 2) 斜向流光带
-      Column()
-        .width('46%')
-        .height('100%')
-        .linearGradient({
-          angle: 102,
-          colors: [
-            ['rgba(255,255,255,0)', 0],
-            [this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.85)', 0.45],
-            [this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.40)', 0.6],
-            ['rgba(255,255,255,0)', 1]
-          ]
-        })
-        .translate({ x: this.sheen * 240 + '%' })
-        .hitTestBehavior(HitTestMode.None)
-      // 3) 底部内阴影 + 左侧冷光（折射感）
-      Column()
-        .width('100%')
-        .height('100%')
-        .linearGradient({
-          angle: 180,
-          colors: this.isDark
-            ? [['rgba(255,255,255,0.10)', 0], ['rgba(255,255,255,0.00)', 0.42], ['rgba(0,0,0,0.16)', 1]]
-            : [['rgba(255,255,255,0.26)', 0], ['rgba(255,255,255,0.00)', 0.42], ['rgba(0,0,0,0.05)', 1]]
-        })
-        .hitTestBehavior(HitTestMode.None)
-      Column()
-        .width(1)
-        .height('100%')
-        .linearGradient({
-          angle: 180,
-          colors: [['rgba(255,255,255,0.45)', 0], ['rgba(255,255,255,0)', 1]]
-        })
-        .hitTestBehavior(HitTestMode.None)
-      // 4) 聚焦时的一层轻薄提亮
-      if (this.focused) {
-        Column()
-          .width('100%')
-          .height('100%')
-          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.10)')
-          .hitTestBehavior(HitTestMode.None)
-      }
-    }
-    .width('100%')
-    .height('100%')
-    .clip(true)
-    .hitTestBehavior(HitTestMode.None)
-  }
-
-  /** 顶沿高光：中间亮、两端收敛的 1vp 细线，给玻璃一个「受光边」 */
-  @Builder
-  topGlint() {
-    Column()
-      .width('100%')
-      .height(1)
-      .linearGradient({
-        angle: 90,
-        colors: [
-          [this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.55)', 0],
-          [this.isDark ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.98)', 0.5],
-          [this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.55)', 1]
-        ]
-      })
-      .hitTestBehavior(HitTestMode.None)
-  }
-
-  private haloShadow(): string {
-    // 与返回按钮同一档悬浮感（按钮调轻后同步）
-    return this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)';
-  }
-
-
 
   /** 小程序 --text-4：chip 右侧箭头等最弱的文字/描边色 */
   private text4(): string {
@@ -2625,13 +2421,15 @@ export struct ConversationComposer {
 
         // 折叠态的一整条：+ / 占位文案 / （可选）停止键
         if (!this.expanded()) {
+          // 折叠态 = 悬浮玻璃条的内容：单行 52vp 高，左侧 + 圆钮 / 中间占位文字 / 右侧发送圆钮。
+          // 几何对齐 HdsTabs 悬浮 TabBar 的迷你栏输入条（+ 36 圆钮、发送 34 圆钮）。
           Row({ space: 6 }) {
             Stack() {
-              Text('+').fontSize(15).fontColor(this.chipText())
+              Text('+').fontSize(17).fontColor(this.chipText())
             }
-            .width(27)
-            .height(27)
-            .borderRadius(14)
+            .width(36)
+            .height(36)
+            .borderRadius(18)
             .border({ width: 0.9, color: this.plusBorder() })
             .opacity(this.connected ? 1 : 0.4)
             .enabled(this.connected)
@@ -2655,8 +2453,8 @@ export struct ConversationComposer {
             // 折叠态占位：小程序 28rpx≈14vp、行高 1.4、垂直居中
             Text(this.voiceRecording ? this.voiceHint
               : (this.voiceEnabled && this.voiceMode ? '按住说话' : this.placeholder))
-              .fontSize(this.voiceRecording ? 13 : 14)
-              .lineHeight(this.voiceRecording ? 18 : 20)
+              .fontSize(this.voiceRecording ? 13 : 15)
+              .lineHeight(this.voiceRecording ? 18 : 21)
               .fontColor(this.voiceCancelArmed ? '#D9413A' : this.collapsedPlaceholderColor())
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -2704,8 +2502,8 @@ export struct ConversationComposer {
               Stack() {
                 Rect({ width: 13, height: 13, radius: 3 }).fill('#FFFFFF')
               }
-              .width(33)
-              .height(33)
+              .width(34)
+              .height(34)
               .borderRadius(17)
               .backgroundColor('#2E6BE6')
               .onClick(() => {
@@ -2719,8 +2517,8 @@ export struct ConversationComposer {
                   .objectFit(ImageFit.Contain)
                   .draggable(false)
               }
-              .width(33)
-              .height(33)
+              .width(34)
+              .height(34)
               .borderRadius(17)
               .backgroundColor('#2E6BE6')
               .onClick(() => {
@@ -2737,8 +2535,8 @@ export struct ConversationComposer {
                   .draggable(false)
                   .syncLoad(true)
               }
-              .width(33)
-              .height(33)
+              .width(34)
+              .height(34)
               .borderRadius(17)
               .backgroundColor('#2E6BE6')
               .accessibilityText(this.voiceMode ? '切换到文字输入' : '切换到语音输入')
@@ -2774,14 +2572,11 @@ export struct ConversationComposer {
       // 对齐小程序 .composer：展开 28/28/24rpx = 14/14/12vp；折叠 12/20rpx = 6/10vp
       .padding(this.expanded()
         ? { left: 14, right: 14, top: 12, bottom: 12 }
-        : { left: 10, right: 10, top: 6, bottom: 6 })
-      // 玻璃由 HdsTabs 悬浮 TabBar 的 systemMaterialEffect 提供（IMMERSIVE/ADAPTIVE），
-      // 本体加半透明深色底：玻璃轮廓在黑背景上也可辨（全透明会隐形）
-      .borderRadius(28)
-      // 色调对齐 HdsTabs 悬浮 TabBar 的玻璃（实测其底色约 (35,35,35)）：
-      // 深色同款冷灰；浅色用白 60% —— 与 TabBar 观感一致
-      .backgroundColor(this.isDark ? 'rgba(35,35,35,0.90)' : 'rgba(255,255,255,0.60)')
-      .border({ width: 1, color: '#66FFFFFF' })
+        : { left: 8, right: 8, top: 8, bottom: 8 })
+      // 只有一层：内容本身不铺底色、不画描边，玻璃完全由外层 HdsTabs 悬浮 TabBar 的
+      // systemMaterialEffect（IMMERSIVE/ADAPTIVE）渲染 —— 不再叠加自绘光圈/底板。
+      .borderRadius(26)
+      .backgroundColor(Color.Transparent)
 
       }
       .width('100%')

@@ -5844,9 +5844,11 @@ export struct ConversationPage {
   }
 
   /**
-   * 底部输入区 = HdsTabs 悬浮 TabBar 的内容（对照《沉浸式系统材质视效》官方示例）：
-   * 输入区放进 tabBar，玻璃胶囊自动包裹输入区的实际高度（展开/收起都跟随）；
-   * ULTRA_THIN + colorInvert 让滚动到背后的内容清晰透出；maskHeight 0 关闭自带的渐变遮罩。
+   * 沉浸光感玻璃胶囊（只作背板）：
+   * 系统材质只在「底部 TabBar」合法作用域内渲染，所以这里用 HdsTabs 悬浮 TabBar 提供材质；
+   * 但 TabBar 是固定高度的浏览器 chrome，把输入区放进去会被裁（展开态多行会互相叠字），
+   * 因此 TabBar 里只放一个 1×1 的透明页签，真实输入区叠在它上面单独渲染（见 build 里的两层）。
+   * 胶囊高度 = 输入区实测高度，两者像素对齐。
    */
   @Builder
   dockAsFloatingGlass() {
@@ -5855,36 +5857,78 @@ export struct ConversationPage {
         // 内容区不用：只借 TabBar 的位置与材质
         Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
       }
-      .tabBar(this.bottomDockLayer())
+      .tabBar(this.emptyTabItem())
     }
     .barMode(BarMode.Fixed)
     .scrollable(false)
+    // 小艺同款三条件：横向 + 底部 + 浮在内容之上（缺一材质不生效）
+    .vertical(false)
     .barOverlap(true)
-    .barBackgroundColor(Color.Transparent)
+    // 注意：开启 systemMaterialEffect 后不能再设 barBackgroundColor / barBackgroundBlurStyle，
+    // 两者会与沉浸光感材质冲突，材质不渲染（小艺踩坑清单第 5 条）
     .barFloatingStyle({
       adaptToHandedness: true,
       barSideMargin: 14,
-      barBottomMargin: 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0),
+      barBottomMargin: this.dockBarBottomMargin(),
       barWidth: {
         smallWidth: this.pageW > 0 ? this.pageW - 28 : 320,
         mediumWidth: this.pageW > 0 ? this.pageW - 28 : 320,
         largeWidth: this.pageW > 0 ? this.pageW - 28 : 320
       },
       // 沉浸光感：HDS 管线系统材质（与顶栏同一套）
-      systemMaterialEffect: this.dockGlassMaterial(),
-      // 输入区折叠为 miniBar 时也用同一段内容
-      miniBar: {
-        miniBarBuilder: (): void => {
-          this.bottomDockLayer()
-        }
-      }
+      systemMaterialEffect: this.dockGlassMaterial()
     })
+    // 胶囊高度跟随输入区实测高度（折叠矮、展开高）。输入区不在胶囊内部，
+    // 所以测量值不会被胶囊裁剪，不会出现「改高度 → 重新测量 → 再改高度」的震荡。
+    .barHeight(this.dockGlassHeight())
     .width('100%')
     .height('100%')
-    .hitTestBehavior(HitTestMode.Transparent)
+    // 背板只负责渲染材质：不能抢触摸，也不能抢焦点 —— 否则点输入框时焦点被 Tabs 拿走，
+    // TextArea 立刻 onBlur，输入条刚展开又塌回去
+    .hitTestBehavior(HitTestMode.None)
+    .focusable(false)
+    .enabled(false)
   }
 
 
+
+  /** 空的页签内容：胶囊只当背板用 */
+  @Builder
+  emptyTabItem() {
+    Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
+  }
+
+  /** 胶囊离屏幕底部的距离：手势条安全区 + 平板额外留白 */
+  private dockBarMargin(): number {
+    return 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0);
+  }
+
+  /** 输入区底部留白：与胶囊边距同值（指标行下方的空白） */
+  private dockBottomPad(): number {
+    return this.dockBarMargin();
+  }
+
+  /**
+   * 玻璃胶囊只包住输入卡本身（指标行在胶囊外面，像小艺那样是一条细胶囊）：
+   *   barHeight       = 输入卡实测高度
+   *   barBottomMargin = 输入区总高度 - 输入卡高度（= 指标行 + 底部留白）
+   * 两者都由实测值算，不写死尺寸。
+   */
+  private dockGlassHeight(): number {
+    if (this.dockCardHeight > 0) {
+      return this.dockCardHeight;
+    }
+    return this.composerFocused || this.draft.trim().length > 0 ? 150 : 64;
+  }
+
+  /** 胶囊底边与屏幕底部的距离：把指标行让到胶囊外面 */
+  private dockBarBottomMargin(): number {
+    if (this.dockHeight > 0 && this.dockCardHeight > 0) {
+      const margin: number = this.dockHeight - this.dockCardHeight;
+      return margin > 0 ? margin : this.dockBarMargin();
+    }
+    return this.dockBarMargin() + 34;
+  }
 
   /** HDS IMMERSIVE 材质（与顶栏 systemMaterialEffect 同一套管线） */
   private dockGlassMaterial(): SystemMaterialParams {
@@ -6109,12 +6153,12 @@ export struct ConversationPage {
           })
           }
           .width('100%')
-          // 宽屏（平板）：输入条与正文同宽、一起居中（对齐 iOS iPad）
+          // 与玻璃胶囊对齐：左右留白 = 胶囊 barSideMargin，底部留白 = barBottomMargin，
+          // 这样内容卡片正好落在胶囊内部（胶囊高度 = 内容高度 - 底部留白）
           .padding({
             left: 14 + this.wideInset(),
             right: 14 + this.wideInset(),
-            // 平板底部是手势条区域：再留一点，保证「N 轮 N 步 · tok · %」整行可见
-            bottom: 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0)
+            bottom: this.dockBottomPad()
           })
           // 录音时整条输入区让位给全屏语音特效（对齐小程序 .dock-stack.voice-holding { opacity: 0 }）
           .opacity(this.voiceOverlayVisible ? 0 : 1)
@@ -6245,9 +6289,19 @@ export struct ConversationPage {
       this.sessionPageDots()
       // 底部浮层：底下时间线内容以模糊方式透出（对齐顶部模糊遮罩）
       // 轨迹 Tab 不显示输入条：避免在只读轨迹页误触发送
+      // 第一层：沉浸光感玻璃胶囊（HdsTabs 悬浮 TabBar 背板，材质只在合法作用域内渲染）
       Column() {
         if (this.sessionTab === 0) {
-          // 输入框：自带磨砂玻璃（backgroundEffect），无独立椭圆
+          this.dockAsFloatingGlass()
+        }
+      }
+      .width('100%')
+      .height('100%')
+      .hitTestBehavior(HitTestMode.None)
+
+      // 第二层：真实输入区，叠在胶囊之上（不被 TabBar 固定高度裁剪）
+      Column() {
+        if (this.sessionTab === 0) {
           this.bottomDockLayer()
         }
       }
