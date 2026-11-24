@@ -11,6 +11,7 @@ import {
 import { openSessionRoute } from '../common/SessionRoute';
 import { appGlassFill, appGlassBlur, APP_GLASS_RADIUS, appGlassBorderColor, appGlassShadow } from '../common/AppGlass';
 import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 /** 任务运行记录行（对齐小程序 loadHistory 里的 records 映射） */
@@ -1816,10 +1817,13 @@ export struct SchedulePage {
   }
 
   // ───────────── build ─────────────
+  private scroller: Scroller = new Scroller();
+
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
-        this.headerRow()
+        // 首屏让出原生标题栏
+        Column().width('100%').height((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 56)
         this.searchToolbar()
         if (this.connection !== 'connected') {
           Text('网关未连接，连接后可查看和管理自动化任务')
@@ -1832,7 +1836,7 @@ export struct SchedulePage {
             .margin({ left: 16, right: 16, bottom: 6 })
         }
         Refresh({ refreshing: $$this.refreshing }) {
-          Scroll() {
+          Scroll(this.scroller) {
             Column({ space: 10 }) {
               if (this.loading && this.tasks.length === 0) {
                 this.loadingState()
@@ -1894,7 +1898,23 @@ export struct SchedulePage {
         }
       })
     }
-    .hideTitleBar(true)
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { title: { mainTitle: '自动化任务' } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
+        originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
+        scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }
+      }
+    })
+    .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
     .onShown(() => {
       if (this.loadedOnce && this.connection === 'connected') {

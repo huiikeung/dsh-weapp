@@ -1,4 +1,4 @@
-import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { GatewayClient, OfficialPluginItem, PluginItem, parseNamespace } from 'nativecore';
 import { MarkdownBodyView } from '../components/MarkdownBodyView';
@@ -1253,36 +1253,15 @@ export struct PluginsPage {
     .width('100%')
   }
 
-  build() {
-    NavDestination() {
-      Column() {
-        // ── 头部：圆形返回 + 居中标题（对齐 .plugins-header） ──
-        Stack({ alignContent: Alignment.Center }) {
-          Text(this.showingMore ? '实验性插件' : '插件')
-            .fontSize(17)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.textColor())
-          Row() {
-            NavBackButton({ isDark: this.isDark })
-              .onClick(() => {
-                if (this.showingMore) {
-                  this.showingMore = false;
-                } else {
-                  this.pageStack.pop();
-                }
-              })
-            Blank()
-          }
-          .width('100%')
-          .padding({ left: 16, right: 16 })
-        }
-        .width('100%')
-        .height(44)
-        .padding({ top: 0 })
-        .margin({ top: (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 4 })
+  private scroller: Scroller = new Scroller();
 
-        Scroll() {
+  build() {
+    HdsNavDestination() {
+      Column() {
+        Scroll(this.scroller) {
           Column({ space: 20 }) {
+            // 首屏让出原生标题栏
+            Column().width('100%').height((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 56)
             if (!this.showingMore) {
               Row({ space: 8 }) {
                 Text('安装、启用和配置插件').fontSize(11).fontColor(this.subColor()).layoutWeight(1)
@@ -1452,7 +1431,23 @@ export struct PluginsPage {
         }
       })
     }
-    .hideTitleBar(true)
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { title: { mainTitle: (this.showingMore ? '实验性插件' : '插件') } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
+        originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
+        scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }
+      }
+    })
+    .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
   }
 

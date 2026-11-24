@@ -5,6 +5,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { GatewayFrame, Logger, asRec, arr, bool, num, str } from 'nativecore';
 import { GatewayClient } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 /** 会话选择项 / 接入目标 */
@@ -1021,10 +1022,12 @@ export struct ClawbotPage {
     .height('100%')
   }
 
+  private scroller: Scroller = new Scroller();
+
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Stack({ alignContent: Alignment.TopStart }) {
-        Scroll() {
+        Scroll(this.scroller) {
           Column() {
             this.sections()
           }
@@ -1040,8 +1043,6 @@ export struct ClawbotPage {
         // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
         .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
 
-        this.navBar()
-
         if (this.sessionsOpen) {
           this.sessionsSheet()
         }
@@ -1052,7 +1053,23 @@ export struct ClawbotPage {
       .width('100%')
       .height('100%')
     }
-    .hideTitleBar(true)
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { title: { mainTitle: '微信 ClawBot' } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
+        originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
+        scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }
+      }
+    })
+    .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
   }
 }

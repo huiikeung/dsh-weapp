@@ -1,5 +1,5 @@
 import { common } from '@kit.AbilityKit';
-import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import {
@@ -53,38 +53,15 @@ export struct SettingsPage {
     return this.isDark ? '#2C2C2E' : '#FFFFFF';
   }
 
+  private scroller: Scroller = new Scroller();
+
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
-        Stack({ alignContent: Alignment.TopStart }) {
-          Column()
-            .width('100%')
-            .height(56 + (this.safeTopVp > 0 ? this.safeTopVp : 38.9))
-            .backdropBlur(12)
-            .backgroundColor(Color.Transparent)
-            .hitTestBehavior(HitTestMode.None)
-
-          Row() {
-            NavBackButton({ isDark: this.isDark })
-
-            Text('设置')
-              .fontSize(17)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(this.textColor())
-              .layoutWeight(1)
-              .textAlign(TextAlign.Center)
-
-            Row().width(44).height(44)
-          }
-          .width('100%')
-          .height(56)
-          .padding({ left: 16, right: 16 })
-          .margin({ top: this.safeTopVp > 0 ? this.safeTopVp : 38.9 })
-        }
-        .width('100%')
-
-      Scroll() {
+      Scroll(this.scroller) {
         Column({ space: 14 }) {
+          // 首屏让出原生标题栏
+          Column().width('100%').height((this.safeTopVp > 0 ? this.safeTopVp : 38.9) + 56)
           Text('外观')
             .fontSize(13)
             .fontColor(this.subColor())
@@ -224,7 +201,23 @@ export struct SettingsPage {
       .width('100%')
       .height('100%')
     }
-    .hideTitleBar(true)
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { title: { mainTitle: '设置' } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
+        originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
+        scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }
+      }
+    })
+    .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
   }
 

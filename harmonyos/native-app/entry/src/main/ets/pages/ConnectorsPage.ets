@@ -1,5 +1,5 @@
 import { common, Want } from '@kit.AbilityKit';
-import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { CONNECTOR_MODULES, ConnectorModuleDefinition, DeviceConnectors } from 'nativecore';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
@@ -137,27 +137,16 @@ export struct ConnectorsPage {
     }
   }
 
-  build() {
-    NavDestination() {
-      Column() {
-        Row() {
-          NavBackButton({ isDark: this.isDark })
-          Blank()
-          Row().width(40)
-        }
-        .width('100%')
-        .height(44)
-        .padding({ left: 8, right: 8 })
-        .margin({ top: this.safeTop > 0 ? this.safeTop : 38.9 })
+  private scroller: Scroller = new Scroller();
 
-        Scroll() {
+  build() {
+    HdsNavDestination() {
+      Column() {
+        Scroll(this.scroller) {
           Column({ space: 12 }) {
+            // 首屏让出原生标题栏
+            Column().width('100%').height((this.safeTop > 0 ? this.safeTop : 38.9) + 56)
             Column({ space: 6 }) {
-              Text('连接器')
-                .fontSize(30)
-                .fontWeight(FontWeight.Bold)
-                .fontColor(this.textColor())
-                .width('100%')
               Text('让 Agent 调用手机的系统能力')
                 .fontSize(13)
                 .fontColor(this.subColor())
@@ -291,7 +280,23 @@ export struct ConnectorsPage {
       .height('100%')
       .justifyContent(FlexAlign.Start)
     }
-    .hideTitleBar(true)
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { title: { mainTitle: '连接器' } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
+        originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
+        scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }
+      }
+    })
+    .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
     .onShown(() => {
       // 从连接器状态/能力弹窗返回时兜底同步一次开关状态
