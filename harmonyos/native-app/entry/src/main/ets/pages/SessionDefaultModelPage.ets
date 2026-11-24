@@ -724,7 +724,6 @@ export struct SessionDefaultModelPage {
       }
       .width('100%')
       .height('100%')
-      .padding({ top: this.topInset() + 12 })
       .backgroundColor(this.pageBg())
       .overlay(this.topToastLayer(), { align: Alignment.Top })
     }

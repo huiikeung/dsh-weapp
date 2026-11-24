@@ -965,7 +965,8 @@ export struct AddProviderPage {
       }
       .width('100%')
       .height('100%')
-      .padding({ top: this.topInset() + 12 })
+      // 统一让位标准：安全区 + 56（原生标题栏高度）+ 4 呼吸间距，与对话状态条页一致
+      .padding({ top: this.topInset() + 56 + 4 })
       .backgroundColor(this.pageBg())
     }
     .titleBar({

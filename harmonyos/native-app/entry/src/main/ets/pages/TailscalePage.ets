@@ -2324,8 +2324,6 @@ export struct TailscalePage {
       }
       .layoutWeight(1)
       .scrollBar(BarState.Off)
-              .padding({ top: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) })
-              .margin({ top: -(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) })
         .hitTestBehavior(HitTestMode.Transparent)
       .align(Alignment.Top)
       // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
