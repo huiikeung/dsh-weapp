@@ -2771,18 +2771,17 @@ export struct ConversationComposer {
       // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
-      // 输入框本体直接挂沉浸光感材质（文档《组件适配沉浸光感》Button/输入类：
-      // 组件级 systemMaterial，生效条件=组件位于底部 TabBar —— 输入区已在 HdsTabs tabBar 内）
-      // THIN：文档推荐搜索框类用薄玻璃；colorInvert 自动反色；interactive+lightEffect 交互反馈
+      // 沉浸光感要点（官方）：背景必须透明；systemMaterial 放样式链最后，
+      // 否则材质效果可能被前面的样式覆盖
       .backgroundColor(Color.Transparent)
+      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.65)' })
+      .clip(true)
       .systemMaterial(new uiMaterial.ImmersiveMaterial({
         style: uiMaterial.ImmersiveStyle.THIN,
         colorInvert: true,
         interactive: true,
         lightEffect: {}
       }))
-      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.65)' })
-      .clip(true)
 
       }
       .width('100%')
