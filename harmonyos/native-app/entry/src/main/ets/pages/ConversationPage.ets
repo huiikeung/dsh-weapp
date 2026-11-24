@@ -5988,6 +5988,12 @@ export struct ConversationPage {
               if (visible) {
                 // 展开模型菜单时刷新当前模型的推理等级列表（含 Max 等，避免进页时拉取过早）
                 this.refreshModelEfforts();
+                // 同步 DSH 端团队协作开关状态，避免本地 UI 与主机不一致
+                const teamSession: string = SessionStore.get().currentSessionId();
+                if (teamSession.length > 0 && GatewayClient.get().isConnected()) {
+                  GatewayClient.get().requestAgentTeam(teamSession).catch(() => {
+                  });
+                }
               }
             },
             onContext: () => {
@@ -10012,7 +10018,7 @@ export struct ConversationPage {
     return SessionStore.get().currentSessionId().length > 0 && GatewayClient.get().isConnected();
   }
 
-  /** 切换智能体团队协作（乐观更新，网关回执后再由 TeamStore 校正） */
+  /** 切换智能体团队协作：乐观更新 → 网关回执失败则回滚（保证和 DSH 端一致） */
   private toggleTeamEnabled(next: boolean): void {
     const sessionId: string = SessionStore.get().currentSessionId();
     if (sessionId.length === 0) {
@@ -10023,13 +10029,24 @@ export struct ConversationPage {
       this.showToast('请先连接网关');
       return;
     }
-    this.teamEnabled = next;
-    AppStorage.setOrCreate<boolean>('teamEnabled', next);
-    const sent: boolean = GatewayClient.get().setAgentTeamEnabled(sessionId, next);
-    this.showToast(next ? '已开启智能体团队协作' : '已关闭智能体团队协作');
-    if (!sent) {
-      this.showToast('操作未发送：网关未连接');
-    }
+    this.applyTeamEnabled(next);
+    GatewayClient.get().setAgentTeamEnabled(sessionId, next).then((frame: GatewayFrame) => {
+      if (frame.kind === 'error') {
+        this.applyTeamEnabled(!next);
+        const reason: string = frame.message !== undefined && frame.message.length > 0 ? frame.message : 'DSH 端未接受';
+        this.showToast('切换团队协作失败：' + reason);
+        return;
+      }
+      this.showToast(next ? '已开启智能体团队协作' : '已关闭智能体团队协作');
+    }).catch((error: Error) => {
+      this.applyTeamEnabled(!next);
+      this.showToast('切换团队协作失败：' + error.message);
+    });
+  }
+
+  private applyTeamEnabled(value: boolean): void {
+    this.teamEnabled = value;
+    AppStorage.setOrCreate<boolean>('teamEnabled', value);
   }
 
   /** 打开工作区文件 sheet（对齐小程序 openFilesSheet：根目录起步） */

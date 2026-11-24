@@ -563,6 +563,10 @@ export class SessionStore {
         const projection: Record<string, Object> = {};
         projection['values'] = values;
         TeamStore.get().ingestProjection(teamSession, projection);
+      } else if (frame.kind === 'agent-team-mode-set') {
+        // 回执只带 enabled 布尔值时也要同步开关
+        const enabledFlag: boolean = bool(frame, 'enabled') ?? false;
+        TeamStore.get().setEnabled(enabledFlag);
       }
       return;
     }

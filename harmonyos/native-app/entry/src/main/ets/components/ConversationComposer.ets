@@ -1613,9 +1613,10 @@ export struct ConversationComposer {
           this.onToggleTeam(isOn);
         })
     }
-    .width(212)
+    // 与原生 MenuItem 文本同起点（不额外缩进），并加宽避免开关被裁切
+    .width(248)
     .height(44)
-    .padding({ left: 16, right: 16 })
+    .padding({ left: 0, right: 0 })
   }
 
   /** 第二层：全部模型按提供商分组（自带滚动、隐藏滑块）/ 推理等级保持原生菜单样式，✓ 放最右 */

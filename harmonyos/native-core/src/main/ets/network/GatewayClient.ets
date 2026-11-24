@@ -1809,17 +1809,24 @@ export class GatewayClient {
     return this.sendCorrelated(request, 8000);
   }
 
-  /** 开启/关闭当前会话的智能体团队协作（网关 agent-team-set-enabled）。 */
-  setAgentTeamEnabled(sessionId: string, enabled: boolean): boolean {
-    if (!this.isConnected() || sessionId.length === 0) {
-      return false;
-    }
+  /** 开启/关闭当前会话的智能体团队协作；返回回执帧，调用方据此回滚 UI。 */
+  setAgentTeamEnabled(sessionId: string, enabled: boolean): Promise<GatewayFrame> {
     const request: GatewayRequest = GatewayRequestFactory.make('agent-team-set-enabled', 'agent-team-mode-set', {
       'sessionId': sessionId,
       'enabled': enabled,
       'requestId': 'team-enable-' + Date.now().toString()
+    }, sessionId, undefined, GatewayRequestLanePolicy.REJECT_IF_BUSY, 10000);
+    request.timeoutIsFatal = false;
+    return this.requestGateway(request, 10000);
+  }
+
+  /** 拉取当前会话团队快照（成员 / 任务 / enabled），用于打开菜单时对齐 DSH 端状态。 */
+  requestAgentTeam(sessionId: string): Promise<GatewayFrame> {
+    const request: GatewayRequest = GatewayRequestFactory.make('agent-team', 'agent-team', {
+      'sessionId': sessionId
     }, sessionId);
-    return this.sendRequest(request);
+    request.timeoutIsFatal = false;
+    return this.requestGateway(request, 10000);
   }
 
   ping(timeoutMs: number = 8000): Promise<GatewayFrame> {

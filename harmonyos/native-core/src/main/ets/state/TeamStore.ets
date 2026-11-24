@@ -289,6 +289,15 @@ export class TeamStore {
     return this.enabled;
   }
 
+  /** 开关回执只带 enabled 时直接更新并广播。 */
+  setEnabled(value: boolean): void {
+    if (this.enabled === value) {
+      return;
+    }
+    this.enabled = value;
+    this.publish();
+  }
+
   /** 协作入口是否展示：团队协作已开启，或确实存在多个成员/共享任务。 */
   visible(): boolean {
     if (this.leadId.length === 0) return false;
