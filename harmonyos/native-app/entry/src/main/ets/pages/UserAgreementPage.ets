@@ -1,4 +1,5 @@
 import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { APP_DISPLAY_NAME, DEVELOPER_NAME, USER_AGREEMENT_EFFECTIVE_AT, USER_AGREEMENT_VERSION } from '../common/LegalDocs';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
@@ -252,10 +253,12 @@ export struct UserAgreementPage {
     .margin({ top: 12 })
   }
 
+  private scroller: Scroller = new Scroller();
+
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Stack({ alignContent: Alignment.TopStart }) {
-        Scroll() {
+        Scroll(this.scroller) {
           Column({ space: 0 }) {
             this.introCard()
             ForEach(AGREEMENT_SECTIONS, (section: AgreementSection) => {
@@ -276,13 +279,28 @@ export struct UserAgreementPage {
         // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
         .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
 
-        this.navBar()
       }
       .width('100%')
       .height('100%')
       .backgroundColor(this.pageBg())
     }
-    .hideTitleBar(true)
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { title: { mainTitle: '用户协议' } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
+        originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
+        scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }
+      }
+    })
+    .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
   }
 }

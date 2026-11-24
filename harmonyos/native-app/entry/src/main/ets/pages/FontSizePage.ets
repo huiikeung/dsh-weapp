@@ -11,7 +11,7 @@ import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
  * 返回设置页时由 onShown 的 refreshPrefs() 刷新展示值。
  */
 
-import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { PreferencesStore } from 'nativecore';
 
 /** 字号档位与其对应的正文 px（与设置页预览一致） */
@@ -248,39 +248,12 @@ export struct FontSizePage {
       })
   }
 
+  private scroller: Scroller = new Scroller();
+
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
-        // 导航：返回 + 居中标题（与设置页其他二级页一致）
-        Stack({ alignContent: Alignment.TopStart }) {
-          Column()
-            .width('100%')
-            .height(56 + this.topInset())
-            .backdropBlur(12)
-            .backgroundColor(Color.Transparent)
-            .hitTestBehavior(HitTestMode.None)
-
-        Row() {
-          NavBackButton({ isDark: this.isDark })
-
-          Text('字号大小')
-            .fontSize(17)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.textColor())
-            .layoutWeight(1)
-            .textAlign(TextAlign.Center)
-
-          Row().width(44).height(44)
-        }
-        .width('100%')
-        .height(56)
-        .padding({ left: 16, right: 16 })
-        .margin({ top: this.topInset() })
-        }
-        .width('100%')
-        .zIndex(10)
-
-        Scroll() {
+        Scroll(this.scroller) {
           Column() {
             // ── 字号档位 ──
             this.groupTitle('字号大小')
@@ -371,13 +344,10 @@ export struct FontSizePage {
               .padding({ left: 20, right: 20, top: 12, bottom: 30 })
           }
           .width('100%')
-          .padding({ left: 16, right: 16, top: 4 })
+          .padding({ left: 16, right: 16, top: 4 + 56 + this.topInset() })
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
-        .padding({ top: 56 + this.topInset() })
-        .margin({ top: -(56 + this.topInset()) })
-        .hitTestBehavior(HitTestMode.Transparent)
         .align(Alignment.Top)
         // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
         .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
@@ -386,7 +356,23 @@ export struct FontSizePage {
       .height('100%')
       .backgroundColor(this.pageBg())
     }
-    .hideTitleBar(true)
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { title: { mainTitle: '字号大小' } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
+        originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
+        scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }
+      }
+    })
+    .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
   }
 }
