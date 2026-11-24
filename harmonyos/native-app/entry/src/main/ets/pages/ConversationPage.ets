@@ -25,7 +25,7 @@ import { ConversationRowView } from '../components/ConversationRowView';
 import { ConversationComposer, MetricMenuPair, RefChipItem, RefDirItem, RefSessionItem, SkillItem } from '../components/ConversationComposer';
 import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
 import { NavBackButton } from '../components/NavBackButton';
-import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
+import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, HdsTabs, HdsBarWidthRangeOptions, HdsTabsFloatingStyle, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
 import { ConversationProgress } from '../components/ConversationProgress';
 import { TrajectoryPanel } from '../components/TrajectoryPanel';
 import { FluKeCoin } from '../components/FluKeCoin';
@@ -5850,7 +5850,7 @@ export struct ConversationPage {
    */
   @Builder
   dockAsFloatingGlass() {
-    Tabs({ barPosition: BarPosition.End, index: 0 }) {
+    HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
       TabContent() {
         // 内容区不用：只借 TabBar 的位置与材质
         Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
@@ -5860,22 +5860,14 @@ export struct ConversationPage {
     .barMode(BarMode.Fixed)
     .scrollable(false)
     .barOverlap(true)
-    .barFloatingStyle({
-      adaptToHandedness: true,
-      maskHeight: 0,
-      barSideMargin: 14,
-      barBottomMargin: 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0),
-      barWidth: {
-        smallBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-        mediumBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-        largeBarWidth: this.pageW > 0 ? this.pageW - 28 : 320
-      },
-      systemMaterial: new uiMaterial.ImmersiveMaterial({
-        style: uiMaterial.ImmersiveStyle.ULTRA_THIN,
-        colorInvert: true,
-        interactive: true,
-        lightEffect: {}
-      })
+    .barBackgroundColor(Color.Transparent)
+    .barFloatingStyle(this.dockFloatingStyle())
+    // barBackgroundEffect 与系统材质叠加：加强模糊与通透感
+    .barBackgroundEffect({
+      radius: 40,
+      color: this.isDark ? 'rgba(18,20,26,0.30)' : 'rgba(255,255,255,0.30)',
+      saturation: 1.9,
+      brightness: 1.05
     })
     .width('100%')
     .height('100%')
@@ -5883,6 +5875,27 @@ export struct ConversationPage {
   }
 
 
+
+  /** HDS IMMERSIVE 材质（与顶栏 systemMaterialEffect 同一套管线） */
+  private dockGlassMaterial(): SystemMaterialParams {
+    return { materialType: hdsMaterial.MaterialType.IMMERSIVE, materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE };
+  }
+
+  /** 悬浮胶囊样式：官方 HdsTabsFloatingStyle 类型 */
+  private dockFloatingStyle(): HdsTabsFloatingStyle {
+    const widthOpt: HdsBarWidthRangeOptions = {
+      smallWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+      mediumWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+      largeWidth: this.pageW > 0 ? this.pageW - 28 : 320
+    };
+    return {
+      adaptToHandedness: true,
+      barSideMargin: 14,
+      barBottomMargin: 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0),
+      barWidth: widthOpt,
+      systemMaterialEffect: this.dockGlassMaterial()
+    };
+  }
 
   @Builder
   bottomDockLayer() {
