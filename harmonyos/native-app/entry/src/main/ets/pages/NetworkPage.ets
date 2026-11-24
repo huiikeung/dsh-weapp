@@ -1,7 +1,14 @@
+import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType } from '@kit.UIDesignKit';
 import { http } from '@kit.NetworkKit';
 import { GatewayClient, SavedGateway } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
+
+// 标题栏内容风格：滚动模糊生效时保持正文色标题，避免系统默认切成白字
+const CONTENT_STYLE: HdsTitleBarContentStyle = {
+  titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
+  menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
+};
 
 class WsSample {
   ms: number = 0;
@@ -585,37 +592,14 @@ export struct NetworkPage {
     }
   }
 
+  private scroller: Scroller = new Scroller();
+
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Stack({ alignContent: Alignment.Top }) {
       Column() {
-        Stack({ alignContent: Alignment.TopStart }) {
-          Column()
-            .width('100%')
-            .height(56 + this.topInset())
-            .backdropBlur(12)
-            .backgroundColor(Color.Transparent)
-            .hitTestBehavior(HitTestMode.None)
 
-          Row() {
-            NavBackButton({ isDark: this.isDark })
-            Text('网络检测')
-              .fontSize(17)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(this.textColor())
-              .layoutWeight(1)
-              .textAlign(TextAlign.Center)
-            Row().width(44).height(44)
-          }
-          .width('100%')
-          .height(56)
-          .padding({ left: 16, right: 16 })
-          .margin({ top: this.topInset() })
-        }
-        .width('100%')
-        .zIndex(10)
-
-        Scroll() {
+        Scroll(this.scroller) {
           Column({ space: 14 }) {
             // 当前连接
             Column() {
@@ -852,8 +836,6 @@ export struct NetworkPage {
         .layoutWeight(1)
         .align(Alignment.Top)
         .scrollBar(BarState.Off)
-        .margin({ top: -(56 + this.topInset()) })
-        .hitTestBehavior(HitTestMode.Transparent)
         // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
         .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
       }
@@ -863,7 +845,6 @@ export struct NetworkPage {
       }
       this.topToast()
     }
-    .hideTitleBar(true)
   }
 
   @Builder

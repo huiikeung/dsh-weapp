@@ -1,3 +1,4 @@
+import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType } from '@kit.UIDesignKit';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 /**
  * 字号大小二级页（对齐小程序 pages/settings 的字体与字号弹窗内容）。
@@ -13,6 +14,12 @@ import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 import { NavBackButton } from '../components/NavBackButton';
 import { PreferencesStore } from 'nativecore';
+
+// 标题栏内容风格：滚动模糊生效时保持正文色标题，避免系统默认切成白字
+const CONTENT_STYLE: HdsTitleBarContentStyle = {
+  titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
+  menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
+};
 
 /** 字号档位与其对应的正文 px（与设置页预览一致） */
 interface SizeOption {
@@ -248,39 +255,14 @@ export struct FontSizePage {
       })
   }
 
+  private scroller: Scroller = new Scroller();
+
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
         // 导航：返回 + 居中标题（与设置页其他二级页一致）
-        Stack({ alignContent: Alignment.TopStart }) {
-          Column()
-            .width('100%')
-            .height(56 + this.topInset())
-            .backdropBlur(12)
-            .backgroundColor(Color.Transparent)
-            .hitTestBehavior(HitTestMode.None)
 
-        Row() {
-          NavBackButton({ isDark: this.isDark })
-
-          Text('字号大小')
-            .fontSize(17)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.textColor())
-            .layoutWeight(1)
-            .textAlign(TextAlign.Center)
-
-          Row().width(44).height(44)
-        }
-        .width('100%')
-        .height(56)
-        .padding({ left: 16, right: 16 })
-        .margin({ top: this.topInset() })
-        }
-        .width('100%')
-        .zIndex(10)
-
-        Scroll() {
+        Scroll(this.scroller) {
           Column() {
             // ── 字号档位 ──
             this.groupTitle('字号大小')
@@ -376,8 +358,6 @@ export struct FontSizePage {
         .layoutWeight(1)
         .scrollBar(BarState.Off)
         .padding({ top: 56 + this.topInset() })
-        .margin({ top: -(56 + this.topInset()) })
-        .hitTestBehavior(HitTestMode.Transparent)
         .align(Alignment.Top)
         // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
         .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
@@ -386,7 +366,6 @@ export struct FontSizePage {
       .height('100%')
       .backgroundColor(this.pageBg())
     }
-    .hideTitleBar(true)
     .backgroundColor(this.pageBg())
   }
 }

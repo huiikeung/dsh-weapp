@@ -1,3 +1,4 @@
+import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType } from '@kit.UIDesignKit';
 import { NavBackButton } from '../components/NavBackButton';
 import { common } from '@kit.AbilityKit';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
@@ -7,6 +8,12 @@ import {
   GatewayClient, GatewayProfile, PairingResult, parsePairingPayload
 } from 'nativecore';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
+
+// 标题栏内容风格：滚动模糊生效时保持正文色标题，避免系统默认切成白字
+const CONTENT_STYLE: HdsTitleBarContentStyle = {
+  titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
+  menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
+};
 
 @Component
 export struct AddNodePage {
@@ -221,24 +228,12 @@ export struct AddNodePage {
       0, 0, 0, alpha, 0
     ];
   }
+  private scroller: Scroller = new Scroller();
+
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
         // 导航
-        Row() {
-          NavBackButton({ isDark: this.isDark })
-          Blank()
-          Text('添加节点')
-            .fontSize(17)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(this.textColor())
-          Blank()
-          Row().width(40)
-        }
-        .width('100%')
-        .height(48)
-        .padding({ left: 8, right: 8 })
-        .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
 
         // 进度点
         Row() {
@@ -249,8 +244,13 @@ export struct AddNodePage {
         .justifyContent(FlexAlign.Center)
         .padding({ top: 2, bottom: 0 })
 
-        Scroll() {
+        Scroll(this.scroller) {
           Column() {
+            // 内容起始留白：标题栏浮动在内容上，先让出标题栏高度
+            Column()
+              .width('100%')
+              .height(((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) + 56 + 8)
+
             if (this.step === 0) {
               Column() {
                 Text('电脑端准备')
@@ -396,7 +396,6 @@ export struct AddNodePage {
         this.manualSheet()
       }
     }
-    .hideTitleBar(true)
     .backgroundColor(this.isDark ? '#000000' : '#F2F2F7')
   }
 

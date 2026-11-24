@@ -1,6 +1,13 @@
+import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType } from '@kit.UIDesignKit';
 import { NavBackButton } from '../components/NavBackButton';
 import { PreferencesStore, StatusAppearance } from 'nativecore';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
+
+// 标题栏内容风格：滚动模糊生效时保持正文色标题，避免系统默认切成白字
+const CONTENT_STYLE: HdsTitleBarContentStyle = {
+  titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
+  menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
+};
 
 
 /** 对话状态条样式（对齐小程序 pages/settings/utils/status-appearance.js 的 OPTIONS） */
@@ -226,28 +233,20 @@ export struct StatusStylesPage {
     })
   }
 
+  private scroller: Scroller = new Scroller();
+
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
         // 导航：与「设置」「会话设置」「Tailscale 内嵌隧道」一致
-        Row() {
-          NavBackButton({ isDark: this.isDark })
 
-          Text('对话状态条')
-            .fontSize(17)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.textColor())
-            .layoutWeight(1)
-            .textAlign(TextAlign.Center)
-
-          Row().width(44).height(44)
-        }
-        .width('100%')
-        .height(56)
-        .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
-
-        Scroll() {
+        Scroll(this.scroller) {
           Column({ space: 10 }) {
+            // 内容起始留白：标题栏浮动在内容上，先让出标题栏高度
+            Column()
+              .width('100%')
+              .height(((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) + 56 + 8)
+
             Text('只改变外观，保留原有文案和计时')
               .fontSize(12)
               .fontColor(this.subColor())
@@ -278,7 +277,6 @@ export struct StatusStylesPage {
       .height('100%')
       .backgroundColor(this.pageBg())
     }
-    .hideTitleBar(true)
     .backgroundColor(this.pageBg())
   }
 }

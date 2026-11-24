@@ -1,3 +1,4 @@
+import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType } from '@kit.UIDesignKit';
 import { KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import { bundleManager, common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
@@ -8,6 +9,12 @@ import { NodeManageSheet } from '../components/NodeManageSheet';
 import { Haptics } from '../services/Haptics';
 import { AttachmentCache, CredentialStore, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, SessionSummary, ThemeManager, WorkStepPresentation, WorkspaceRow } from 'nativecore';
 import type { SavedGateway } from 'nativecore';
+
+// 标题栏内容风格：滚动模糊生效时保持正文色标题，避免系统默认切成白字
+const CONTENT_STYLE: HdsTitleBarContentStyle = {
+  titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
+  menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
+};
 
 /**
  * 工作步骤档位文案：作为独立组件直接订阅 AppStorage，
@@ -1711,8 +1718,10 @@ export struct AppSettingsPage {
     .height('100%')
   }
 
+  private scroller: Scroller = new Scroller();
+
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       // 根必须是 Stack：NavDestination 只接受一个子节点，且弹层要盖在页面之上
       Stack({ alignContent: Alignment.TopStart }) {
       Column() {
@@ -1746,7 +1755,7 @@ export struct AppSettingsPage {
         .width('100%')
         .zIndex(10)
 
-        Scroll() {
+        Scroll(this.scroller) {
           Column() {
             // ── 连接 ──
             this.groupTitle('连接')
@@ -2078,8 +2087,6 @@ export struct AppSettingsPage {
         .scrollBar(BarState.Off)
         // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
         .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
-        .margin({ top: -(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) })
-        .hitTestBehavior(HitTestMode.Transparent)
       }
       .width('100%')
       .height('100%')
@@ -2110,17 +2117,10 @@ export struct AppSettingsPage {
         .hitTestBehavior(HitTestMode.None)
 
       // 覆盖层返回键：根 Stack 最后一个子节点，不被 Scroll 吃掉点击
-      Row() {
-        NavBackButton({ isDark: this.isDark })
-      }
-      .width(40)
-      .height(40)
-      .margin({ left: 16, top: (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 8 })
       }
       .width('100%')
       .height('100%')
     }
-    .hideTitleBar(true)
     .backgroundColor(this.pageBg())
     // 节点管理：系统半模态 + 沉浸材质（与「切换主机」一致）
     .bindSheet($$this.nodeSheetOpen, this.nodeManageSheetContent(), {
