@@ -564,11 +564,7 @@ export struct SessionSettingsPage {
         .padding({ left: 16, right: 16 })
         .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
 
-        // 模糊层底部用「逐级降低不透明度」的窄条收尾：
-        // 不用 linearGradient 叠在毛玻璃上（会渲染出一条明显的色带），
-        // 而是靠多个低不透明度的 blur 条把边缘柔化掉。
-        Column().width('100%').height(4).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) }).backdropBlur(12).opacity(0.66).hitTestBehavior(HitTestMode.None)
-        Column().width('100%').height(4).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 4 }).backdropBlur(12).opacity(0.33).hitTestBehavior(HitTestMode.None)
+
         }
         .width('100%')
         .zIndex(10)
@@ -749,6 +745,19 @@ export struct SessionSettingsPage {
             systemMaterial: this.teamSheetMaterial()
           })
         TopToastView()
+
+        // 顶部「逐渐模糊」过渡带：导航栏上下共 60vp 内做 10 级递变，
+        // 越往下模糊越弱（12 → 3），内容滚进来是慢慢变糊而不是一刀切。
+        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 0 }).backdropBlur(12).hitTestBehavior(HitTestMode.None)
+        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 6 }).backdropBlur(11).hitTestBehavior(HitTestMode.None)
+        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 12 }).backdropBlur(10).hitTestBehavior(HitTestMode.None)
+        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 18 }).backdropBlur(9).hitTestBehavior(HitTestMode.None)
+        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 24 }).backdropBlur(8).hitTestBehavior(HitTestMode.None)
+        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 30 }).backdropBlur(7).hitTestBehavior(HitTestMode.None)
+        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 36 }).backdropBlur(6).hitTestBehavior(HitTestMode.None)
+        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 42 }).backdropBlur(5).hitTestBehavior(HitTestMode.None)
+        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 48 }).backdropBlur(4).hitTestBehavior(HitTestMode.None)
+        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 54 }).backdropBlur(3).hitTestBehavior(HitTestMode.None)
 
         // 覆盖层返回键：必须是根 Stack 的最后一个子节点，
         // 这样才排在任何 Scroll/Toast/弹窗之上（之前放在中间会被后面的层吃掉点击）。
