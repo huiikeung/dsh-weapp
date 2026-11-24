@@ -6213,6 +6213,16 @@ export struct ConversationPage {
     // 底部整块：透明容器，不铺模糊也不铺渐隐 —— 内容直接滚到输入框玻璃下面，
     // 由输入框自身的材质/半透明底去「盖住」它（这才是玻璃能看见背景变化的前提）
     .backgroundColor(Color.Transparent)
+    // 输入区自己要参与命中测试：否则在输入框上的横向拖拽会穿透到底层 Swiper，
+    // 表现为「在输入框上滑动，页面在左右翻」
+    .hitTestBehavior(HitTestMode.Default)
+    .gesture(
+      PanGesture({ fingers: 1, direction: PanDirection.Horizontal, distance: 6 })
+        .onActionStart(() => {
+        })
+        .onActionUpdate(() => {
+        })
+    )
     .onAreaChange((oldArea: Area, newArea: Area) => {
       const height: number = Number(newArea.height);
       if (height > 0 && Math.abs(height - this.dockHeight) > 1) {
