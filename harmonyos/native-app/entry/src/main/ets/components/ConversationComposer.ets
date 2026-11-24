@@ -2775,12 +2775,18 @@ export struct ConversationComposer {
       .padding(this.expanded()
         ? { left: 14, right: 14, top: 12, bottom: 12 }
         : { left: 10, right: 10, top: 6, bottom: 6 })
-      // 玻璃透光三件套（用户提供的 GlassInputDemo 配方）：
-      // backgroundBlurStyle(Regular) 实时虚化背后内容 + 半透明白增强质感 + 透光描边模拟玻璃反光
-      .backgroundBlurStyle(BlurStyle.Regular)
-      .backgroundColor('rgba(255,255,255,0.2)')
-      .border({ width: 1, color: '#66FFFFFF' })
+      // 玻璃配方（用户提供的 backgroundEffect 版本）：
+      // radius 40 雾面模糊 + saturation 1.9 通透感 + brightness 1.05 微提亮
+      // + 白色薄纱 50% 混合（SDK 的 BackgroundEffectOptions 无 colorOptions 数组，
+      //   薄纱用单色 color 字段实现，圆角由卡片自身 borderRadius(28)+clip 提供）
+      .backgroundEffect({
+        radius: 40,
+        saturation: 1.9,
+        brightness: 1.05
+      })
       .borderRadius(28)
+      .clip(true)
+      .border({ width: 1, color: '#66FFFFFF' })
       .shadow({ radius: 12, color: 'rgba(0,0,0,0.08)', offsetY: 4 })
 
       }
@@ -2788,9 +2794,6 @@ export struct ConversationComposer {
       // 不再额外套一层 1.3vp 光圈环（与返回按钮保持单层玻璃）
       .padding(0)
       .borderRadius(24)
-      // 光感基底：背景图是材质折射的基础（官方要点：没有它效果不明显）
-      .backgroundImage($r('app.media.composer_glass_bg'))
-      .backgroundImageSize(ImageSize.FILL)
       // 实测卡片高度上报：页面用它把玻璃背板精确对齐到卡片
       .onAreaChange((_old: Area, nw: Area) => {
         const hgt: number = Number(nw.height);
