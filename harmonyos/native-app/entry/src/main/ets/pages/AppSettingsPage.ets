@@ -2,12 +2,18 @@ import { KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import { bundleManager, common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import type { GatewayFrame, ThemeMode, WorkStepOption } from 'nativecore';
-import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 import { NodeManageSheet } from '../components/NodeManageSheet';
 import { Haptics } from '../services/Haptics';
 import { AttachmentCache, CredentialStore, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, SessionSummary, ThemeManager, WorkStepPresentation, WorkspaceRow } from 'nativecore';
 import type { SavedGateway } from 'nativecore';
+
+// 标题栏内容风格：滚动模糊生效时保持正文色标题（系统默认会切成白字）
+const TITLE_BAR_CONTENT: HdsTitleBarContentStyle = {
+  titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
+  menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
+};
 
 /**
  * 工作步骤档位文案：作为独立组件直接订阅 AppStorage，
@@ -111,6 +117,7 @@ export struct AppSettingsPage {
   @StorageLink('sessions') sessions: SessionSummary[] = [];
   @StorageLink('workspaces') workspaces: WorkspaceRow[] = [];
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
+  private scroller: Scroller = new Scroller();
   @StorageLink('gatewayVersion') gatewayVersion: string = '';
   /** 网关插件自报版本（hello.gatewayVersion），为空时回落到插件目录 */
   @StorageLink('gatewayPluginVersion') gatewayPluginVersion: string = '';
@@ -1712,41 +1719,11 @@ export struct AppSettingsPage {
   }
 
   build() {
-    NavDestination() {
-      // 根必须是 Stack：NavDestination 只接受一个子节点，且弹层要盖在页面之上
+    HdsNavDestination() {
+      // 根必须是 Stack：只接受一个子节点，且弹层要盖在页面之上
       Stack({ alignContent: Alignment.TopStart }) {
       Column() {
-        // 导航（标题字号/字重/缩进与「会话设置」「Tailscale 内嵌隧道」页一致）
-        Stack({ alignContent: Alignment.TopStart }) {
-          // 与对话页顶栏一致的轻模糊：backdropBlur + 页面同色半透明底
-          Column()
-            .width('100%')
-            .height(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9))
-            .backdropBlur(12)
-            .backgroundColor(Color.Transparent)
-            .hitTestBehavior(HitTestMode.None)
-
-          Row() {
-            Row().width(40).height(40)
-
-          Text('设置')
-            .fontSize(17)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.textColor())
-            .layoutWeight(1)
-            .textAlign(TextAlign.Center)
-
-          Row().width(44).height(44)
-        }
-          .width('100%')
-          .height(56)
-          .padding({ left: 16, right: 16 })
-          .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
-        }
-        .width('100%')
-        .zIndex(10)
-
-        Scroll() {
+        Scroll(this.scroller) {
           Column() {
             // ── 连接 ──
             this.groupTitle('连接')
@@ -2078,8 +2055,6 @@ export struct AppSettingsPage {
         .scrollBar(BarState.Off)
         // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
         .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
-        .margin({ top: -(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) })
-        .hitTestBehavior(HitTestMode.Transparent)
       }
       .width('100%')
       .height('100%')
@@ -2096,31 +2071,28 @@ export struct AppSettingsPage {
         this.infoSheet()
       }
 
-      // 顶部模糊的连续淡出遮罩（单层模糊 + 页面底色渐变，不会出现一条条断裂）
-      Column()
-        .width('100%')
-        .height(26)
-        .position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 26 })
-        .linearGradient({
-          direction: GradientDirection.Bottom,
-          colors: this.isDark
-            ? [['rgba(0,0,0,0)', 0.0], ['rgba(0,0,0,0.35)', 0.45], ['rgba(0,0,0,0.85)', 0.8], ['rgba(0,0,0,0.96)', 1.0]]
-            : [['rgba(242,242,247,0)', 0.0], ['rgba(242,242,247,0.35)', 0.45], ['rgba(242,242,247,0.85)', 0.8], ['rgba(242,242,247,0.96)', 1.0]]
-        })
-        .hitTestBehavior(HitTestMode.None)
-
-      // 覆盖层返回键：根 Stack 最后一个子节点，不被 Scroll 吃掉点击
-      Row() {
-        NavBackButton({ isDark: this.isDark })
-      }
-      .width(40)
-      .height(40)
-      .margin({ left: 16, top: (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 8 })
       }
       .width('100%')
       .height('100%')
     }
-    .hideTitleBar(true)
+    // 原生标题栏：内容滚到标题栏下面时系统渐变模糊 + 玻璃材质；标题由系统渲染（大号、左对齐）
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { title: { mainTitle: '设置' } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
+        originalStyle: { contentStyle: TITLE_BAR_CONTENT },
+        scrollEffectStyle: { contentStyle: TITLE_BAR_CONTENT }
+      }
+    })
+    .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
     // 节点管理：系统半模态 + 沉浸材质（与「切换主机」一致）
     .bindSheet($$this.nodeSheetOpen, this.nodeManageSheetContent(), {
