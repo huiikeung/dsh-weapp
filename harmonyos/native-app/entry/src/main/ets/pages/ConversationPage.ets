@@ -8612,9 +8612,12 @@ export struct ConversationPage {
     // 标题/模式字号已调小；右侧三个圆钮之间收紧，标题与返回钮的间距靠标题自身 margin
     Row({ space: 2 }) {
       // 四个圆钮统一自绘：系统返回键固定 45vp，和右侧三个圆对不齐，
-      // 所以隐藏系统返回键，返回键也用同一套 HdsGlassSurface（渲染尺寸与右侧一致）
+      // 所以隐藏系统返回键，返回键也用同一套 HdsGlassSurface（渲染尺寸与右侧一致）。
+      // 隐藏后标题栏内容区仍从「系统返回键右侧」开始（左内缩 45vp），这里用负 margin 拉回去，
+      // 让返回键回到原来系统返回键的位置（距屏幕左 18vp）
       NavBackButton({ isDark: this.isDark, diameter: this.headerBtnSize(embedded) })
         .id('conversation-back')
+        .margin({ left: embedded ? -45 : 0 })
 
       Column({ space: 2 }) {
         Text(this.activeSessionTitle())
@@ -8638,8 +8641,9 @@ export struct ConversationPage {
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
-      // 与左侧返回按钮拉开距离（按钮之间不放 space，避免右上角三个钮过散）
-      .margin({ left: 12 })
+      // 与左侧返回按钮拉开距离（embedded 时返回键已被负 margin 拉回原位，
+      // 这里补 4vp 让标题仍落在原来的 x 位置）
+      .margin({ left: embedded ? 4 : 12 })
       .onClick(() => {
         this.openSessionSwitcher();
       })
