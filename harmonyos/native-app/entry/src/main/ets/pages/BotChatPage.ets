@@ -15,7 +15,7 @@
 import {
   BotAnswerChoice, BotChat, BotChatImage, BotChatMessage, BotInteraction,
   BotPresentedFile, BotQuestionAnswer, BotSnapshot, BotStore, emptyBotSnapshot,
-  GatewayClient, pickDocuments, pickImages, uploadAttachment, SpeechFailure, SpeechInput
+  GatewayClient, Logger, pickDocuments, pickImages, uploadAttachment, SpeechFailure, SpeechInput
 } from 'nativecore';
 import type { PickedAttachment, SpeechLimits, UploadResult } from 'nativecore';
 import { common } from '@kit.AbilityKit';
@@ -690,7 +690,10 @@ export struct BotChatPage {
         return;
       }
       this.speechLimits = limits;
+      Logger.info('BOT_VOICE catalog provider=' + limits.providerId + ' lang=' + limits.language
+        + ' maxBytes=' + limits.maxBytes.toString());
       const granted: boolean = await this.requestMicPermission();
+      Logger.info('BOT_VOICE mic granted=' + (granted ? '1' : '0'));
       if (token !== this.voiceHoldToken) {
         if (granted) {
           this.showHint('麦克风已授权，按住输入框再说一次');
@@ -711,7 +714,9 @@ export struct BotChatPage {
         return;
       }
       this.setVoicePhase('recording');
+      Logger.info('BOT_VOICE recording started');
     } catch (err) {
+      Logger.warn('BOT_VOICE start failed: ' + (err instanceof Error ? err.message : String(err)));
       this.failVoice(err);
     }
   }
@@ -744,10 +749,13 @@ export struct BotChatPage {
       return;
     }
     this.setVoicePhase('transcribing');
+    Logger.info('BOT_VOICE hold end, transcribing');
     this.dictation.stopAndTranscribe(limits).then((text: string) => {
+      Logger.info('BOT_VOICE transcript len=' + text.length.toString() + ' text=' + text.substring(0, 60));
       this.insertVoiceText(text);
       this.resetVoice();
     }).catch((err: Object) => {
+      Logger.warn('BOT_VOICE transcribe failed: ' + (err instanceof Error ? err.message : String(err)));
       this.failVoice(err);
     });
   }
