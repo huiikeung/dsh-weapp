@@ -9865,6 +9865,10 @@ export struct ConversationPage {
       if (labels.length === 0) {
         return;
       }
+      // 命中缓存后：补拉初期的少量标题不要覆盖完整的缓存列表，等数量追平再替换
+      if (this.turnNavFetched && labels.length < this.turnNodes.length) {
+        return;
+      }
       const nodes: TurnNode[] = [];
       for (let index = 0; index < labels.length; index++) {
         nodes.push({ entryIndex: -1, ordinal: index + 1, label: labels[index] });
