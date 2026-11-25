@@ -10256,9 +10256,9 @@ export struct ConversationPage {
     }, 500);
   }
 
-  /** 胶囊宽度（展开 36 / 折叠 12） */
+  /** 胶囊宽度（展开 36 / 折叠视觉 12，触摸区域给到 24，避免贴边细把手点不中） */
   private capsuleWidth(): number {
-    return this.capsuleExpanded ? TURN_TRACK_WIDTH : 12;
+    return this.capsuleExpanded ? TURN_TRACK_WIDTH : 24;
   }
 
   /** 胶囊左上角坐标：展开时离边 10，折叠后贴边（0）露出细把手，不挡视线 */
@@ -10288,6 +10288,7 @@ export struct ConversationPage {
       return;
     }
     const side: string = offsetX < 0 ? 'left' : 'right';
+    Logger.info('[CapsuleCollapse] by=drag side=' + side);
     animateTo({ duration: 260, curve: Curve.EaseInOut }, () => {
       this.capsuleSide = side;
       this.capsuleExpanded = false;
@@ -10302,6 +10303,7 @@ export struct ConversationPage {
     if (!this.capsuleExpanded) {
       return;
     }
+    Logger.info('[CapsuleCollapse] by=outside side=' + this.capsuleSide + ' navOpen=' + (this.turnNavOpen ? '1' : '0'));
     animateTo({ duration: 220, curve: Curve.EaseOut }, () => {
       this.capsuleExpanded = false;
       this.capsuleDragX = 0;
@@ -10313,7 +10315,7 @@ export struct ConversationPage {
   /** 点击胶囊：一次点击就展开并打开会话节点弹层；弹层开着再点 = 关闭 */
   private tapCapsule(): void {
     Logger.info('[CapsuleTap] expanded=' + (this.capsuleExpanded ? '1' : '0') + ' navOpen=' + (this.turnNavOpen ? '1' : '0')
-      + ' nodes=' + this.turnNodes.length.toString());
+      + ' side=' + this.capsuleSide + ' nodes=' + this.turnNodes.length.toString());
     if (this.turnNavOpen) {
       this.closeTurnNav();
       return;
