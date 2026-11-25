@@ -2440,7 +2440,12 @@ export class SessionStore {
       if (clean.length > 80) {
         clean = clean.substring(0, 80);
       }
-      labels.push(clean.length > 0 ? clean : '（图片）');
+      // 图片消息：有文字 → 「图片」+ 标题文字；只有图片 → 「图片」
+      if (hasImage) {
+        labels.push(clean.length > 0 ? '图片 · ' + clean : '图片');
+      } else if (clean.length > 0) {
+        labels.push(clean);
+      }
     }
     return labels;
   }

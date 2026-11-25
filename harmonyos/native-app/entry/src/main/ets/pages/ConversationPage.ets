@@ -6811,8 +6811,18 @@ export struct ConversationPage {
         this.turnNavOverlay()
       }
 
-      // 不再铺「点空白收起胶囊」的全屏透明遮罩：它会吃掉胶囊旁边的点击，
-      // 表现为「点胶囊没反应/点一次收起一次」。胶囊只靠拖到边缘或设置项收起。
+      // 展开胶囊时：点胶囊以外的空白区域收起为贴边把手（透明遮罩压在胶囊下面，不拦胶囊自身点击）
+      if (this.pageW > 0 && this.capsuleAlwaysVisible && this.capsuleExpanded
+        && !this.sessionPickerOpen && !this.turnNavOpen && !this.turnNavMenuOpen) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor(Color.Transparent)
+          .zIndex(59)
+          .onClick(() => {
+            this.collapseCapsuleByOutsideTap();
+          })
+      }
 
       // 会话节点胶囊：常显浮层（左右拖动吸附折叠，点击展开/打开弹层）
       // 侧栏弹窗展开时先收起，避免浮块压在弹窗旁边；设置里可整体关闭常显
