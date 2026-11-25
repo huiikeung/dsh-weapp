@@ -16,7 +16,7 @@ import {
 import {
   arr, field, asRec, AttachmentCache, AttachmentImageCache, bool, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, ConversationItemKind, downloadAttachment, emptySessionGoal, GatewayClient, GatewayRequestFactory, Logger, num,
   DraftStore, PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, SpeechFailure, SpeechInput, TeamStore, WorkStepPresentation,
-  normalizeRawSessionEvent, parseNamespace, pickDocuments, pickImages, str, uploadAttachment
+  normalizeRawSessionEvent, parseNamespace, pickDocuments, pickImages, str, uploadAttachment, buildSendImagePayload
 } from 'nativecore';
 import type { DirEntry, GatewayEvent, GatewayFrame, GatewayTask, GatewayGoalReference, ModelMenuItem, ModelOption, PresetOption, QueueItem, RawSessionEvent, SessionEvent, SessionGoalView, WorkspaceRow } from 'nativecore';
 import type { TeamMemberView, TeamTaskView } from 'nativecore';
@@ -4187,6 +4187,11 @@ export struct ConversationPage {
       const message: string = error instanceof Error ? error.message : String(error);
       Logger.warn('[SEND] media failed: ' + message);
       this.attachmentHint = message;
+      // 失败必须可见：只写一行小字很多人根本看不到，会以为"点了没反应"
+      try {
+        this.getUIContext().getPromptAction().showToast({ message: '发送失败：' + message });
+      } catch (ignored) {
+      }
     } finally {
       this.sending = false;
     }
@@ -9536,6 +9541,7 @@ export struct ConversationPage {
    * 网关/框架容易直接失败 —— 表现就是「有时候带图发不出去」，小截图却正常。
    */
   private async imagePayloadForSend(att: PickedAttachment): Promise<Object | undefined> {
+    // 统一管线（native-core SendImage）：HEIC/BMP/超大图先转 JPEG，避免网关因 mediaType 拒绝
     const raw: string = att.uri.startsWith('file://') ? att.uri.substring(7) : att.uri;
     let size: number = 0;
     try {
@@ -9543,14 +9549,10 @@ export struct ConversationPage {
     } catch (err) {
       size = 0;
     }
-    if (size > SEND_IMAGE_COMPRESS_AT) {
-      const compressed: Object | undefined = await this.compressImagePayload(att, raw);
-      if (compressed !== undefined) {
-        return compressed;
-      }
-      Logger.warn('[SEND] compress fallback to raw ' + att.name + ' size=' + Math.round(size / 1024).toString() + 'KB');
-    }
-    return this.imagePayloadOf(att);
+    const payload: Object | undefined = await buildSendImagePayload(att.uri, att.name);
+    Logger.info('[SEND] image payload ' + att.name + ' size=' + Math.round(size / 1024).toString()
+      + 'KB ok=' + (payload !== undefined ? '1' : '0'));
+    return payload;
   }
 
   /** 压缩一张图成 JPEG base64 payload；失败返回 undefined（调用方回退原图） */

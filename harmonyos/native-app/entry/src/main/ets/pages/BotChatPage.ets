@@ -17,7 +17,7 @@ import {
   BotAnswerChoice, BotChat, BotChatImage, BotChatMessage, BotInteraction,
   BotPresentedFile, BotQuestionAnswer, BotSnapshot, BotStore, emptyBotSnapshot,
   BotImageCache, GatewayClient, Logger, pickDocuments, pickImages, uploadAttachment, downloadAttachment,
-  SpeechFailure, SpeechInput
+  SpeechFailure, SpeechInput, buildSendImagePayload
 } from 'nativecore';
 import type { DownloadResult, PickedAttachment, SpeechLimits, UploadResult } from 'nativecore';
 import { common } from '@kit.AbilityKit';
@@ -580,6 +580,9 @@ export struct BotChatPage {
         this.pickedAttachments = [];
         this.composerFocused = false;
         this.hint = '';
+      } else {
+        // 发送被拒/超时也要可见，不能静默变成"点了没反应"
+        this.showHint('发送失败：请检查连接后重试');
       }
     }).catch((error: Error) => {
       this.sending = false;
@@ -592,11 +595,14 @@ export struct BotChatPage {
     const files: PickedAttachment[] = [];
     for (const attachment of selected) {
       if (this.isImageAttachment(attachment.name)) {
-        const payload: Object | undefined = this.imagePayloadOf(attachment);
+        // 与工作模式同一条管线：HEIC/BMP/超大图先转 JPEG，避免网关按 mediaType 拒绝
+        this.showHint('正在处理图片 ' + attachment.name);
+        const payload: Object | undefined = await buildSendImagePayload(attachment.uri, attachment.name);
         if (payload !== undefined) {
           images.push(payload);
           continue;
         }
+        throw new Error('图片处理失败：' + attachment.name);
       }
       files.push(attachment);
     }
