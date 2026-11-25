@@ -794,9 +794,11 @@ export struct ConversationPage {
   /**
    * 返回键先收输入条：键盘被返回键收起时，如果等系统收完再 collapse，就是「键盘先落、
    * 输入条再塌」两段。这里直接走 collapseComposer（清焦点 + 补间收缩），和点空白完全一致。
+   * 有草稿时 collapseComposer 只收键盘、输入条保持展开；此时再按一次返回（焦点已清）
+   * 放行退出页面，草稿由 aboutToDisappear 落盘，不会丢。
    */
   onBackPress(): boolean {
-    if (this.composerExpanded()) {
+    if (this.composerFocused) {
       this.collapseComposer();
       return true;
     }
@@ -5944,10 +5946,49 @@ export struct ConversationPage {
     Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
   }
 
+  /**
+   * 独立小号沉浸光感背板（置底按钮用）。
+   * 普通组件的 systemMaterial 在内容区不生效（“out of scope”），只能借 HdsTabs 底部悬浮 Bar 出材质，
+   * 与输入条胶囊同一套 systemMaterialEffect；按钮本体做透明可点层叠在上面。
+   */
+  @Builder
+  hdsGlassBackplate(w: number, h: number) {
+    HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
+      TabContent() {
+        Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
+      }
+      .tabBar(this.emptyTabItem())
+    }
+    .barMode(BarMode.Fixed)
+    .scrollable(false)
+    // 小艺同款三条件：横向 + 底部 + 浮在内容之上（缺一材质不生效）
+    .vertical(false)
+    .barOverlap(true)
+    .barFloatingStyle({
+      adaptToHandedness: false,
+      barSideMargin: 0,
+      barBottomMargin: 0,
+      barWidth: { smallWidth: w, mediumWidth: w, largeWidth: w },
+      systemMaterialEffect: this.dockGlassMaterial()
+    })
+    .barHeight(h)
+    .width(w)
+    .height(h)
+    // TabBar 默认带一层不透明底色：在圆里就是背后那块「带四个直角的深色矩形」，先清掉
+    .barBackgroundColor('#00000000')
+    // 再按高度把整块（含材质）裁成圆形
+    .borderRadius(h / 2)
+    .clip(true)
+    // 只当背板：不抢触摸、不抢焦点
+    .hitTestBehavior(HitTestMode.None)
+    .focusable(false)
+    .enabled(false)
+  }
+
   /** 输入区是否处于展开态（与 ConversationComposer.expanded() 同一套判定） */
   private composerExpanded(): boolean {
-    // 与 ConversationComposer.expanded() 保持一致：草稿不再算展开（草稿不丢，重新点输入框会带出来）
-    return this.composerFocused || this.pickedAttachments.length > 0;
+    // 与 ConversationComposer.expanded() 保持一致：草稿/附件算展开（收键盘不塌回单栏）
+    return this.composerFocused || this.draft.trim().length > 0 || this.pickedAttachments.length > 0;
   }
 
   /** 系统键盘高度监听（收起键盘时折叠输入条，不等 onBlur） */
@@ -6038,11 +6079,15 @@ export struct ConversationPage {
     this.permissionMenuOpen = false;
     this.modelMenuOpen = false;
     this.metricPopover = '';
+    // 有草稿/附件时输入条保持展开：这里只收键盘（清焦点），高度不塌回 52
+    const keepExpanded: boolean = this.draft.trim().length > 0 || this.pickedAttachments.length > 0;
     // 收键盘 + 收起输入条同时开始：两者都用 200ms 补间，视觉上是同步的一次过渡
     this.getUIContext().getFocusController().clearFocus();
     this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
       this.composerFocused = false;
-      this.dockBarHeight = 52;
+      if (!keepExpanded) {
+        this.dockBarHeight = 52;
+      }
     });
   }
 
@@ -6222,8 +6267,9 @@ export struct ConversationPage {
               if (Math.abs(quantized - this.dockCardHeight) >= 2) {
                 this.dockCardHeight = quantized;
               }
-              // 只有展开态才跟随（多行输入长高）；收起态目标固定 52，由补间负责
-              if (this.composerFocused && Math.abs(quantized - this.lastExpandedCardHeight) >= 2) {
+              // 展开态（聚焦或有草稿/附件）都跟随（多行输入长高）；收起态目标固定 52，由补间负责
+              // 有草稿未聚焦时也要跟随：进页面恢复草稿直接渲染展开卡，胶囊高度必须同步对齐
+              if (this.composerExpanded() && Math.abs(quantized - this.lastExpandedCardHeight) >= 2) {
                 this.lastExpandedCardHeight = quantized;
                 this.dockBarHeight = quantized;
               }
@@ -6245,9 +6291,11 @@ export struct ConversationPage {
               }
               // 展开/收起用补间过渡：卡片高度和胶囊高度一起变，避免瞬间跳变看着卡
               // 250ms 与系统键盘收起动画同时长，两条动画同起同落，不会出现「键盘落完、卡片还在缩」
+              // 有草稿/附件时失焦只收键盘，输入条保持展开高度（与 collapseComposer 同一判定）
+              const keepExpanded: boolean = this.draft.trim().length > 0 || this.pickedAttachments.length > 0;
               this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
                 this.composerFocused = focused;
-                this.dockBarHeight = focused ? this.lastExpandedCardHeight : 52;
+                this.dockBarHeight = (focused || keepExpanded) ? this.lastExpandedCardHeight : 52;
               });
             },
             onDraft: (value: string) => {
@@ -9562,10 +9610,11 @@ export struct ConversationPage {
       .hitTestBehavior(HitTestMode.None)
 
       if (!this.autoStick && this.entries.length > 0) {
-        // 回到底部：与「返回」按钮同款的 iOS Liquid Glass 玻璃盘（无实色外圈）
+        // 回到底部：圆形按钮，玻璃背板走 HdsTabs 悬浮 Bar（与输入条同一套 systemMaterialEffect），
+        // 本体只做透明可点层 + 箭头。
         Row() {
           Stack({ alignContent: Alignment.Center }) {
-            // 与「返回」按钮完全同款：iOS Liquid Glass 单一玻璃盘（无实色外圈）
+            this.hdsGlassBackplate(40, 40)
             Button({ type: ButtonType.Circle }) {
               // 向下箭头：右 + 下 1.8vp 描边旋转 45°
               Row()
@@ -9580,11 +9629,8 @@ export struct ConversationPage {
             }
             .width(40)
             .height(40)
-            // 去掉 Button 默认的系统蓝底
             .buttonStyle(ButtonStyleMode.NORMAL)
-            // 与悬浮 TabBar 同一套沉浸光感材质（systemMaterial），不铺 backgroundColor
-            .systemMaterial(this.dockMaterial())
-            .border({ width: 1, color: this.dockMaterialEdge() })
+            .backgroundColor('#00000000')
             .onClick(() => {
               this.autoStick = true;
               this.scroller.scrollEdge(Edge.Bottom);
@@ -9593,7 +9639,6 @@ export struct ConversationPage {
           .width(40)
           .height(40)
           .borderRadius(20)
-          // 投影与系统菜单同款（画在不裁剪的容器上，Button 会裁剪自身 shadow）
           .shadow({ radius: 14, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetX: 0, offsetY: 6 })
         }
         .width('100%')

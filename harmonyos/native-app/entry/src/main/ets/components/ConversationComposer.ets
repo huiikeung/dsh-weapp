@@ -346,9 +346,9 @@ export struct ConversationComposer {
   }
 
   private expanded(): boolean {
-    // 草稿不再强制展开：点输入框以外区域 / 收键盘时应该能自动折叠；
-    // 草稿本身不会丢，重新点输入框会带着草稿展开
-    return this.focused || this.attachmentCount > 0;
+    // 有草稿或有附件时保持展开卡片：收键盘 / 点输入框以外区域只收焦点，输入条不塌回单栏
+    // （内容还在输入框里，塌下去再点开很折腾）；草稿为空才自动折叠回胶囊
+    return this.focused || this.hasDraft() || this.attachmentCount > 0;
   }
 
   private hasDraft(): boolean {
