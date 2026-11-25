@@ -1444,7 +1444,10 @@ export struct ConversationPage {
       const path: string = att.path === undefined ? '' : att.path;
       const id: string = att.attachmentId === undefined ? '' : att.attachmentId;
       const mediaType: string = att.mediaType === undefined ? '' : att.mediaType;
-      out.push(kind + '\u0001' + att.name + '\u0001' + path + '\u0001' + id + '\u0001' + mediaType);
+      // 第 6 段是字节数：卡片副标题要显示「PDF 7.3MB」（对齐 dsh 电脑端）
+      const bytes: number = att.bytes === undefined ? 0 : att.bytes;
+      out.push(kind + '\u0001' + att.name + '\u0001' + path + '\u0001' + id + '\u0001' + mediaType
+        + '\u0001' + bytes.toString());
     }
     return out;
   }

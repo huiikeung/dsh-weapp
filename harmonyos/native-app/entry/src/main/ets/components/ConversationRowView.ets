@@ -467,17 +467,7 @@ export struct ConversationRowView {
   @Builder
   deliverableCard(chip: string) {
     Row({ space: 14 }) {
-      Stack({ alignContent: Alignment.Center }) {
-        Column()
-          .width(52)
-          .height(52)
-          .borderRadius(13)
-          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(16,19,24,0.04)')
-        this.fileKindBadge(this.fileKind(chip))
-      }
-      .width(52)
-      .height(52)
-      .flexShrink(0)
+      this.fileKindBadge(this.fileKind(chip))
 
       Column({ space: 3 }) {
         Text(this.fileAt(chip, 1).length > 0 ? this.fileAt(chip, 1) : this.filePathOf(chip))
@@ -853,48 +843,53 @@ export struct ConversationRowView {
   @Builder
   fileKindBadge(kind: string) {
     if (kind === 'doc' || kind === 'docx') {
-      this.officeBadge(34, '#2B579A', 'W')
+      this.officeBadge(44, '#2B579A', 'W')
     } else if (kind === 'xls' || kind === 'xlsx' || kind === 'csv') {
-      this.officeBadge(34, '#217346', 'X')
+      this.officeBadge(44, '#217346', 'X')
     } else if (kind === 'ppt' || kind === 'pptx') {
-      this.officeBadge(34, '#D24726', 'P')
+      this.officeBadge(44, '#D24726', 'P')
     } else if (kind === 'pdf') {
-      this.officeBadge(34, '#D93025', 'PDF')
+      this.officeBadge(44, '#D93025', 'PDF')
     } else {
       Image(fileKindIcon(kind))
-        .width(34)
-        .height(34)
+        .width(44)
+        .height(44)
         .objectFit(ImageFit.Contain)
     }
   }
 
-  /** 彩色圆角方块 + 白色字母（带右上折角高光，贴近 dsh 端 Office 图标） */
+  /**
+   * 彩色圆角方块 + 白色字母 + 右上折角（对齐 dsh 电脑端 PDF/Word 文件图标：
+   * 纯色方块、白色粗体类型字、右上角一块白色折角）。
+   */
   @Builder
   officeBadge(size: number, color: string, letter: string) {
-    Stack({ alignContent: Alignment.TopEnd }) {
-      Stack({ alignContent: Alignment.Center }) {
-        Column()
-          .width(size)
-          .height(size)
-          .borderRadius(size * 0.24)
-          .backgroundColor(color)
-        Text(letter)
-          .fontSize(letter.length > 1 ? size * 0.34 : size * 0.5)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#FFFFFF')
-      }
-      .width(size)
-      .height(size)
-
-      // 右上折角：半透明白三角
+    Stack({ alignContent: Alignment.BottomStart }) {
       Column()
-        .width(size * 0.34)
-        .height(size * 0.34)
-        .borderRadius({ topRight: size * 0.24 })
-        .backgroundColor('rgba(255,255,255,0.28)')
+        .width(size)
+        .height(size)
+        .borderRadius(size * 0.2)
+        .backgroundColor(color)
+
+      Text(letter)
+        .fontSize(letter.length > 1 ? size * 0.32 : size * 0.5)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#FFFFFF')
+        .width('100%')
+        .textAlign(TextAlign.Center)
+        .margin({ bottom: size * 0.22 })
+
+      // 右上折角：白色三角（用两条边拼出斜切效果）
+      Column()
+        .width(size * 0.36)
+        .height(size * 0.36)
+        .backgroundColor('#FFFFFF')
+        .rotate({ angle: 45 })
+        .position({ x: size * 0.64, y: -size * 0.18 })
     }
     .width(size)
     .height(size)
+    .clip(true)
   }
 
   /**
@@ -904,17 +899,8 @@ export struct ConversationRowView {
   @Builder
   fileReferenceCard(chip: string) {
     Row({ space: 14 }) {
-      Stack({ alignContent: Alignment.Center }) {
-        Column()
-          .width(52)
-          .height(52)
-          .borderRadius(13)
-          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(16,19,24,0.04)')
-        this.fileKindBadge(this.attachmentFileKind(chip))
-      }
-      .width(52)
-      .height(52)
-      .flexShrink(0)
+      // 图标直接放在卡片上（不套底板），与 dsh 电脑端一致
+      this.fileKindBadge(this.attachmentFileKind(chip))
 
       Column({ space: 3 }) {
         Text(this.attachmentName(chip))
@@ -952,7 +938,28 @@ export struct ConversationRowView {
     const label: string = this.attachmentKindLabel(chip);
     // dsh 端会去掉说明末尾括号里的展开清单（FileCardDescription.summary）
     const description: string = fileCardSummary(this.attachmentDescription(chip));
-    return description.length > 0 ? label + '：' + description : label;
+    if (description.length > 0) {
+      return label + '：' + description;
+    }
+    // 没有说明时显示大小：「PDF 7.3MB」
+    const size: string = this.attachmentSizeText(chip);
+    return size.length > 0 ? label + ' ' + size : label;
+  }
+
+  /** 附件字节数 → 人话大小（chip 第 6 段；0 表示未知） */
+  private attachmentSizeText(chip: string): string {
+    const parts: string[] = chip.split('\u0001');
+    const bytes: number = parts.length > 5 ? Number(parts[5]) : 0;
+    if (isNaN(bytes) || bytes <= 0) {
+      return '';
+    }
+    if (bytes < 1024) {
+      return bytes.toString() + 'B';
+    }
+    if (bytes < 1024 * 1024) {
+      return (bytes / 1024).toFixed(1) + 'KB';
+    }
+    return (bytes / (1024 * 1024)).toFixed(1) + 'MB';
   }
 
   /** 附件类型（走 dsh 端 FileIconCatalog 口径） */
