@@ -8654,7 +8654,7 @@ export struct ConversationPage {
           // 图标沿用小程序 assets/icons/dsh-team(-dark).svg
           // 与返回键完全同源：SymbolGlyph + 同字号/同字重/同色
           SymbolGlyph($r('sys.symbol.person_2'))
-            .fontSize(this.headerBtnSize(embedded) * 0.45)
+            .fontSize(this.headerBtnSize(embedded) * 0.66)
             .fontColor([this.navIconColor()])
             .fontWeight(FontWeight.Medium)
         }
@@ -8705,7 +8705,7 @@ export struct ConversationPage {
         // 线宽对齐「协作」图标：dsh_team.svg 为 16 viewBox / stroke 1，显示 20vp → 实际 1.25vp
         // 与返回键完全同源：SymbolGlyph + 同字号/同字重/同色
         SymbolGlyph(this.sessionPickerOpen ? $r('sys.symbol.close_sidebar') : $r('sys.symbol.open_sidebar'))
-          .fontSize(this.headerBtnSize(embedded) * 0.45)
+          .fontSize(this.headerBtnSize(embedded) * 0.66)
           .fontColor([this.navIconColor()])
           .fontWeight(FontWeight.Medium)
       }
@@ -8738,7 +8738,7 @@ export struct ConversationPage {
         // 颜色与左侧侧栏图标（navIconColor）一致
         // 系统 more 符号（九宫格）；字号/字重/颜色与返回键完全一致
         SymbolGlyph($r('sys.symbol.more'))
-          .fontSize(this.headerBtnSize(embedded) * 0.45)
+          .fontSize(this.headerBtnSize(embedded) * 0.66)
           .fontColor([this.navIconColor()])
           .fontWeight(FontWeight.Medium)
       }
