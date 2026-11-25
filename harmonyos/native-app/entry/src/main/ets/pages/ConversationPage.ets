@@ -9989,15 +9989,9 @@ export struct ConversationPage {
     if (nodes.length === 0) {
       return;
     }
-    const statsTotal: number = this.sessionTurnCount();
-    const total: number = statsTotal > 0 ? statsTotal : nodes.length;
-    const target: number = Math.min(Math.max(total, nodes.length), 400);
-    for (let ordinal = nodes.length + 1; ordinal <= target; ordinal++) {
-      nodes.push({ entryIndex: -1, ordinal: ordinal, label: '第 ' + ordinal + ' 轮 · 加载中…', placeholder: true });
-    }
-    this.turnNodes = nodes;
-    if (this.turnNodeIndex >= nodes.length) {
-      this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
+    this.turnNodes = this.padTurnNodes(nodes);
+    if (this.turnNodeIndex >= this.turnNodes.length) {
+      this.turnNodeIndex = this.turnNodes.length > 0 ? this.turnNodes.length - 1 : 0;
     }
   }
 
@@ -10024,11 +10018,11 @@ export struct ConversationPage {
       // 空结果不覆盖已有节点：保留上一帧，等下一帧有数据再更新
       return;
     }
-    this.turnNodes = nodes;
+    this.turnNodes = this.padTurnNodes(nodes);
     if (keepSelection) {
-      this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
-    } else if (this.turnNodeIndex >= nodes.length) {
-      this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
+      this.turnNodeIndex = this.turnNodes.length > 0 ? this.turnNodes.length - 1 : 0;
+    } else if (this.turnNodeIndex >= this.turnNodes.length) {
+      this.turnNodeIndex = this.turnNodes.length > 0 ? this.turnNodes.length - 1 : 0;
     }
   }
 
@@ -10042,12 +10036,37 @@ export struct ConversationPage {
     return false;
   }
 
+  /** 节点所属会话：换会话后不再拿旧会话行数兜底 */
+  private turnNodesSession: string = '';
+
+  /**
+   * 节点列表统一补齐：按统计总轮次补「第 k 轮 · 加载中…」占位行。
+   * 同一会话内行数只增不减，不会出现「90 多行突然变 2、3 行」。
+   */
+  private padTurnNodes(nodes: TurnNode[]): TurnNode[] {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    const sameSession: boolean = sessionId.length > 0 && sessionId === this.turnNodesSession;
+    const previous: number = sameSession ? this.turnNodes.length : 0;
+    const statsTotal: number = this.sessionTurnCount();
+    const total: number = statsTotal > 0 ? statsTotal : Math.max(previous, nodes.length);
+    const target: number = Math.min(Math.max(total, nodes.length), 400);
+    for (let ordinal = nodes.length + 1; ordinal <= target; ordinal++) {
+      nodes.push({ entryIndex: -1, ordinal: ordinal, label: '第 ' + ordinal + ' 轮 · 加载中…', placeholder: true });
+    }
+    this.turnNodesSession = sessionId;
+    return nodes;
+  }
+
   /** 重建节点列表；keepSelection=true 时把选中项落到最后一条 */
   private refreshTurnNodes(keepSelection: boolean): void {
     const nodes: TurnNode[] = this.buildTurnNodes();
-    this.turnNodes = nodes;
-    if (keepSelection || this.turnNodeIndex >= nodes.length) {
-      this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
+    // 时间线还没重建出用户消息时不要清空已有节点（否则弹层行数会闪退）
+    if (nodes.length === 0) {
+      return;
+    }
+    this.turnNodes = this.padTurnNodes(nodes);
+    if (keepSelection || this.turnNodeIndex >= this.turnNodes.length) {
+      this.turnNodeIndex = this.turnNodes.length > 0 ? this.turnNodes.length - 1 : 0;
     }
   }
 
