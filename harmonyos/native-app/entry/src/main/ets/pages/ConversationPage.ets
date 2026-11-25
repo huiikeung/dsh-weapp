@@ -7986,12 +7986,135 @@ export struct ConversationPage {
       this.hint = '未连接网关';
       return;
     }
+    const previousEffort: string = this.currentEffort();
     // 会话级选择：本地乐观更新 chip（对齐小程序 sessionState.selection），不覆盖主机默认模型
     this.selectedModel = model;
     this.selectedProvider = provider;
-    this.refreshModelEfforts();
-    client.requestGateway(GatewayRequestFactory.selectModel(sessionId, provider, model, this.currentEffort())).catch((error: Error) => {
-      this.hint = '模型切换失败：' + error.message;
+    // 新模型的推理档位要重新拉取（key 含模型 id，清掉旧 key 允许请求）
+    this.modelEffortsKey = '';
+    const send = (effort: string): void => {
+      client.requestGateway(GatewayRequestFactory.selectModel(sessionId, provider, model, effort)).catch((error: Error) => {
+        this.hint = '模型切换失败：' + error.message;
+      });
+    };
+    // 新模型可能没有原模型的档位（如当前 max，新模型只有 low/medium/high）：
+    // 先拉新模型档位 → 当前档位仍可用则保留；否则用 DSH 目录默认档位；再否则取它有的最高档。
+    this.requestModelEfforts(sessionId, model).then((catalogIds: string[]) => {
+      if (catalogIds.length === 0 || catalogIds.indexOf(previousEffort) >= 0) {
+        send(previousEffort);
+        return;
+      }
+      const option: ModelOption | undefined = this.findModelOption(provider, model);
+      const hostDefault: string = option !== undefined ? option.defaultEffort : '';
+      if (hostDefault.length > 0 && catalogIds.indexOf(hostDefault) >= 0) {
+        this.selectedEffort = hostDefault;
+        send(hostDefault);
+        return;
+      }
+      const highest: string = this.highestEffort(catalogIds);
+      this.selectedEffort = highest;
+      send(highest);
+    }).catch(() => {
+      // 档位拉取失败：按旧逻辑用当前档位发送
+      send(previousEffort);
+    });
+  }
+
+  private findModelOption(provider: string, model: string): ModelOption | undefined {
+    for (const option of this.modelOptions) {
+      if (option.model === model && (provider.length === 0 || option.provider === provider)) {
+        return option;
+      }
+    }
+    return undefined;
+  }
+
+  /** 档位高低排序（未识别的自定义档位视为较高）。 */
+  private effortRank(id: string): number {
+    const order: string[] = ['off', 'none', 'disabled', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+    const at: number = order.indexOf(id.toLowerCase());
+    return at >= 0 ? at : 50;
+  }
+
+  private highestEffort(ids: string[]): string {
+    let best: string = ids.length > 0 ? ids[0] : 'high';
+    let bestRank: number = this.effortRank(best);
+    for (const id of ids) {
+      const rank: number = this.effortRank(id);
+      if (rank > bestRank) {
+        best = id;
+        bestRank = rank;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * 拉取指定模型的推理档位。resolve 的是「模型目录里声明的档位」（用于切换决策）；
+   * 会话当前档位仍会追加进 modelEfforts 供菜单显示，但不参与决策。
+   */
+  private requestModelEfforts(sessionId: string, model: string): Promise<string[]> {
+    return new Promise<string[]>((resolve: (ids: string[]) => void, reject: (e: Error) => void) => {
+      const client: GatewayClient = GatewayClient.get();
+      if (!client.isConnected()) {
+        reject(new Error('not connected'));
+        return;
+      }
+      this.modelEffortsKey = sessionId + '|' + model;
+      const request = sessionId.length > 0
+        ? GatewayRequestFactory.make('models', 'models', { 'sessionId': sessionId }, sessionId)
+        : GatewayRequestFactory.simple('models');
+      client.requestGateway(request, 15000).then((frame: GatewayFrame) => {
+        const rec: Record<string, Object> = asRec(frame) ?? ({} as Record<string, Object>);
+        const rawGroups = rec['groups'];
+        const groups = rawGroups !== undefined && Array.isArray(rawGroups) ? rawGroups as Object[] : [];
+        const needle: string = model.toLowerCase();
+        const catalogIds: string[] = [];
+        const ids: string[] = [];
+        const names: string[] = [];
+        for (const group of groups) {
+          const g = group as Record<string, Object>;
+          const rawModels = g['models'];
+          if (rawModels === undefined || !Array.isArray(rawModels)) {
+            continue;
+          }
+          for (const one of rawModels as Object[]) {
+            const m = one as Record<string, Object>;
+            if (String(m['id'] ?? '').toLowerCase() !== needle) {
+              continue;
+            }
+            const reasoning = m['reasoning'] as Record<string, Object> | undefined;
+            const efforts = reasoning === undefined ? undefined : reasoning['efforts'];
+            if (efforts !== undefined && Array.isArray(efforts)) {
+              for (const level of efforts as Object[]) {
+                const er = level as Record<string, Object>;
+                const id: string = String(er['id'] ?? '');
+                if (id.length === 0 || ids.indexOf(id) >= 0) {
+                  continue;
+                }
+                catalogIds.push(id);
+                ids.push(id);
+                names.push(String(er['name'] ?? this.effortName(id)));
+              }
+            }
+          }
+        }
+        const rawCurrent = rec['current'];
+        if (rawCurrent !== undefined && !Array.isArray(rawCurrent)) {
+          const sessionEffort: string = String((rawCurrent as Record<string, Object>)['reasoningEffort'] ?? '');
+          if (sessionEffort.length > 0 && ids.indexOf(sessionEffort) < 0) {
+            ids.push(sessionEffort);
+            names.push(this.effortName(sessionEffort));
+          }
+        }
+        this.modelEfforts = ids;
+        this.modelEffortNames = names;
+        resolve(catalogIds);
+      }).catch((err: Error) => {
+        this.modelEfforts = [];
+        this.modelEffortNames = [];
+        reject(err);
+      });
     });
   }
 

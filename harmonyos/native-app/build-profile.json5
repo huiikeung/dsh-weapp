@@ -5,26 +5,13 @@
         "name": "default",
         "type": "HarmonyOS",
         "material": {
-          "certpath": "C:/Users/0the/.ohos/config/default_native-app_p5q5P4XD61VoqA7BF17wzzumO_NuGo9EjjsV8TUR11U=.cer",
+          "certpath": "/Users/0the/.ohos/config/default_native-app_gGiDr2MCjbgYGrRJJBGW6Trb8PiBuhsbGSVRZnF0EUI=.cer",
           "keyAlias": "debugKey",
-          "keyPassword": "0000001BC0D8F3A51F3D75580F202DA56E32C492C23821A818DC6CFFB64866F33F19C04C674357CDB53CF4",
-          "profile": "C:/Users/0the/.ohos/config/default_native-app_p5q5P4XD61VoqA7BF17wzzumO_NuGo9EjjsV8TUR11U=.p7b",
+          "keyPassword": "0000001BD01B07CB8F10DEF5605FC470B45FE7C9B5F65692322CFB21B5E5E7C8DD0975915CF0D2FF8A2E59",
+          "profile": "/Users/0the/.ohos/config/default_native-app_gGiDr2MCjbgYGrRJJBGW6Trb8PiBuhsbGSVRZnF0EUI=.p7b",
           "signAlg": "SHA256withECDSA",
-          "storeFile": "C:/Users/0the/.ohos/config/default_native-app_p5q5P4XD61VoqA7BF17wzzumO_NuGo9EjjsV8TUR11U=.p12",
-          "storePassword": "0000001BF28CD04E90F078C590F329198A58DAA8841106D5647222FD5EE8B01E9F57B6252DB310D8545A3B"
-        }
-      },
-      {
-        "name": "release",
-        "type": "HarmonyOS",
-        "material": {
-          "certpath": "D:/Other/P-Program/_release-signing-v2/flukit.cer",
-          "keyAlias": "release",
-          "keyPassword": "00000044316FF0A7470A255F24AA5E28C8A275D55D7FF030EBC89A55ECA98636CBAAAC68888030ABE34DB1C99F94E9AEE6BB9E801117CCF959FA9A92387E6BF2E1A9111D44D5B01A1EB68B0054B39B396CF237D2",
-          "profile": "D:/Other/P-Program/_release-signing-v2/flukitRelease.p7b",
-          "signAlg": "SHA256withECDSA",
-          "storeFile": "D:/Other/P-Program/_release-signing-v2/release.p12",
-          "storePassword": "00000044DCBEE65BD53556FFB20BF7D16CAC140E793FBDC92E615528C758A9A876F3E387210FBD54E430BA4B201BB1C31FE6FD87CA8461C4D01E08D06F3B8D6CFF2FED55DBEB5FF0EDFFC90DA22128A1E7FF01A0"
+          "storeFile": "/Users/0the/.ohos/config/default_native-app_gGiDr2MCjbgYGrRJJBGW6Trb8PiBuhsbGSVRZnF0EUI=.p12",
+          "storePassword": "0000001B5E7FE49CE1D6EC55BBA68BEAEE29FA7A97DC6F4969E855B3FF05B8BE10382B9E83FF6320D35593"
         }
       }
     ],
@@ -32,19 +19,6 @@
       {
         "name": "default",
         "signingConfig": "default",
-        "compatibleSdkVersion": "26.0.0",
-        "targetSdkVersion": "26.0.0",
-        "runtimeOS": "HarmonyOS",
-        "buildOption": {
-          "strictMode": {
-            "caseSensitiveCheck": true,
-            "useNormalizedOHMUrl": true
-          }
-        }
-      },
-      {
-        "name": "release",
-        "signingConfig": "release",
         "compatibleSdkVersion": "26.0.0",
         "targetSdkVersion": "26.0.0",
         "runtimeOS": "HarmonyOS",
@@ -73,8 +47,7 @@
         {
           "name": "default",
           "applyToProducts": [
-            "default",
-            "release"
+            "default"
           ]
         }
       ]
@@ -86,8 +59,7 @@
         {
           "name": "default",
           "applyToProducts": [
-            "default",
-            "release"
+            "default"
           ]
         }
       ]
