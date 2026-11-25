@@ -19,6 +19,7 @@ import {
 } from 'nativecore';
 import type { PickedAttachment, UploadResult } from 'nativecore';
 import { common } from '@kit.AbilityKit';
+import { pasteboard } from '@kit.BasicServicesKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
@@ -113,6 +114,11 @@ export struct BotChatPage {
   @State attachMenuOpen: boolean = false;
   /** 输入框上方的轻提示（附件失败等） */
   @State hint: string = '';
+  /** 图片大图预览（与工作模式同一套：底部玻璃 sheet + 双指缩放） */
+  @State previewOpen: boolean = false;
+  @State previewPath: string = '';
+  @State previewZoom: number = 1;
+  private previewZoomBase: number = 1;
 
   private scroller: Scroller = new Scroller();
   private lastTailKey: string = '';
@@ -532,6 +538,200 @@ export struct BotChatPage {
       }
     }
     return BotStore.get().sendMessage(text, images, receipts);
+  }
+
+
+  // ==================== 图片预览 / 文件卡（对齐工作模式 + iOS FileReferenceCard） ====================
+
+  private openImagePreview(path: string): void {
+    if (path.length === 0) {
+      return;
+    }
+    this.previewPath = path;
+    this.previewZoom = 1;
+    this.previewZoomBase = 1;
+    this.previewOpen = true;
+  }
+
+  /** 大图 + 双指缩放（1~4 倍，松手保持）—— 与工作模式 zoomablePreviewImage 同一套 */
+  @Builder
+  zoomablePreviewImage(path: string) {
+    if (path.length > 0) {
+      Image(path)
+        .width('100%')
+        .layoutWeight(1)
+        .objectFit(ImageFit.Contain)
+        .margin({ bottom: 12 })
+        .scale({ x: this.previewZoom, y: this.previewZoom })
+        .gesture(
+          PinchGesture({ fingers: 2 })
+            .onActionStart(() => {
+              this.previewZoomBase = this.previewZoom;
+            })
+            .onActionUpdate((event: GestureEvent) => {
+              const next: number = this.previewZoomBase * event.scale;
+              this.previewZoom = next < 1 ? 1 : (next > 4 ? 4 : next);
+            })
+        )
+    }
+  }
+
+  /** 图片预览弹窗内容（底部玻璃 sheet，下拉/点空白关闭，与工作模式同构） */
+  @Builder
+  imagePreviewSheet() {
+    Column() {
+      Row() {
+        Column()
+          .width(36)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(16,19,24,0.18)')
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.Center)
+      .padding({ top: 8, bottom: 6 })
+
+      this.zoomablePreviewImage(this.previewPath)
+    }
+    .width('100%')
+    .height('100%')
+    .padding({ left: 12, right: 12, top: 4, bottom: 8 })
+    .backgroundColor(Color.Transparent)
+  }
+
+  private fileExtension(name: string): string {
+    const normalized: string = name.replace(/\\/g, '/');
+    const base: string = normalized.substring(normalized.lastIndexOf('/') + 1).toLowerCase();
+    const dot: number = base.lastIndexOf('.');
+    return dot >= 0 ? base.substring(dot + 1) : '';
+  }
+
+  private fileNameOf(file: BotPresentedFile): string {
+    const normalized: string = file.name.length > 0 ? file.name : file.path;
+    const base: string = normalized.replace(/\\/g, '/');
+    const at: number = base.lastIndexOf('/');
+    return at >= 0 ? base.substring(at + 1) : base;
+  }
+
+  /** 文件类型主色（对齐 iOS FileIconKind.colorRgb，按扩展名分组） */
+  private fileTint(kind: string): string {
+    if (kind === 'pdf') return '#D92D20';
+    if (kind === 'document') return '#155EEF';
+    if (kind === 'sheet') return '#079455';
+    if (kind === 'slides') return '#E62E05';
+    if (kind === 'code') return '#444CE7';
+    if (kind === 'image') return '#7F56D9';
+    if (kind === 'media') return '#DD2590';
+    if (kind === 'video') return '#155EEF';
+    return '#344054';
+  }
+
+  /** 扩展名 → 图标分组（对齐 shared FileIconKind 的映射口径） */
+  private fileKindOf(name: string): string {
+    const ext: string = this.fileExtension(name);
+    if (ext === 'pdf') return 'pdf';
+    if (ext === 'doc' || ext === 'docx' || ext === 'odt' || ext === 'epub' || ext === 'rtf') return 'document';
+    if (ext === 'xls' || ext === 'xlsx' || ext === 'csv' || ext === 'tsv' || ext === 'ods') return 'sheet';
+    if (ext === 'ppt' || ext === 'pptx' || ext === 'odp') return 'slides';
+    if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif' || ext === 'webp' || ext === 'svg') return 'image';
+    if (ext === 'mp3' || ext === 'wav' || ext === 'm4a') return 'media';
+    if (ext === 'mp4' || ext === 'mov' || ext === 'mkv') return 'video';
+    if (ext === 'txt' || ext === 'md' || ext === 'markdown') return 'text';
+    const code: string[] = ['c', 'cpp', 'h', 'hpp', 'cs', 'java', 'kt', 'swift', 'py', 'js', 'jsx', 'ts', 'tsx',
+      'html', 'css', 'scss', 'vue', 'svelte', 'go', 'rs', 'dart', 'rb', 'php', 'sh', 'ps1', 'sql', 'json',
+      'yaml', 'yml', 'xml', 'toml', 'ini', 'conf', 'env', 'gradle', 'cmake', 'make', 'bat'];
+    if (code.indexOf(ext) >= 0) return 'code';
+    if (ext === 'zip' || ext === 'rar' || ext === '7z') return 'archive';
+    if (ext === 'apk' || ext === 'ipa') return 'package';
+    return 'unknown';
+  }
+
+  /** 文件卡背景色：主色 8%（浅色）/16%（深色）与白/近黑表面混色（对齐 iOS cardBackgroundRgb） */
+  private fileCardBg(kind: string): string {
+    const tint: string = this.fileTint(kind);
+    const amount: number = this.isDark ? 0.16 : 0.08;
+    const surface: number[] = this.isDark ? [28, 28, 30] : [255, 255, 255];
+    const value: number = parseInt(tint.substring(1), 16);
+    const red: number = Math.round(((value >> 16) & 255) * amount + surface[0] * (1 - amount));
+    const green: number = Math.round(((value >> 8) & 255) * amount + surface[1] * (1 - amount));
+    const blue: number = Math.round((value & 255) * amount + surface[2] * (1 - amount));
+    return 'rgb(' + red.toString() + ',' + green.toString() + ',' + blue.toString() + ')';
+  }
+
+  /** 文件卡左侧彩色文件图标（圆角方块 + 折角，主色按类型） */
+  @Builder
+  fileGlyph(kind: string) {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width(38)
+        .height(38)
+        .borderRadius(10)
+        .backgroundColor(this.fileTint(kind))
+        .opacity(0.16)
+      Column()
+        .width(20)
+        .height(24)
+        .borderRadius(4)
+        .border({ width: 1.8, color: this.fileTint(kind) })
+      Column()
+        .width(8)
+        .height(8)
+        .borderRadius(1)
+        .backgroundColor(this.fileCardBg(kind))
+        .position({ x: 9, y: 7 })
+    }
+    .width(38)
+    .height(38)
+    .flexShrink(0)
+  }
+
+  /**
+   * 文件卡（对齐 iOS FileReferenceCard）：图标 + 文件名 + 描述，宽度自适应、最大 320，
+   * 背景按文件类型着色，圆角 12，点按交给页面处理。
+   */
+  @Builder
+  fileCard(file: BotPresentedFile) {
+    Row({ space: 12 }) {
+      this.fileGlyph(this.fileKindOf(this.fileNameOf(file)))
+      Column({ space: 4 }) {
+        Text(this.fileNameOf(file))
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.ink())
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(file.path)
+          .fontSize(12)
+          .fontColor(this.subColor())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+    }
+    .padding(12)
+    .constraintSize({ maxWidth: 320 })
+    .backgroundColor(this.fileCardBg(this.fileKindOf(this.fileNameOf(file))))
+    .borderRadius(12)
+    .onClick(() => {
+      this.onOpenFile(file);
+    })
+  }
+
+  private onOpenFile(file: BotPresentedFile): void {
+    // Bot 协议暂无跨端文件下载通道：点卡片把完整路径复制到剪贴板（并提示），方便到主机侧打开
+    try {
+      const path: string = file.path;
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, path);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        try {
+          this.getUIContext().getPromptAction().showToast({ message: '已复制文件路径' });
+        } catch (ignored) {
+        }
+      }).catch(() => {
+      });
+    } catch (error) {
+    }
   }
 
   // ==================== 「+」附件（对齐工作模式 composer 的加号菜单） ====================
@@ -1288,36 +1488,24 @@ export struct BotChatPage {
                     chatId: this.state.selectedChatId ?? '',
                     attachmentId: image.attachmentId,
                     sessionId: image.sessionId,
-                    mediaType: image.mediaType
+                    mediaType: image.mediaType,
+                    onOpen: (ready: string) => {
+                      this.openImagePreview(ready);
+                    }
                   })
                     .margin({ right: 6, bottom: 6 })
                 }, (image: BotChatImage) => image.sessionId + ':' + image.attachmentId)
               }
             }
             if (message.files.length > 0) {
-              Column({ space: 6 }) {
+              // 文件卡对齐 iOS FileReferenceCard：按类型着色的图标 + 文件名 + 路径，宽自适应
+              Column({ space: 8 }) {
                 ForEach(message.files, (file: BotPresentedFile) => {
-                  Row({ space: 8 }) {
-                    Image($r('app.media.deliverable_file'))
-                      .width(16)
-                      .height(16)
-                      .objectFit(ImageFit.Contain)
-                      .opacity(0.72)
-                    Text(file.name)
-                      .fontSize(13)
-                      .fontColor(this.ink())
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                      .layoutWeight(1)
-                  }
-                  .width('100%')
-                  .alignItems(VerticalAlign.Center)
-                })
+                  this.fileCard(file)
+                }, (file: BotPresentedFile) => file.path)
               }
               .width('100%')
-              .padding({ left: 12, right: 12, top: 10, bottom: 10 })
-              .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : '#ECE7F7')
-              .borderRadius(12)
+              .alignItems(HorizontalAlign.Start)
             }
             // 时间 + 发送状态（流式期间不显示，避免抖动）
             if (!this.isStreaming(message)
@@ -1871,6 +2059,15 @@ export struct BotChatPage {
       this.stopLiveTimer();
     })
     // 角色弹窗挂在根节点上：和首页 Chief 卡同一个组件、同一套样式，就地弹出
+    // 图片预览：与工作模式同一套底部玻璃 sheet（下拉/点空白关闭）
+    .bindSheet($$this.previewOpen, this.imagePreviewSheet(), {
+      height: '82%',
+      dragBar: false,
+      showClose: false,
+      preferType: SheetType.BOTTOM,
+      backgroundColor: immersiveSheetSupported() ? Color.Transparent : sheetFallbackColor(this.isDark),
+      systemMaterial: sheetSystemMaterial(this.isDark)
+    })
     .bindSheet($$this.roleSheetOpen, this.roleSheet(), {
       height: '92%',
       dragBar: false,

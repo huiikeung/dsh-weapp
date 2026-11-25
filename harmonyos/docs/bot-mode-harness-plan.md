@@ -87,6 +87,11 @@
 - 工作模式规格（ConversationPage）：内嵌标题栏里 `headerBtnSize(embedded)=40`（HdsGlassSurface 背板最小渲染约 45vp，与系统返回键同视觉大小）；每个圆钮 = `HdsGlassSurface` 沉浸光感背板 + 透明 `Button` + `SymbolGlyph(fontSize = 直径×0.45, Medium, navIconColor)` + `backgroundColor(Transparent)` + `stateEffect(false)`；返回键用 `NavBackButton`。
 - 已改 BotChatPage：新增 `HEADER_BTN_SIZE = 40`；返回键 `NavBackButton` 直径 36 → 40；「⋯」从 `Text('⋯')`（16pt + 36 圆 + 按下底色）改为 `SymbolGlyph(sys.symbol.more)` + 40 圆 + 透明底 + `stateEffect(false)`，背板仍走 `HdsGlassSurface`。
 
+## Bot 聊天页图片预览与文件卡（2026-11-25）
+
+- 图片预览：`BotMessageImage` 增加 `onOpen(path)` 回调（普通成员，规避 @Prop 不能修饰函数），点已加载的图片 → `BotChatPage.openImagePreview()` → 底部玻璃 `bindSheet`（`sheetSystemMaterial`），内容与工作模式 `imagePreviewSheet/zoomablePreviewImage` 同构：自绘拖动条 + `Image(Contain)` + `PinchGesture` 1~4 倍缩放（切换时复位）。
+- 文件卡：换成 iOS `FileReferenceCard` 的样式——38 图标块（按类型主色 16% 透明底 + 折角文件线框）、文件名 15 Medium、路径 12 secondary、圆角 12、最大宽 320、背景 = 类型主色 8%（浅）/16%（深）与白/近黑混色；类型分组与 iOS `FileIconKind` 口径一致（pdf/document/sheet/slides/code/image/media/video/text/archive/package）。点卡片复制完整路径并提示（Bot 协议暂无跨端下载通道）。
+
 ## 待做（P1/P2）
 
 1. 文件附件上传（bot-attachments receipts 链路；需要网关 upload 协议，iOS 走 FileUploadController）

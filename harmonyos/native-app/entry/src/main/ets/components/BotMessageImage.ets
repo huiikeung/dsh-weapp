@@ -14,6 +14,9 @@ export struct BotMessageImage {
   @Prop boxHeight: number = 148;
   @StorageLink('isDark') isDark: boolean = false;
   @State path: string = '';
+  /** 点按回调：把已就绪的本地路径交给页面（打开与工作模式一致的大图预览）。普通成员，不受 @Prop 函数限制。 */
+  onOpen: (path: string) => void = () => {
+  };
 
   aboutToAppear(): void {
     this.load();
@@ -58,5 +61,10 @@ export struct BotMessageImage {
     }
     .width(this.boxWidth)
     .height(this.boxHeight)
+    .onClick(() => {
+      if (this.path.length > 0) {
+        this.onOpen(this.path);
+      }
+    })
   }
 }
