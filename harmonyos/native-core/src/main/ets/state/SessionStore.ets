@@ -2310,10 +2310,17 @@ export class SessionStore {
     if (extra.length > 0) {
       const merged: string[] = [];
       for (const label of extra) {
-        if (this.titleFetchSeen[label] !== true) {
-          this.titleFetchSeen[label] = true;
-          merged.push(label);
+        if (this.titleFetchSeen[label] === true) {
+          continue;
         }
+        const prev: string = merged.length > 0
+          ? merged[merged.length - 1]
+          : (this.titleFetchLabels.length > 0 ? this.titleFetchLabels[0] : '');
+        if (label === prev) {
+          continue;
+        }
+        this.titleFetchSeen[label] = true;
+        merged.push(label);
       }
       this.titleFetchLabels = merged.concat(this.titleFetchLabels);
       if (this.titleFetchLabels.length > 600) {
@@ -2337,10 +2344,15 @@ export class SessionStore {
     }
   }
 
-  /** 追加一条标题（带去重） */
+  /** 追加一条标题（去全局重复 + 最近 5 条近似重复） */
   private pushTitleLabel(label: string): void {
     if (this.titleFetchSeen[label] === true) {
       return;
+    }
+    for (let index = Math.max(0, this.titleFetchLabels.length - 5); index < this.titleFetchLabels.length; index++) {
+      if (this.titleFetchLabels[index] === label) {
+        return;
+      }
     }
     this.titleFetchSeen[label] = true;
     this.titleFetchLabels.push(label);
@@ -2418,6 +2430,12 @@ export class SessionStore {
       }
       if (clean.length === 0 && !hasImage) {
         continue;
+      }
+      // 图片/文件消息解析后常只剩「image image/jpeg …」这类元信息：统一显示为（图片）
+      if (clean.indexOf('image/jpeg') >= 0 || clean.indexOf('image/png') >= 0
+        || clean.startsWith('image image') || clean.indexOf(' application/') >= 0) {
+        hasImage = true;
+        clean = '';
       }
       if (clean.length > 80) {
         clean = clean.substring(0, 80);
