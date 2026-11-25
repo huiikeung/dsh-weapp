@@ -9985,6 +9985,16 @@ export struct ConversationPage {
       const raw: string = (item.text.length > 0 ? item.text : item.title).replace(/\s+/g, ' ').trim();
       nodes.push({ entryIndex: -1, ordinal: nodes.length + 1, label: raw.length > 0 ? raw : '（空消息）' });
     }
+    // items 在批量补拉/重投影时可能短暂为空：空结果不覆盖已有节点，避免弹层从 90 多行闪回 0 行
+    if (nodes.length === 0) {
+      return;
+    }
+    const statsTotal: number = this.sessionTurnCount();
+    const total: number = statsTotal > 0 ? statsTotal : nodes.length;
+    const target: number = Math.min(Math.max(total, nodes.length), 400);
+    for (let ordinal = nodes.length + 1; ordinal <= target; ordinal++) {
+      nodes.push({ entryIndex: -1, ordinal: ordinal, label: '第 ' + ordinal + ' 轮 · 加载中…', placeholder: true });
+    }
     this.turnNodes = nodes;
     if (this.turnNodeIndex >= nodes.length) {
       this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
