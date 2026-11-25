@@ -64,6 +64,10 @@ export struct BotRolePage {
   @StorageLink('safeTopVp') safeTop: number = 0;
   @StorageLink('safeBottomVp') safeBottom: number = 0;
   @StorageLink('botState') @Watch('onState') state: BotSnapshot = emptyBotSnapshot();
+  /** 嵌进底部弹窗时用：目标 Bot + 关闭回调（不 push/pop 页面栈） */
+  @Prop embedded: boolean = false;
+  @Prop targetBotId: string = '';
+  onClose?: () => void;
 
   // ── 表单字段 ──
   @State name: string = '';
@@ -96,6 +100,9 @@ export struct BotRolePage {
   @State scheduleTime: string = '';
 
   aboutToAppear(): void {
+    if (this.targetBotId.length > 0) {
+      this.routeId = this.targetBotId;
+    }
     this.scheduleTime = this.nowTime();
     const chat: BotChat | null = this.bot();
     if (chat !== null) {
@@ -128,6 +135,9 @@ export struct BotRolePage {
   // ==================== 数据读取 ====================
 
   private botId(): string {
+    if (this.targetBotId.length > 0) {
+      return this.targetBotId;
+    }
     if (this.routeId.length > 0) {
       return this.routeId;
     }
@@ -903,6 +913,10 @@ export struct BotRolePage {
       .width(36).height(36)
       .backgroundColor(lavenderSoftColor(this.isDark))
       .onClick(() => {
+        if (this.embedded && this.onClose !== undefined) {
+          this.onClose();
+          return;
+        }
         this.pageStack.pop();
       })
       Text(this.name.length > 0 ? this.name : '角色资料')
@@ -931,7 +945,8 @@ export struct BotRolePage {
       }
     }
     .width('100%')
-    .padding({ left: 10, right: 12, top: this.topInset() + 4, bottom: 8 })
+    // 嵌进弹窗时不需要再让状态栏，顶部只留一点内边距
+    .padding({ left: 10, right: 12, top: this.embedded ? 4 : this.topInset() + 4, bottom: 8 })
   }
 
   @Builder
@@ -1599,53 +1614,63 @@ export struct BotRolePage {
     .margin({ left: 16, right: 16 })
   }
 
-  build() {
-    NavDestination() {
-      Column() {
-        this.header()
-        Scroll() {
-          Column({ space: 0 }) {
-            if (this.errorText().length > 0) {
-              this.errorBanner()
-            }
-            if (this.bot() === null) {
-              this.placeholderCard()
-            } else {
-              this.section('资料')
-              this.overviewCard()
-              this.section('角色设置')
-              this.basicCard()
-              this.section('模型')
-              this.modelCard()
-              this.section('工作区与权限')
-              this.workspaceCard()
-              this.sectionMemories()
-              this.memoriesCard()
-              this.sectionSchedules()
-              this.schedulesCard()
-              this.section('管理')
-              this.managementCard()
-            }
-            Row()
-              .width('100%')
-              .height(30 + this.safeBottom)
-              .onClick(() => {
-                this.dismissKeyboard();
-              })
+  /** 页面主体内容（页面模式与弹窗模式共用） */
+  @Builder
+  content() {
+    Column() {
+      this.header()
+      Scroll() {
+        Column({ space: 0 }) {
+          if (this.errorText().length > 0) {
+            this.errorBanner()
           }
-          .width('100%')
+          if (this.bot() === null) {
+            this.placeholderCard()
+          } else {
+            this.section('资料')
+            this.overviewCard()
+            this.section('角色设置')
+            this.basicCard()
+            this.section('模型')
+            this.modelCard()
+            this.section('工作区与权限')
+            this.workspaceCard()
+            this.sectionMemories()
+            this.memoriesCard()
+            this.sectionSchedules()
+            this.schedulesCard()
+            this.section('管理')
+            this.managementCard()
+          }
+          Row()
+            .width('100%')
+            .height(30 + (this.embedded ? 8 : this.safeBottom))
+            .onClick(() => {
+              this.dismissKeyboard();
+            })
         }
-        .layoutWeight(1)
         .width('100%')
-        .scrollBar(BarState.Off)
-        .align(Alignment.Top)
-        .onScrollStart(() => {
-          this.dismissKeyboard();
-        })
       }
+      .layoutWeight(1)
       .width('100%')
-      .height('100%')
-      .backgroundColor(groupedColor(this.isDark))
+      .scrollBar(BarState.Off)
+      .align(Alignment.Top)
+      .onScrollStart(() => {
+        this.dismissKeyboard();
+      })
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(groupedColor(this.isDark))
+  }
+
+  build() {
+    // 嵌进底部弹窗：直接渲染内容，不占页面栈
+    if (this.embedded) {
+      this.content()
+    } else {
+    NavDestination() {
+      this.content()
     }
     .hideTitleBar(true)
     // 深链进入时按路由参数打开角色详情（之前必须先 openRole，否则页面永远空白）
@@ -1656,6 +1681,7 @@ export struct BotRolePage {
         BotStore.get().openRole(id);
       }
     })
+    }
   }
 
   private static paramId(ctx: NavDestinationContext): string {

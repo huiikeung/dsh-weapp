@@ -1,12 +1,14 @@
 import { KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
+import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 import { bundleManager, common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import type { GatewayFrame, ThemeMode, WorkStepOption } from 'nativecore';
 import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
+import { ensureGlassLevel, glassLevelLabel, GLASS_LEVEL_DEFAULT, GLASS_LEVEL_KEY } from '../common/GlassMaterial';
 import { NodeManageSheet } from '../components/NodeManageSheet';
 import { Haptics } from '../services/Haptics';
-import { AttachmentCache, CredentialStore, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, SessionSummary, ThemeManager, WorkStepPresentation, WorkspaceRow } from 'nativecore';
+import { AttachmentCache, BOT_BG_DEFAULT, BOT_PALETTES, CredentialStore, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, SessionSummary, ThemeManager, WorkStepPresentation, WorkspaceRow } from 'nativecore';
 import type { SavedGateway } from 'nativecore';
 
 // 标题栏内容风格：滚动模糊生效时保持正文色标题（系统默认会切成白字）
@@ -117,6 +119,8 @@ export struct AppSettingsPage {
   @StorageLink('sessions') sessions: SessionSummary[] = [];
   @StorageLink('workspaces') workspaces: WorkspaceRow[] = [];
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
+  /** 沉浸光感材质档位：改这里，所有 HdsGlassSurface（首页两钮、置底按钮、模式按钮、队列/任务/目标面板）一起换 */
+  @StorageLink(GLASS_LEVEL_KEY) glassLevel: number = GLASS_LEVEL_DEFAULT;
   private scroller: Scroller = new Scroller();
   @StorageLink('gatewayVersion') gatewayVersion: string = '';
   /** 网关插件自报版本（hello.gatewayVersion），为空时回落到插件目录 */
@@ -131,6 +135,8 @@ export struct AppSettingsPage {
   @StorageLink('sessionGlassEnabled') sessionGlassEnabled: boolean = true;
   @StorageLink('bottomSheetGlassEnabled') bottomSheetGlassEnabled: boolean = true;
   @StorageLink('homeAnimationEnabled') homeAnimationEnabled: boolean = true;
+  /** Bot 模式背景配色（与 BotBackground 通过 AppStorage 联动） */
+  @StorageLink('botBgTheme') botBgTheme: string = BOT_BG_DEFAULT;
   @StorageLink('voiceInputEnabled') voiceInputEnabled: boolean = true;
   /** 对话页每轮 AI 回复开头的「AI 生成内容，仅供参考」标识（默认开启） */
   @StorageLink('aiContentLabelEnabled') aiContentLabelEnabled: boolean = true;
@@ -233,6 +239,8 @@ export struct AppSettingsPage {
 
   aboutToAppear(): void {
     const prefs: PreferencesStore = PreferencesStore.get();
+    // 玻璃材质档位：把落盘值灌回 AppStorage（所有 HdsGlassSurface 一起生效）
+    ensureGlassLevel();
     this.fontSize = prefs.getString('contentFontSize', '标准');
     this.haptics = this.normalizeHaptics(prefs.getString('hapticsLevel', 'medium'));
     const storedMode: string = WorkStepPresentation.ensureDefaultMode(prefs);
@@ -252,6 +260,8 @@ export struct AppSettingsPage {
     this.sessionGlassEnabled = prefs.getBoolean('sessionGlassEnabled', true);
     this.bottomSheetGlassEnabled = prefs.getBoolean('bottomSheetGlassEnabled', true);
     this.homeAnimationEnabled = prefs.getBoolean('homeAnimationEnabled', true);
+    this.botBgTheme = prefs.getString('botBgTheme', BOT_BG_DEFAULT);
+    AppStorage.setOrCreate<string>('botBgTheme', this.botBgTheme);
     this.voiceInputEnabled = prefs.getBoolean('voiceInputEnabled', true);
     this.aiContentLabelEnabled = prefs.getBoolean('aiContentLabelEnabled', true);
     this.showAccountCard = prefs.getBoolean('showAccountCard', false);
@@ -716,6 +726,13 @@ export struct AppSettingsPage {
     if (kind === 'card') {
       return ['float', 'plain', 'compact'];
     }
+    if (kind === 'botbg') {
+      const ids: string[] = [];
+      for (const palette of BOT_PALETTES) {
+        ids.push(palette.id);
+      }
+      return ids;
+    }
     return [];
   }
 
@@ -758,7 +775,24 @@ export struct AppSettingsPage {
     if (kind === 'card') {
       return ['悬浮卡片', '平面卡片', '紧凑卡片'];
     }
+    if (kind === 'botbg') {
+      const labels: string[] = [];
+      for (const palette of BOT_PALETTES) {
+        labels.push(palette.name);
+      }
+      return labels;
+    }
     return [];
+  }
+
+  /** 「Bot 背景配色」行的说明文案：名称 + 一句风格提示 */
+  private botBgLabel(): string {
+    for (const palette of BOT_PALETTES) {
+      if (palette.id === this.botBgTheme) {
+        return palette.name + ' · ' + palette.hint;
+      }
+    }
+    return '';
   }
 
   /** 当前连接主机的类型：'server' | 'desktop'（读活动主机档案的 deviceKind） */
@@ -910,6 +944,9 @@ export struct AppSettingsPage {
     if (kind === 'card') {
       return this.cardStylePreset;
     }
+    if (kind === 'botbg') {
+      return this.botBgTheme;
+    }
     return '';
   }
 
@@ -942,6 +979,9 @@ export struct AppSettingsPage {
     }
     if (kind === 'haptics') {
       return '震动反馈';
+    }
+    if (kind === 'botbg') {
+      return 'Bot 背景配色';
     }
     if (kind === 'glass') {
       return '玻璃样式设置';
@@ -1062,6 +1102,10 @@ export struct AppSettingsPage {
     } else if (kind === 'haptics') {
       this.haptics = id;
       PreferencesStore.get().putString('hapticsLevel', id);
+    } else if (kind === 'botbg') {
+      this.botBgTheme = id;
+      PreferencesStore.get().putString('botBgTheme', id);
+      AppStorage.setOrCreate<string>('botBgTheme', id);
     } else if (kind === 'glass') {
       this.glassStylePreset = id;
       PreferencesStore.get().putString('glassStylePreset', id);
@@ -1846,9 +1890,18 @@ export struct AppSettingsPage {
                 this.openPicker('procion');
               })
               this.divider()
+              this.rowDescPref('Bot 背景配色', this.botBgLabel(), 'botbg', () => {
+                this.openPicker('botbg');
+              })
+              this.divider()
               this.toggleRow('首页动画', '动态海洋背景；关闭后保留静态画面并降低发热', this.homeAnimationEnabled, (value: boolean) => {
                 this.homeAnimationEnabled = value;
                 PreferencesStore.get().putBoolean('homeAnimationEnabled', value);
+              })
+              this.divider()
+              // 玻璃材质：二级页选择（四档，全局生效）
+              this.rowDescPref('玻璃材质', glassLevelLabel(this.glassLevel), 'glassmat', () => {
+                this.pageStack.pushPathByName('glass-material', null);
               })
             }
             .width('100%')
@@ -2088,7 +2141,7 @@ export struct AppSettingsPage {
         },
         systemMaterialEffect: {
           materialType: hdsMaterial.MaterialType.IMMERSIVE,
-          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+          materialLevel: currentGlassMaterialLevel()
         },
         originalStyle: { contentStyle: TITLE_BAR_CONTENT },
         scrollEffectStyle: { contentStyle: TITLE_BAR_CONTENT }

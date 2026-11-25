@@ -2,6 +2,8 @@
  * iOS HarnessBackground.metal 的逐像素移植（TaskPool 低分辨率渲染，主线程只缩放位图）。
  * 与 iOS `harnessFluid` 使用完全相同的 hash / noise / FBM / 色彩混合与丝带公式。
  */
+import { BotPalette, botPalette } from './BotPalettes';
+
 class FluidField {
   private fract(value: number): number {
     return value - Math.floor(value);
@@ -55,7 +57,12 @@ class FluidField {
     return value;
   }
 
-  render(width: number, height: number, aspect: number, seconds: number, wide: boolean): ArrayBuffer {
+  /**
+   * palette：0 = 工作模式 navy（默认），1 = Bot 浅色 lavender，2 = Bot 深色 night。
+   * 1/2 只在最后按 iOS harnessFluid 的 lavenderPalette 分支做一次亮度重映射，几何/丝带公式不变。
+   */
+  render(width: number, height: number, aspect: number, seconds: number, wide: boolean,
+    paletteFrom: number[] = [], paletteTo: number[] = []): ArrayBuffer {
     const bytes = new Uint8ClampedArray(width * height * 4);
     const t: number = seconds * 0.075;
     const black: number[] = [0.002, 0.008, 0.018];
@@ -89,6 +96,7 @@ class FluidField {
         const grain: number = (this.hash(x + Math.floor(seconds * 12), y + Math.floor(seconds * 12)) - 0.5) * 0.010;
 
         const offset: number = (y * width + x) * 4;
+        let lumaSource: number[] = [0, 0, 0];
         for (let c = 0; c < 3; c++) {
           let color: number = this.mix(black[c], deepBlue[c], this.smoothstep(0.14, 0.63, fluid));
           color = this.mix(color, oceanBlue[c], this.smoothstep(0.42, 0.82, fluid + swirl * 0.18));
@@ -97,7 +105,18 @@ class FluidField {
           color += deepBlue[c] * glow * 0.22;
           color *= 0.38 + 0.72 * vignette;
           color += grain;
-          bytes[offset + c] = Math.max(0, color) * 255;
+          lumaSource[c] = Math.max(0, color);
+        }
+        if (paletteFrom.length === 3 && paletteTo.length === 3) {
+          // iOS：luminance → tone = saturate(lum / 0.50)，再在两端色之间插值
+          const lum: number = lumaSource[0] * 0.2126 + lumaSource[1] * 0.7152 + lumaSource[2] * 0.0722;
+          const tone: number = Math.max(0, Math.min(1, lum / 0.50));
+          for (let c = 0; c < 3; c++) {
+            lumaSource[c] = this.mix(paletteFrom[c], paletteTo[c], tone);
+          }
+        }
+        for (let c = 0; c < 3; c++) {
+          bytes[offset + c] = Math.max(0, lumaSource[c]) * 255;
         }
         bytes[offset + 3] = 255;
       }
@@ -108,4 +127,13 @@ class FluidField {
 
 export function renderBrandFlow(width: number, height: number, aspect: number, seconds: number, wide: boolean): ArrayBuffer {
   return new FluidField().render(width, height, aspect, seconds, wide);
+}
+
+/** Bot 主题流体：同一几何，按调色板预设（presetId）取两段色，night 用深色那套 */
+export function renderBotFlow(width: number, height: number, aspect: number, seconds: number,
+  night: boolean, presetId: string): ArrayBuffer {
+  const palette: BotPalette = botPalette(presetId);
+  const from: number[] = night ? palette.fluidFromDark : palette.fluidFrom;
+  const to: number[] = night ? palette.fluidToDark : palette.fluidTo;
+  return new FluidField().render(width, height, aspect, seconds, false, from, to);
 }

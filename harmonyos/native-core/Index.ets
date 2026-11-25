@@ -33,6 +33,10 @@ export type { ProviderRow, ModelRow, ReasoningLevel, PluginNamespace, Discovered
 export type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from './src/main/ets/state/SessionStore';
 export { OceanBackground } from './src/main/ets/components/OceanBackground.ets';
 export { WHALE_PIXELS_IOS } from './src/main/ets/core/WhalePixelsIOS';
+export { renderBrandFlow, renderBotFlow } from './src/main/ets/core/BrandFlow';
+export { prepareBrandFlow, prepareBotFlow } from './src/main/ets/core/BrandFlowWorker';
+export { BOT_PALETTES, BOT_BG_DEFAULT, botPalette } from './src/main/ets/core/BotPalettes';
+export type { BotPalette } from './src/main/ets/core/BotPalettes';
 export { WHALE_PIXELS_PAD } from './src/main/ets/core/WhalePixelsPad';
 export { ParticleBackground } from './src/main/ets/components/ParticleBackground.ets';
 export { GlassCard } from './src/main/ets/components/GlassCard.ets';

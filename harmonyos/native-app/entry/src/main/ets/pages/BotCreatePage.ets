@@ -5,9 +5,10 @@
  * 底部胶囊提交（saving 白色 Spinner），成功 createdId 非空后 pop 回上一页。
  */
 import {
-  BotAvatarPhoto, BotCreationAgent, BotCreationAppearance, BotCreationColor, BotCreationShape,
-  BotRoleOption, BotSnapshot, BotStore, emptyBotSnapshot
+  BOT_BG_DEFAULT, BotAvatarPhoto, BotCreationAgent, BotCreationAppearance, BotCreationColor, BotCreationShape,
+  BotPalette, botPalette, BotRoleOption, BotSnapshot, BotStore, emptyBotSnapshot
 } from 'nativecore';
+import { NavBackButton } from '../components/NavBackButton';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { image } from '@kit.ImageKit';
 import { fileIo } from '@kit.CoreFileKit';
@@ -107,6 +108,43 @@ async function pickPhotoDataUrl(): Promise<string> {
 export struct BotCreatePage {
   @Consume('pageStack') pageStack: NavPathStack;
   @StorageLink('isDark') isDark: boolean = false;
+  /** Bot 背景配色：本页底色与主按钮也跟着主题（新建 Bot 仍保持二级页，只改配色） */
+  @StorageLink('botBgTheme') botBgTheme: string = BOT_BG_DEFAULT;
+
+  private palette(): BotPalette {
+    return botPalette(this.botBgTheme);
+  }
+
+  private canvasColor(): string {
+    const palette: BotPalette = this.palette();
+    return this.isDark ? palette.baseDark : palette.base;
+  }
+
+  private actionColor(): string {
+    const palette: BotPalette = this.palette();
+    return this.isDark ? palette.actionDark : palette.action;
+  }
+
+  /** 分段控件 / Tab 的选中态底色：主题淡色 */
+  private segmentSelectedColor(): string {
+    const palette: BotPalette = this.palette();
+    const rgb: number[] = this.isDark ? palette.fluidToDark : palette.fluidFrom;
+    const alpha: number = this.isDark ? 0.32 : 0.40;
+    return 'rgba(' + Math.round(rgb[0] * 255) + ',' + Math.round(rgb[1] * 255) + ','
+      + Math.round(rgb[2] * 255) + ',' + alpha.toString() + ')';
+  }
+
+  /** 形象选择里头像块的 hover / 选中底：跟随主题 */
+  private lookTileColor(selected: boolean): string {
+    const palette: BotPalette = this.palette();
+    const rgb: number[] = this.isDark ? palette.fluidToDark : palette.fluidFrom;
+    let alpha: number = this.isDark ? 0.18 : 0.10;
+    if (selected) {
+      alpha = this.isDark ? 0.42 : 0.30;
+    }
+    return 'rgba(' + Math.round(rgb[0] * 255) + ',' + Math.round(rgb[1] * 255) + ','
+      + Math.round(rgb[2] * 255) + ',' + alpha.toString() + ')';
+  }
   @StorageLink('safeTopVp') safeTop: number = 0;
   @StorageLink('safeBottomVp') safeBottom: number = 0;
   @StorageLink('botState') @Watch('onState') state: BotSnapshot = emptyBotSnapshot();
@@ -786,21 +824,8 @@ export struct BotCreatePage {
   @Builder
   header() {
     Row({ space: 10 }) {
-      Button({ type: ButtonType.Circle }) {
-        Text('‹')
-          .fontSize(24)
-          .fontColor(ink(this.isDark))
-          .offset({ y: -1 })
-      }
-      .width(36)
-      .height(36)
-      .backgroundColor(card(this.isDark))
-      .shadow({ radius: 8, color: this.isDark ? 'rgba(0,0,0,0.4)' : 'rgba(37,35,50,0.10)', offsetX: 0, offsetY: 3 })
-      .enabled(!this.saving())
-      .opacity(this.saving() ? 0.45 : 1)
-      .onClick(() => {
-        this.pageStack.pop();
-      })
+      // 统一原生玻璃返回钮（与对话页/设置页一致）
+      NavBackButton({ isDark: this.isDark, diameter: 36 })
 
       Text('新建 Bot')
         .fontSize(17)
@@ -859,12 +884,12 @@ export struct BotCreatePage {
         LoadingProgress()
           .width(20)
           .height(20)
-          .color(purple(this.isDark))
+          .color(this.actionColor())
       } else {
         Text(this.state.creation.appearanceFailed ? '重试' : '编辑')
           .fontSize(13)
           .fontWeight(FontWeight.Medium)
-          .fontColor(purple(this.isDark))
+          .fontColor(this.actionColor())
         Text('›')
           .fontSize(18)
           .fontColor(secondary(this.isDark))
@@ -941,7 +966,7 @@ export struct BotCreatePage {
         .borderRadius(9)
         .justifyContent(FlexAlign.Center)
         .alignItems(VerticalAlign.Center)
-        .backgroundColor(this.localMode ? Color.Transparent : lavenderSoft(this.isDark))
+        .backgroundColor(this.localMode ? Color.Transparent : this.segmentSelectedColor())
         .onClick(() => {
           this.selectMode(false);
         })
@@ -957,7 +982,7 @@ export struct BotCreatePage {
         .borderRadius(9)
         .justifyContent(FlexAlign.Center)
         .alignItems(VerticalAlign.Center)
-        .backgroundColor(this.localMode ? lavenderSoft(this.isDark) : Color.Transparent)
+        .backgroundColor(this.localMode ? this.segmentSelectedColor() : Color.Transparent)
         .onClick(() => {
           this.selectMode(true);
         })
@@ -965,7 +990,7 @@ export struct BotCreatePage {
       .width('100%')
       .padding(3)
       .borderRadius(12)
-      .backgroundColor(this.isDark ? '#211F2A' : '#F2F2F7')
+      .backgroundColor(this.isDark ? this.palette().baseDark : this.palette().gridDot.replace(/,\s*[\d.]+\)$/, ',0.16)'))
       .border({ width: 0.7, color: this.isDark ? RIM_DARK : line(this.isDark) })
       .alignItems(VerticalAlign.Center)
     }
@@ -984,7 +1009,7 @@ export struct BotCreatePage {
           LoadingProgress()
             .width(24)
             .height(24)
-            .color(purple(this.isDark))
+            .color(this.actionColor())
         }
         .width('100%')
         .padding(16)
@@ -1001,7 +1026,7 @@ export struct BotCreatePage {
           Text('重试')
             .fontSize(13)
             .fontWeight(FontWeight.Medium)
-            .fontColor(purple(this.isDark))
+            .fontColor(this.actionColor())
         }
         .width('100%')
         .constraintSize({ minHeight: 52 })
@@ -1054,7 +1079,7 @@ export struct BotCreatePage {
         if (this.agentId === agent.id) {
           Text('✓')
             .fontSize(15)
-            .fontColor(purple(this.isDark))
+            .fontColor(this.actionColor())
         }
       }
       .width('100%')
@@ -1147,7 +1172,7 @@ export struct BotCreatePage {
       .width('100%')
       .height(50)
       .borderRadius(25)
-      .backgroundColor(ACTION)
+      .backgroundColor(this.actionColor())
       .enabled(this.canSubmit())
       .opacity(this.canSubmit() ? 1 : 0.45)
       .onClick(() => {
@@ -1163,22 +1188,13 @@ export struct BotCreatePage {
   @Builder
   appearanceSheetHeader() {
     Row({ space: 10 }) {
-      Button({ type: ButtonType.Circle }) {
-        Text('‹')
-          .fontSize(24)
-          .fontColor(ink(this.isDark))
-          .offset({ y: -1 })
-      }
-      .width(36)
-      .height(36)
-      .backgroundColor(lavenderSoft(this.isDark))
-      .onClick(() => {
+      NavBackButton({ isDark: this.isDark, diameter: 36, onBack: () => {
         if (this.libraryOpen) {
           this.libraryOpen = false;
         } else {
           this.appearanceOpen = false;
         }
-      })
+      } })
 
       Text(this.libraryOpen ? '头像库' : '编辑形象')
         .fontSize(17)
@@ -1193,7 +1209,7 @@ export struct BotCreatePage {
           Text('导入照片')
             .fontSize(13)
             .fontWeight(FontWeight.Medium)
-            .fontColor(purple(this.isDark))
+            .fontColor(this.actionColor())
         }
         .height(34)
         .padding({ left: 12, right: 12 })
@@ -1260,11 +1276,10 @@ export struct BotCreatePage {
               .height(52)
               .justifyContent(FlexAlign.Center)
               .borderRadius(14)
-              .backgroundColor(this.draftPhoto.length === 0 && this.draftShape === item.id
-                ? lavenderSoft(this.isDark) : card(this.isDark))
+              .backgroundColor(this.lookTileColor(this.draftPhoto.length === 0 && this.draftShape === item.id))
               .border({
                 width: this.draftPhoto.length === 0 && this.draftShape === item.id ? 1.5 : 0,
-                color: purple(this.isDark)
+                color: this.actionColor()
               })
               .margin({ bottom: 8 })
               .onClick(() => {
@@ -1295,7 +1310,7 @@ export struct BotCreatePage {
                   })
                   .border({
                     width: this.draftPhoto.length === 0 && this.draftColor === item.id ? 2 : 0.75,
-                    color: this.draftPhoto.length === 0 && this.draftColor === item.id ? purple(this.isDark) : '#FFFFFF'
+                    color: this.draftPhoto.length === 0 && this.draftColor === item.id ? this.actionColor() : '#FFFFFF'
                   })
               }
               .width(37)
@@ -1318,7 +1333,7 @@ export struct BotCreatePage {
           Text('随机')
             .fontSize(13)
             .fontWeight(FontWeight.Medium)
-            .fontColor(purple(this.isDark))
+            .fontColor(this.actionColor())
         }
         .height(40)
         .padding({ left: 14, right: 14 })
@@ -1334,7 +1349,7 @@ export struct BotCreatePage {
           Text(this.photoProcessing ? '处理中…' : '上传照片')
             .fontSize(13)
             .fontWeight(FontWeight.Medium)
-            .fontColor(purple(this.isDark))
+            .fontColor(this.actionColor())
         }
         .height(40)
         .padding({ left: 14, right: 14 })
@@ -1351,7 +1366,7 @@ export struct BotCreatePage {
           Text('头像库')
             .fontSize(13)
             .fontWeight(FontWeight.Medium)
-            .fontColor(purple(this.isDark))
+            .fontColor(this.actionColor())
         }
         .height(40)
         .padding({ left: 14, right: 14 })
@@ -1383,7 +1398,7 @@ export struct BotCreatePage {
           LoadingProgress()
             .width(24)
             .height(24)
-            .color(purple(this.isDark))
+            .color(this.actionColor())
         }
         .width('100%')
         .padding(20)
@@ -1399,7 +1414,7 @@ export struct BotCreatePage {
           Text('重试')
             .fontSize(13)
             .fontWeight(FontWeight.Medium)
-            .fontColor(purple(this.isDark))
+            .fontColor(this.actionColor())
         }
         .width('100%')
         .constraintSize({ minHeight: 52 })
@@ -1431,7 +1446,7 @@ export struct BotCreatePage {
             .justifyContent(FlexAlign.Center)
             .borderRadius(20)
             .backgroundColor(card(this.isDark))
-            .border({ width: this.draftPhoto === photo.image ? 2 : 0, color: purple(this.isDark) })
+            .border({ width: this.draftPhoto === photo.image ? 2 : 0, color: this.actionColor() })
             .margin({ right: 10, bottom: 10 })
             .onClick(() => {
               this.choosePhoto(photo);
@@ -1446,7 +1461,7 @@ export struct BotCreatePage {
               LoadingProgress()
                 .width(18)
                 .height(18)
-                .color(purple(this.isDark))
+                .color(this.actionColor())
             } else {
               Text('加载更多')
                 .fontSize(13)
@@ -1507,7 +1522,7 @@ export struct BotCreatePage {
           .width('100%')
           .height(50)
           .borderRadius(25)
-          .backgroundColor(ACTION)
+          .backgroundColor(this.actionColor())
           .enabled(!this.photoProcessing)
           .opacity(this.photoProcessing ? 0.45 : 1)
           .onClick(() => {
@@ -1520,7 +1535,7 @@ export struct BotCreatePage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(canvas(this.isDark))
+    .backgroundColor(this.canvasColor())
   }
 
   // ==================== 模型选择面板 ====================
@@ -1537,7 +1552,7 @@ export struct BotCreatePage {
       if (selected) {
         Text('已选')
           .fontSize(13)
-          .fontColor(purple(this.isDark))
+          .fontColor(this.actionColor())
       } else {
         Text('选择')
           .fontSize(13)
@@ -1567,7 +1582,7 @@ export struct BotCreatePage {
       if (selected) {
         Text('已选')
           .fontSize(13)
-          .fontColor(purple(this.isDark))
+          .fontColor(this.actionColor())
       }
     }
     .width('100%')
@@ -1629,7 +1644,7 @@ export struct BotCreatePage {
                   LoadingProgress()
                     .width(20)
                     .height(20)
-                    .color(purple(this.isDark))
+                    .color(this.actionColor())
                 }
                 .width('100%')
                 .padding(10)
@@ -1726,7 +1741,7 @@ export struct BotCreatePage {
     .width('100%')
     .height('100%')
     .padding({ bottom: this.safeBottom })
-    .backgroundColor(canvas(this.isDark))
+    .backgroundColor(this.canvasColor())
   }
 
   build() {
@@ -1778,7 +1793,7 @@ export struct BotCreatePage {
             dragBar: false,
             showClose: false,
             preferType: SheetType.BOTTOM,
-            backgroundColor: canvas(this.isDark),
+            backgroundColor: this.canvasColor(),
             onDisappear: () => {
               this.libraryOpen = false;
               this.photoError = false;
@@ -1794,12 +1809,12 @@ export struct BotCreatePage {
             dragBar: false,
             showClose: false,
             preferType: SheetType.BOTTOM,
-            backgroundColor: canvas(this.isDark)
+            backgroundColor: this.canvasColor()
           })
       }
       .width('100%')
       .height('100%')
-      .backgroundColor(canvas(this.isDark))
+      .backgroundColor(this.canvasColor())
     }
     .hideTitleBar(true)
   }

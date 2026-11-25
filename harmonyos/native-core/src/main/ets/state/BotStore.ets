@@ -1397,10 +1397,13 @@ export class BotStore {
     const botId: string = pending.chatId;
     const ref: string = text(obj, 'ref');
     const image: string = text(obj, 'image');
-    if (botId.length === 0 || ref.length === 0 || !image.startsWith('data:image/') || image.length >= 256000) {
+    if (botId.length === 0 || !image.startsWith('data:image/') || image.length >= 256000) {
       return;
     }
-    if (text(obj, 'botId') !== botId || this.wantAvatars.get(botId) !== ref) {
+    // 只有「我们登记过 ref 且回包 ref 不一致」才丢弃；
+    // 没登记 ref（首次安装主动问 / ref 为空）时直接收下，避免一直回落首字
+    const wanted: string | undefined = this.wantAvatars.get(botId);
+    if (text(obj, 'botId') !== botId || (wanted !== undefined && ref.length > 0 && wanted !== ref)) {
       return;
     }
     for (const chat of this.state.chats) {
@@ -1494,6 +1497,23 @@ export class BotStore {
       const sent: string | null = this.call('avatar', payload, chat.id);
       if (sent !== null) {
         this.attemptedAvatars.set(chat.id, ref);
+        active += 1;
+      }
+    }
+    // 兜底：主机这次没给 imageRef，但 Bot 可能有图（首次安装 / 缓存被清后）。
+    // 每台 Bot 只问一次，拿到图就写进聊天，避免长期显示首字。
+    for (const chat of this.state.chats) {
+      if (active >= 4) {
+        break;
+      }
+      if (chat.room || chat.image !== undefined || this.wantAvatars.has(chat.id)
+        || this.attemptedAvatars.has(chat.id)) {
+        continue;
+      }
+      const payload: Record<string, Object> = { 'botId': chat.id };
+      const sent: string | null = this.call('avatar', payload, chat.id);
+      if (sent !== null) {
+        this.attemptedAvatars.set(chat.id, '');
         active += 1;
       }
     }

@@ -6,9 +6,10 @@
  * 宽屏（≥760×500vp）启用 R2 双栏（左助理区 / 右聊天区，§3.5 / §8.8）；手机保持单栏。
  */
 import { uiMaterial } from '@kit.ArkUI';
+import { i18n } from '@kit.LocalizationKit';
 import {
-  BotChat, BotLiveWork, BotRoleDetails, BotRoleOption, BotRoleProfile, BotSchedule, BotSnapshot, BotStore,
-  Logger, PreferencesStore, emptyBotSnapshot
+  BOT_BG_DEFAULT, BotChat, BotLiveWork, BotMemory, BotPalette, botPalette, BotRoleDetails, BotRoleOption, BotRoleProfile,
+  BotSchedule, BotSnapshot, BotStore, Logger, PreferencesStore, emptyBotSnapshot
 } from 'nativecore';
 import { FluKeCoin } from '../components/FluKeCoin';
 import { Haptics } from '../services/Haptics';
@@ -36,6 +37,12 @@ function liveText(live: BotLiveWork | undefined): string {
 export struct BotHomePage {
   @Consume('pageStack') pageStack: NavPathStack;
   @StorageLink('isDark') isDark: boolean = false;
+  /** Bot 背景配色（设置 → Bot 背景配色），品牌行右侧状态胶囊的底色跟着它走 */
+  @StorageLink('botBgTheme') botBgTheme: string = BOT_BG_DEFAULT;
+  /** 「我的 Bot」点行写入待打开的角色 id：本页消费后弹出与 Chief 卡同款弹窗 */
+  @StorageLink('botPendingRoleId') @Watch('onPendingRole') pendingRoleId: string = '';
+  /** 当前弹窗展示的 Bot（空 = 主 Bot） */
+  @State sheetBotId: string = '';
   @StorageLink('safeTopVp') safeTop: number = 0;
   @StorageLink('safeBottomVp') safeBottom: number = 0;
   @StorageLink('connectionState') @Watch('onConnection') connection: string = 'disconnected';
@@ -45,8 +52,22 @@ export struct BotHomePage {
   @State scheduleOpen: boolean = false;
   /** Chief 角色名片底部弹窗 */
   @State chiefSheetOpen: boolean = false;
-  /** 弹窗内的页面：0=角色名片，1=角色设置（都在同一个弹窗里切换） */
+  /** 顶部轻提示（样式对齐对话页 topToast） */
+  @State toastText: string = '';
+  @State toastError: boolean = false;
+  @State toastOpacity: number = 0;
+  @State toastOffset: number = -10;
+  private toastTimer: number = -1;
+  /** 弹窗内的页面：0=角色名片，1=角色设置，2=记忆，3=定时任务（都在同一个弹窗里切换） */
   @State chiefSheetPage: number = 0;
+  /** 弹窗内「+」表单：记忆 */
+  @State memoryAdding: boolean = false;
+  @State memoryDraft: string = '';
+  /** 弹窗内「+」表单：定时任务 */
+  @State scheduleAdding: boolean = false;
+  @State scheduleTitle: string = '';
+  @State schedulePrompt: string = '';
+  @State scheduleTime: string = '';
   // 弹窗内设置表单草稿
   @State editName: string = '';
   @State editRole: string = '';
@@ -354,14 +375,26 @@ export struct BotHomePage {
     return null;
   }
 
+  /**
+   * 聊天区列表（对齐 iOS SharedBotStore.searchChats）：
+   * - 默认（搜索词为空）不显示 Chief 主 Bot：它已经有 Chief 卡与「与 X 聊聊」两个入口；
+   * - 隐藏 Bot 只有搜索时才出现（主 Bot 私聊即使隐藏也保留）；
+   * - 有搜索词时主 Bot 照常参与匹配，方便直接搜到它。
+   */
   private visibleChats(): BotChat[] {
     const query: string = this.search.trim().toLowerCase();
+    const searching: boolean = query.length > 0;
+    const mainId: string = this.state.mainBotId ?? '';
     const out: BotChat[] = [];
     for (const chat of this.state.chats) {
-      if (chat.hidden) {
+      const chiefPrivate: boolean = !chat.room && chat.id === mainId;
+      if (chat.hidden && !chiefPrivate) {
         continue;
       }
-      if (query.length > 0 && chat.name.toLowerCase().indexOf(query) < 0
+      if (!searching && chat.id === mainId) {
+        continue;
+      }
+      if (searching && chat.name.toLowerCase().indexOf(query) < 0
         && chat.preview.toLowerCase().indexOf(query) < 0) {
         continue;
       }
@@ -402,12 +435,121 @@ export struct BotHomePage {
     return this.state.error !== undefined && this.state.error.length > 0;
   }
 
+  /** 顶部轻提示：淡入 + 停留 2.6s + 淡出（与对话页 topToast 同一套观感） */
+  private showTopToast(message: string, error: boolean = false): void {
+    if (message.length === 0) {
+      return;
+    }
+    if (this.toastTimer >= 0) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = -1;
+    }
+    this.toastText = message;
+    this.toastError = error;
+    this.toastOffset = -10;
+    this.toastOpacity = 0;
+    this.getUIContext().animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+      this.toastOpacity = 1;
+      this.toastOffset = 0;
+    });
+    this.toastTimer = setTimeout(() => {
+      this.getUIContext().animateTo({ duration: 160, curve: Curve.EaseIn }, () => {
+        this.toastOpacity = 0;
+        this.toastOffset = -10;
+      });
+      setTimeout(() => {
+        if (this.toastOpacity === 0) {
+          this.toastText = '';
+        }
+      }, 200);
+      this.toastTimer = -1;
+    }, 2600);
+  }
+
+  @Builder
+  topToast() {
+    if (this.toastText.length > 0) {
+      Column() {
+        Row({ space: 9 }) {
+          Text('!')
+            .fontSize(12)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#FFFFFF')
+            .width(18)
+            .height(18)
+            .borderRadius(9)
+            .textAlign(TextAlign.Center)
+            .backgroundColor(this.toastError ? '#E5533C' : '#2E6BE6')
+          Text(this.toastText)
+            .fontSize(13)
+            .lineHeight(19)
+            .fontColor(this.toastError ? (this.isDark ? '#FF9B9F' : '#C0392B') : this.ink())
+            .layoutWeight(1)
+            .maxLines(3)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .constraintSize({ maxWidth: '92%' })
+        .padding({ left: 14, right: 18, top: 12, bottom: 12 })
+        .borderRadius(16)
+        .backgroundColor(this.isDark ? 'rgba(32,34,40,0.96)' : 'rgba(255,255,255,0.97)')
+        .border({
+          width: 0.5,
+          color: this.toastError
+            ? 'rgba(235,87,87,0.38)'
+            : (this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)')
+        })
+        .shadow({ radius: 18, color: this.isDark ? 'rgba(0,0,0,0.5)' : 'rgba(16,19,24,0.16)', offsetY: 4 })
+        .opacity(this.toastOpacity)
+        .translate({ y: this.toastOffset })
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: this.topInset() + 6 })
+      .alignItems(HorizontalAlign.Center)
+      .hitTestBehavior(HitTestMode.None)
+    }
+  }
+
+  /**
+   * 点右上角状态按钮时的提示：
+   * · 主机没连上 → 先连主机
+   * · 已连但订阅失败（bot 请求被拒）→ 说明电脑上没装 / 没启用 ds-bot 插件
+   * · 已连但连 hello 都没回来 → 主机移动网关版本过低
+   * · 一切正常 → 不打扰（插件已装就不再提示安装）
+   */
+  private showBotStatusHint(): void {
+    if (this.connection !== 'connected') {
+      this.showTopToast('主机还没连上：先在主机胶囊里连接电脑', true);
+      return;
+    }
+    if (this.state.supported) {
+      return;
+    }
+    if (this.hasError()) {
+      this.showTopToast('未检测到 ds-bot 插件：请在电脑上安装并启用 ds-bot 插件后重试', true);
+      return;
+    }
+    this.showTopToast('主机移动网关版本过低：请更新主机插件后重试', true);
+  }
+
+  /** 右上角状态胶囊的文案：按「hello 是否到达」拆开两种失败 */
+  private botPillText(): string {
+    if (this.connection !== 'connected') {
+      return '未连接';
+    }
+    if (this.state.supported) {
+      return 'DS Bot 已连接';
+    }
+    return this.hasError() ? '未安装 ds-bot 插件' : '网关版本过低';
+  }
+
   private statusText(): string {
     if (this.connection !== 'connected') {
       return '连接主机后查看个人助理';
     }
     if (!this.state.supported) {
-      return '请更新主机上的移动网关以使用 Bot 模式';
+      return this.hasError()
+        ? '电脑上还没装 ds-bot 插件：安装并启用后再回来'
+        : '主机移动网关版本过低：请更新主机插件后重试';
     }
     if (this.hasError()) {
       return '连接异常：' + (this.state.error ?? '');
@@ -428,8 +570,9 @@ export struct BotHomePage {
     return chief !== null && (chief.running || this.state.liveWork[chief.id] !== undefined);
   }
 
+  /** 弹窗标题名：跟随当前展示的 Bot（我的 Bot 点进来时是那个 Bot） */
   private chiefName(): string {
-    const chief: BotChat | null = this.chief();
+    const chief: BotChat | null = this.sheetBot();
     return chief !== null ? chief.name : '个人助理';
   }
 
@@ -487,7 +630,7 @@ export struct BotHomePage {
 
   /** Chief 是否有主机下发的头像图（没有则用虎鲸标记） */
   private chiefHasImage(): boolean {
-    const chief: BotChat | null = this.chief();
+    const chief: BotChat | null = this.sheetBot();
     return chief !== null && this.hasImage(chief);
   }
 
@@ -587,13 +730,38 @@ export struct BotHomePage {
     return this.isDark ? '#2E2E2E' : '#F7F8FA';
   }
 
+  /** 弹窗内的强调色（设置/保存/新建）：跟随 Bot 背景配色 */
+  private sheetActionColor(): string {
+    const palette: BotPalette = botPalette(this.botBgTheme);
+    return this.isDark ? palette.actionDark : palette.action;
+  }
+
+  /** 品牌行右上状态胶囊：底色随「Bot 背景配色」主题变化，但只给很淡的一层（和页面同浅） */
+  private statusPillBg(): string {
+    const palette: BotPalette = botPalette(this.botBgTheme);
+    const rgb: number[] = this.isDark ? palette.fluidToDark : palette.fluidFrom;
+    const alpha: number = this.isDark ? 0.22 : 0.10;
+    return 'rgba(' + Math.round(rgb[0] * 255) + ',' + Math.round(rgb[1] * 255) + ','
+      + Math.round(rgb[2] * 255) + ',' + alpha.toString() + ')';
+  }
+
+  /** 胶囊描边：给很淡的底色勾一个边界，避免糊进背景 */
+  private statusPillBorder(): string {
+    const palette: BotPalette = botPalette(this.botBgTheme);
+    const rgb: number[] = this.isDark ? palette.fluidToDark : palette.fluidFrom;
+    const alpha: number = this.isDark ? 0.34 : 0.26;
+    return 'rgba(' + Math.round(rgb[0] * 255) + ',' + Math.round(rgb[1] * 255) + ','
+      + Math.round(rgb[2] * 255) + ',' + alpha.toString() + ')';
+  }
+
   /** 弹窗内的半透明填充：让系统玻璃透出来，而不是盖一层实色 */
   private sheetFill(): string {
     return this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.55)';
   }
 
+  /** 弹窗展示的 Bot 档案（跟随 sheetBot） */
   private chiefProfile(): BotRoleProfile | undefined {
-    const chief: BotChat | null = this.chief();
+    const chief: BotChat | null = this.sheetBot();
     if (chief === null) {
       return undefined;
     }
@@ -601,9 +769,9 @@ export struct BotHomePage {
   }
 
   private chiefRoleLabel(): string {
-    const chief: BotChat | null = this.chief();
+    const chief: BotChat | null = this.sheetBot();
     if (chief === null || chief.role.length === 0) {
-      return '主 Bot';
+      return this.isMainBotId(this.chiefId()) ? '主 Bot' : '团队成员';
     }
     return chief.role;
   }
@@ -656,9 +824,75 @@ export struct BotHomePage {
     return profile.workDir;
   }
 
+  /** 弹窗当前针对的 Bot：优先「我的 Bot」点进来的那个，否则主 Bot */
   private chiefId(): string {
+    if (this.sheetBotId.length > 0) {
+      return this.sheetBotId;
+    }
     const chief: BotChat | null = this.chief();
     return chief !== null ? chief.id : '';
+  }
+
+  /** 按 id 找 Bot（弹窗可能展示非主 Bot） */
+  private botById(id: string): BotChat | null {
+    for (const chat of this.state.chats) {
+      if (chat.id === id) {
+        return chat;
+      }
+    }
+    return null;
+  }
+
+  /** 弹窗当前展示的 Bot 对象 */
+  private sheetBot(): BotChat | null {
+    const id: string = this.chiefId();
+    return id.length > 0 ? this.botById(id) : this.chief();
+  }
+
+  /** 删除 Bot 前二次确认（iOS §7.6 第 9 组同款文案） */
+  private confirmDeleteBot(): void {
+    const name: string = this.chiefName();
+    const id: string = this.chiefId();
+    AlertDialog.show({
+      title: '删除 Bot？',
+      message: '将「' + name + '」移出团队和所在群聊。',
+      autoCancel: true,
+      primaryButton: {
+        value: '取消',
+        action: () => {
+        }
+      },
+      secondaryButton: {
+        value: '删除',
+        fontColor: '#D6263C',
+        action: () => {
+          const ok: boolean = BotStore.get().deleteRole(id);
+          if (!ok) {
+            this.editOpError = '删除失败：当前不可编辑，或主机未连接';
+            return;
+          }
+          this.closeChiefSheet();
+        }
+      }
+    })
+  }
+
+  /** 消费「我的 Bot」点行带来的角色 id：打开与 Chief 卡同一个弹窗 */
+  private onPendingRole(): void {
+    const id: string = this.pendingRoleId;
+    if (id.length === 0) {
+      return;
+    }
+    this.pendingRoleId = '';
+    if (this.botById(id) === null) {
+      return;
+    }
+    this.sheetBotId = id;
+    BotStore.get().openRole(id);
+    this.chiefSheetPage = 0;
+    this.editLoaded = false;
+    this.editOpError = '';
+    this.chiefSheetOpen = true;
   }
 
   private chiefMemoryCount(): number {
@@ -714,6 +948,7 @@ export struct BotHomePage {
     if (chief === null) {
       return;
     }
+    this.sheetBotId = '';
     BotStore.get().openRole(chief.id);
     this.chiefSheetPage = 0;
     this.editLoaded = false;
@@ -731,14 +966,10 @@ export struct BotHomePage {
    */
   @Builder
   letterAvatar(letter: string, size: number, main: boolean) {
+    // 聊天区默认头像不铺方形底（不要看起来像 hover 的方块），字母本身放大补足视觉重量
     Stack({ alignContent: Alignment.Center }) {
-      Column()
-        .width(size)
-        .height(size)
-        .borderRadius(size / 3)
-        .backgroundColor(main ? this.mainAvatarBg() : this.lavenderSoft())
       Text(letter)
-        .fontSize(size * 0.42)
+        .fontSize(size * 0.56)
         .fontWeight(FontWeight.Bold)
         .fontColor(main ? this.mainAvatarFg() : this.botBlue())
     }
@@ -747,34 +978,51 @@ export struct BotHomePage {
     .flexShrink(0)
   }
 
+  /**
+   * 主机下发的头像图：外面套一层固定尺寸的裁剪容器。
+   * （dataURL 可能是 SVG，直接给 Image 设宽高在部分版本会按固有尺寸绘制而溢出）
+   */
   @Builder
-  botAvatar(chat: BotChat, size: number, main: boolean) {
-    if (this.hasImage(chat)) {
+  hostAvatar(chat: BotChat, size: number) {
+    Stack({ alignContent: Alignment.Center }) {
       Image(this.imageOf(chat))
         .width(size)
         .height(size)
-        .borderRadius(size / 3)
         .objectFit(ImageFit.Cover)
-        .flexShrink(0)
+        .draggable(false)
+    }
+    .width(size)
+    .height(size)
+    .borderRadius(size / 3)
+    .clip(true)
+    .flexShrink(0)
+  }
+
+  @Builder
+  botAvatar(chat: BotChat, size: number, main: boolean) {
+    if (this.hasImage(chat)) {
+      this.hostAvatar(chat, size)
+    } else if (main) {
+      // 对齐 iOS BotFace：主 Bot 无图 → 鲸鱼标记（聊天行图标放大）
+      this.orcaAvatar(size, 0.82)
     } else {
       this.letterAvatar(this.firstChar(chat), size, main)
     }
   }
 
-  /** Chief 头像：对齐 iOS WhalenessOrcaIcon（主 Bot 无图时用墨色虎鲸标记 + BotLavenderSoft 底、圆角 size/3） */
+  /**
+   * 主 Bot 默认头像（主机没下发图时）：DS Bot 蓝鲸标记 + BotLavenderSoft 底、圆角 size/3。
+   * 与 DSH 端给主 Bot 的默认形态（鲸鱼）一致，深色浅色都可见。
+   */
   @Builder
-  orcaAvatar(size: number) {
+  orcaAvatar(size: number, iconScale: number) {
+    // 默认头像直接给图标，不铺方形底（不要看起来像 hover 的方块背景）。
+    // 名片/弹窗保持 0.58；聊天行传 0.82，图标更大更醒目
     Stack({ alignContent: Alignment.Center }) {
-      Column()
-        .width(size)
-        .height(size)
-        .borderRadius(size / 3)
-        .backgroundColor(this.lavenderSoft())
-      Image($r('app.media.dsh_orca_mark'))
-        .width(size * 0.58)
-        .height(size * 0.58)
+      Image($r('app.media.dsh_whale'))
+        .width(size * iconScale)
+        .height(size * iconScale)
         .objectFit(ImageFit.Contain)
-        .colorFilter(this.iconTint(this.ink()))
     }
     .width(size)
     .height(size)
@@ -786,7 +1034,7 @@ export struct BotHomePage {
     if (this.chiefHasImage()) {
       this.botAvatar(this.chief() as BotChat, 44, true)
     } else {
-      this.orcaAvatar(44)
+      this.orcaAvatar(44, 0.58)
     }
   }
 
@@ -854,24 +1102,34 @@ export struct BotHomePage {
           .fill(this.connection === 'connected'
             ? (this.state.supported ? this.successGreen() : '#E0A03C')
             : this.lineColor())
-        Text(this.connection === 'connected'
-          ? (this.state.supported ? 'DS Bot 已连接' : '主机未启用 DS-Bot')
-          : '未连接')
+        Text(this.botPillText())
           .fontSize(11.5)
           .fontColor(this.secondaryText())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
       .padding({ left: 8, right: 10, top: 5, bottom: 5 })
-      .backgroundColor(this.lavenderSoft())
+      .backgroundColor(this.statusPillBg())
+      .border({ width: 0.6, color: this.statusPillBorder() })
       .borderRadius(12)
+      .onClick(() => {
+        this.showBotStatusHint();
+      })
     }
     .width('100%')
     .alignItems(VerticalAlign.Center)
-    .margin({ bottom: wide ? 0 : 28 })
+    // 对齐工作模式首页品牌行：到主机行共 22vp（本页列间距 16，补 6）
+    .margin({ bottom: wide ? 0 : 6 })
     .onClick(() => {
       this.openDrawer();
     })
   }
 
+  /**
+   * 标题区：「个人助理」纵向位置对齐工作模式首页的「探索未至之境」。
+   * 工作首页：顶部 14 + 品牌行 36 + 22 + 主机行 49 + 24 + 60 = 205vp；
+   * 本页：14 + 36 +（6 与 16 列间距）+ 48 +（16 列间距 + 69）= 205vp。
+   */
   @Builder
   hero(wide: boolean) {
     Column({ space: wide ? 6 : 3 }) {
@@ -885,6 +1143,7 @@ export struct BotHomePage {
     }
     .alignItems(HorizontalAlign.Start)
     .width('100%')
+    .margin({ top: wide ? 0 : 69 })
   }
 
   // ==================== Chief / 主按钮 ====================
@@ -932,16 +1191,26 @@ export struct BotHomePage {
     })
   }
 
+  /**
+   * 「与 X 聊聊」前置图标：iOS BotConversationMark（Assets conversation.svg，25.2422×20.1094），
+   * template 渲染取当前色（BotInk）。原先误用了抽屉里的 BotDrawerMark 鲸鱼。
+   */
+  @Builder
+  startChatMark() {
+    // SVG 走自身填充色（colorFilter 对矢量图无效），深色模式用白色变体
+    Image(this.isDark ? $r('app.media.bot_conversation_mark_white') : $r('app.media.bot_conversation_mark'))
+      .width(25.2422)
+      .height(20.1094)
+      .objectFit(ImageFit.Fill)
+      .flexShrink(0)
+  }
+
   @Builder
   startChatButton() {
     Column() {
       Stack({ alignContent: Alignment.Center }) {
         Row({ space: 10 }) {
-          Image($r('app.media.bot_drawer_mark'))
-            .width(22)
-            .height(22)
-            .objectFit(ImageFit.Contain)
-            .colorFilter(this.iconTint(this.ink()))
+          this.startChatMark()
           Text(this.startChatLabel())
             .fontSize(15)
             .fontWeight(FontWeight.Medium)
@@ -1055,23 +1324,28 @@ export struct BotHomePage {
 
   // ==================== 快捷入口卡 ====================
 
+  /**
+   * 快捷卡外壳：标题 + 数量 + 副标题。
+   * 注意 ArkUI 的 @Builder 按值传参不会随状态刷新（「我的 Bot」曾一直停在 0），
+   * 因此这里直接内联读取 state，保证数量随快照更新。
+   */
   @Builder
-  shortcut(title: string, count: string, subtitle: string, onTap: () => void) {
+  myBotShortcut() {
     Column() {
       Column({ space: 4 }) {
         Row() {
-          Text(title)
+          Text('我的 Bot')
             .fontSize(15)
             .fontColor(this.ink())
           Blank()
-          Text(count)
+          Text(this.rosterCount().toString())
             .fontSize(17)
             .fontWeight(FontWeight.Bold)
             .fontColor(this.ink())
         }
         .width('100%')
 
-        Text(subtitle)
+        Text('查看与创建')
           .fontSize(12)
           .fontColor(this.secondaryText())
           .maxLines(1)
@@ -1091,18 +1365,57 @@ export struct BotHomePage {
     .layoutWeight(1)
     .borderRadius(19)
     .shadow(this.glassShadow())
-    .onClick(onTap)
+    .onClick(() => {
+      this.pageStack.pushPathByName('bot-manage', null);
+    })
+  }
+
+  @Builder
+  scheduleShortcut() {
+    Column() {
+      Column({ space: 4 }) {
+        Row() {
+          Text('定时任务')
+            .fontSize(15)
+            .fontColor(this.ink())
+          Blank()
+          Text(this.state.schedules.length.toString())
+            .fontSize(17)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.ink())
+        }
+        .width('100%')
+
+        Text(this.scheduleSubtitle())
+          .fontSize(12)
+          .fontColor(this.secondaryText())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+      }
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+      .constraintSize({ minHeight: 66 })
+      .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+      .backgroundColor(Color.Transparent)
+      .backdropBlur(10)
+      .clip(true)
+      .borderRadius(19)
+      .border({ width: 1, color: this.glassHairline() })
+    }
+    .layoutWeight(1)
+    .borderRadius(19)
+    .shadow(this.glassShadow())
+    .onClick(() => {
+      this.scheduleOpen = true;
+    })
   }
 
   @Builder
   shortcutsRow() {
     Row({ space: 12 }) {
-      this.shortcut('我的 Bot', this.rosterCount().toString(), '查看与创建', () => {
-        this.pageStack.pushPathByName('bot-manage', null);
-      })
-      this.shortcut('定时任务', this.state.schedules.length.toString(), this.scheduleSubtitle(), () => {
-        this.scheduleOpen = true;
-      })
+      this.myBotShortcut()
+      this.scheduleShortcut()
     }
     .width('100%')
   }
@@ -1163,9 +1476,12 @@ export struct BotHomePage {
   searchBox() {
     Column() {
       Row({ space: 8 }) {
-        Text('🔍')
-          .fontSize(16)
-          .opacity(0.6)
+        // 与工作模式首页搜索条同一枚细线放大镜（深色用白色变体）
+        Image(this.isDark ? $r('app.media.search_white_thin') : $r('app.media.search_ink_thin'))
+          .width(20)
+          .height(20)
+          .objectFit(ImageFit.Contain)
+          .opacity(0.68)
         TextInput({ text: this.search, placeholder: '搜索聊天名称或内容' })
           .fontSize(15)
           .fontColor(this.ink())
@@ -1266,7 +1582,10 @@ export struct BotHomePage {
               }
             }
             .width('100%')
-          }, (chat: BotChat) => chat.id + ':' + chat.preview + ':' + chat.lastAt.toString())
+            // key 里带上头像标识：头像异步回包后行要重建，否则会一直停在首字
+          }, (chat: BotChat) => chat.id + ':' + chat.preview + ':' + chat.lastAt.toString()
+            + ':' + (chat.imageRef !== undefined ? chat.imageRef : '')
+            + ':' + (chat.image !== undefined ? '1' : '0'))
         }
         .width('100%')
         .backgroundColor(Color.Transparent)
@@ -1371,7 +1690,7 @@ export struct BotHomePage {
     .onClick(action)
   }
 
-  /** Chief 角色名片：底部原生沉浸玻璃弹窗（系统材质，永远玻璃样式） */
+  /** Chief 角色名片：底部原生沉浸玻璃弹窗（系统材质，永远玻璃样式；内容页都在弹窗内切换） */
   @Builder
   chiefRoleSheet() {
     Column() {
@@ -1382,42 +1701,23 @@ export struct BotHomePage {
         .backgroundColor(this.isDark ? 'rgba(255,255,255,0.28)' : 'rgba(37,35,50,0.18)')
         .margin({ top: 8, bottom: 8 })
 
-      // 右上角「设置」：点它在同一个弹窗内切到角色设置（对齐 iOS 名片工具栏）
-      if (this.chiefSheetPage === 0) {
-        Row() {
-          Blank()
-          Text('设置')
-            .fontSize(13)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.primaryButton())
-            .height(30)
-            .padding({ left: 14, right: 14 })
-            .backgroundColor(this.sheetFill())
-            .borderRadius(15)
-            .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
-            .onClick(() => {
-              this.openSheetSettings();
-            })
-        }
-        .width('100%')
-        .margin({ bottom: 4 })
-      }
+      this.sheetTopBar()
 
       if (this.chiefSheetPage === 1) {
         this.chiefSettingsPane()
+      } else if (this.chiefSheetPage === 2) {
+        this.chiefMemoryPane()
+      } else if (this.chiefSheetPage === 3) {
+        this.chiefSchedulePane()
       } else {
       Scroll() {
         Column({ space: 16 }) {
           // 头部：orca 头像 + 名字 + 角色 + 说明
           Column({ space: 8 }) {
             if (this.chiefHasImage()) {
-              Image(this.imageOf(this.chief() as BotChat))
-                .width(80)
-                .height(80)
-                .borderRadius(80 / 3)
-                .objectFit(ImageFit.Cover)
+              this.hostAvatar(this.sheetBot() as BotChat, 80)
             } else {
-              this.orcaAvatar(80)
+              this.orcaAvatar(80, 0.58)
             }
             Text(this.chiefName())
               .fontSize(24)
@@ -1442,17 +1742,13 @@ export struct BotHomePage {
           .alignItems(HorizontalAlign.Center)
           .padding({ top: 4, bottom: 4 })
 
-          // 只读资料：模型 / 权限 / 工作文件夹 / 近 30 天用量
+          // 只读资料：模型 / 权限 / 工作文件夹
           Column() {
             this.roleSheetRow('模型', this.chiefModelLabel())
             Divider().color(this.lineColor()).strokeWidth(0.5)
             this.roleSheetRow('权限', this.chiefPermissionLabel())
             Divider().color(this.lineColor()).strokeWidth(0.5)
             this.roleSheetRow('工作文件夹', this.chiefWorkDirLabel())
-            if (this.chiefUsageAvailable()) {
-              Divider().color(this.lineColor()).strokeWidth(0.5)
-              this.roleSheetRow('近 30 天用量', this.chiefUsageText())
-            }
           }
           .width('100%')
           .padding({ left: 16, right: 16, top: 2, bottom: 2 })
@@ -1460,15 +1756,15 @@ export struct BotHomePage {
           .borderRadius(20)
           .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
 
-          // 功能区：记忆 / 定时任务（都进完整角色页）
+          // 功能区：记忆 / 定时任务 / 近 30 天用量（数量在 builder 里内联读取，回包后会自动刷新）
           Column() {
-            this.roleSheetAction('记忆', this.chiefMemoryCount().toString() + ' 条', () => {
-              this.openChiefRole();
-            })
+            this.sheetMemoryRow()
             Divider().color(this.lineColor()).strokeWidth(0.5)
-            this.roleSheetAction('定时任务', this.chiefScheduleCount().toString() + ' 个', () => {
-              this.openChiefRole();
-            })
+            this.sheetScheduleRow()
+            if (this.chiefUsageAvailable()) {
+              Divider().color(this.lineColor()).strokeWidth(0.5)
+              this.sheetUsageRow()
+            }
           }
           .width('100%')
           .padding({ left: 16, right: 16, top: 2, bottom: 2 })
@@ -1480,33 +1776,642 @@ export struct BotHomePage {
         .padding({ bottom: 8 })
       }
       .width('100%')
-      .constraintSize({ maxHeight: 520 })
+      .layoutWeight(1)
       .scrollBar(BarState.Off)
       .align(Alignment.Top)
-
-      // 底部：关闭（设置入口在右上角）
-      Text('关闭')
-        .fontSize(15)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.ink())
-        .width('100%')
-        .height(46)
-        .textAlign(TextAlign.Center)
-        .backgroundColor(this.sheetFill())
-        .borderRadius(23)
-        .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
-        .margin({ top: 12 })
-        .onClick(() => {
-          this.chiefSheetOpen = false;
-        })
       }
     }
     .width('100%')
-    .padding({ left: 20, right: 20, bottom: this.safeBottom })
+    .height('100%')
+    .padding({ left: 20, right: 20, bottom: 12 + this.safeBottom })
   }
 
 
   // ==================== 弹窗内「角色设置」（不跳页，直接切弹窗内容） ====================
+
+  /** 弹窗内翻页：0=名片 1=设置 2=记忆 3=定时任务（都留在同一个弹窗里） */
+  private openSheetPage(page: number): void {
+    this.editOpError = '';
+    if (page === 1) {
+      this.openSheetSettings();
+      return;
+    }
+    this.chiefSheetPage = page;
+    if (page === 2) {
+      const chief: BotChat | null = this.chief();
+      if (chief !== null) {
+        BotStore.get().openRole(chief.id);
+      }
+    }
+  }
+
+  private closeChiefSheet(): void {
+    this.chiefSheetOpen = false;
+    this.chiefSheetPage = 0;
+    this.sheetBotId = '';
+    this.memoryAdding = false;
+    this.memoryDraft = '';
+    this.scheduleAdding = false;
+  }
+
+  // ==================== 弹窗内「+」：记忆 / 定时任务 ====================
+
+  private pad2(value: number): string {
+    return value < 10 ? '0' + value.toString() : value.toString();
+  }
+
+  private nowTime(): string {
+    const now: Date = new Date();
+    return this.pad2(now.getHours()) + ':' + this.pad2(now.getMinutes());
+  }
+
+  /** 设备本地时区（IANA）；取不到时退回 UTC 偏移串 */
+  private deviceZone(): string {
+    try {
+      const zone: string = i18n.getTimeZone().getID();
+      if (zone.length > 0) {
+        return zone;
+      }
+    } catch (error) {
+    }
+    const offset: number = -new Date().getTimezoneOffset();
+    const sign: string = offset >= 0 ? '+' : '-';
+    const abs: number = Math.abs(offset);
+    return 'UTC' + sign + this.pad2(Math.floor(abs / 60)) + ':' + this.pad2(abs % 60);
+  }
+
+  private isDigit(value: string): boolean {
+    const code: number = value.charCodeAt(0);
+    return code >= 48 && code <= 57;
+  }
+
+  private isTimeValid(value: string): boolean {
+    if (value.length !== 5 || value.charAt(2) !== ':') {
+      return false;
+    }
+    const hh: string = value.substring(0, 2);
+    const mm: string = value.substring(3, 5);
+    if (!this.isDigit(hh.charAt(0)) || !this.isDigit(hh.charAt(1))) {
+      return false;
+    }
+    if (!this.isDigit(mm.charAt(0)) || !this.isDigit(mm.charAt(1))) {
+      return false;
+    }
+    const hour: number = Number(hh);
+    const minute: number = Number(mm);
+    return hour >= 0 && hour < 24 && minute >= 0 && minute < 60;
+  }
+
+  private memoryEditable(): boolean {
+    return this.state.connected && this.state.writable && this.state.memoryAvailable && !this.state.roleSaving;
+  }
+
+  private scheduleEditable(): boolean {
+    return this.state.connected && this.state.writable && this.state.schedulesAvailable && !this.state.roleSaving;
+  }
+
+  private scheduleFormValid(): boolean {
+    return this.scheduleTitle.trim().length > 0
+      && this.schedulePrompt.trim().length > 0
+      && this.isTimeValid(this.scheduleTime);
+  }
+
+  private openMemoryForm(): void {
+    this.editOpError = '';
+    this.memoryAdding = !this.memoryAdding;
+    if (this.memoryAdding) {
+      this.memoryDraft = '';
+    }
+  }
+
+  private addMemoryNow(): void {
+    const text: string = this.memoryDraft.trim();
+    if (!this.memoryEditable() || text.length === 0) {
+      return;
+    }
+    const ok: boolean = BotStore.get().saveMemory(this.chiefId(), undefined, text);
+    if (!ok) {
+      this.editOpError = '添加失败：当前不可编辑，或主机未连接';
+      return;
+    }
+    this.memoryAdding = false;
+    this.memoryDraft = '';
+    // 拉一次该 Bot 的记忆/任务，让弹窗内列表立刻刷出来
+    BotStore.get().openRole(this.chiefId());
+  }
+
+  private openScheduleForm(): void {
+    this.editOpError = '';
+    this.scheduleAdding = !this.scheduleAdding;
+    if (this.scheduleAdding) {
+      this.scheduleTitle = '';
+      this.schedulePrompt = '';
+      this.scheduleTime = this.nowTime();
+    }
+  }
+
+  private addScheduleNow(): void {
+    if (!this.scheduleEditable() || !this.scheduleFormValid()) {
+      return;
+    }
+    const ok: boolean = BotStore.get().scheduleDaily(this.chiefId(), this.scheduleTitle,
+      this.schedulePrompt, this.scheduleTime, this.deviceZone());
+    if (!ok) {
+      this.editOpError = '创建失败：当前不可编辑，或主机未连接';
+      return;
+    }
+    this.scheduleAdding = false;
+    this.scheduleTitle = '';
+    this.schedulePrompt = '';
+    this.scheduleTime = '';
+    BotStore.get().openRole(this.chiefId());
+  }
+
+  /** 该 Bot 名下的定时任务（弹窗内列表） */
+  private chiefSchedules(): BotSchedule[] {
+    const id: string = this.chiefId();
+    const out: BotSchedule[] = [];
+    for (const task of this.state.schedules) {
+      if (task.botId === id) {
+        out.push(task);
+      }
+    }
+    return out;
+  }
+
+  private chiefMemories(): BotMemory[] {
+    const details: BotRoleDetails | undefined = this.state.roleDetails;
+    if (details === undefined || details.botId !== this.chiefId()) {
+      return [];
+    }
+    return details.memories;
+  }
+
+  /**
+   * 弹窗左上角：首页（名片页）是「关闭」胶囊；进入子页后换成默认圆形返回钮。
+   * 圆形返回钮复刻 NavBackButton 的默认样式（系统玻璃 + 白细边 + 柔和投影），
+   * 但点击是弹窗内翻页，不走页面栈。
+   */
+  @Builder
+  sheetBackCircle() {
+    Stack({ alignContent: Alignment.Center }) {
+      Button({ type: ButtonType.Circle }) {
+        SymbolGlyph($r('sys.symbol.chevron_backward'))
+          .fontSize(36 * 0.45)
+          .fontColor([this.ink()])
+          .fontWeight(FontWeight.Medium)
+      }
+      .width(36)
+      .height(36)
+      .backgroundColor(Color.Transparent)
+      .clip(true)
+      .backdropBlur(10)
+      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+      .accessibilityText('返回')
+      .onClick(() => {
+        this.chiefSheetPage = 0;
+        this.memoryAdding = false;
+        this.scheduleAdding = false;
+      })
+    }
+    .width(36)
+    .height(36)
+    .borderRadius(18)
+    .shadow({ radius: 14, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetX: 0, offsetY: 6 })
+  }
+
+  /** 弹窗右上角的圆形「+」：记忆 / 定时任务新增 */
+  @Builder
+  sheetPlusCircle(enabled: boolean, onTap: () => void) {
+    Stack({ alignContent: Alignment.Center }) {
+      Button({ type: ButtonType.Circle }) {
+        Text('+')
+          .fontSize(22)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(enabled ? this.sheetActionColor() : this.secondaryText())
+          .offset({ y: -1 })
+      }
+      .width(36)
+      .height(36)
+      .backgroundColor(Color.Transparent)
+      .clip(true)
+      .backdropBlur(10)
+      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+      .enabled(enabled)
+      .opacity(enabled ? 1 : 0.45)
+      .accessibilityText('新增')
+      .onClick(() => {
+        onTap();
+      })
+    }
+    .width(36)
+    .height(36)
+    .borderRadius(18)
+    .shadow({ radius: 14, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetX: 0, offsetY: 6 })
+  }
+
+  @Builder
+  sheetTopBar() {
+    // 只放按钮行：之前叠了一系统厚模糊带，在玻璃面板上会显出一块白色，已去掉
+    this.sheetTopBarRow()
+  }
+
+  @Builder
+  sheetTopBarRow() {
+    Row() {
+      if (this.chiefSheetPage === 0) {
+        Row() {
+          Text('关闭')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.ink())
+        }
+        .height(30)
+        .padding({ left: 14, right: 14 })
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor(this.sheetFill())
+        .borderRadius(15)
+        .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
+        .onClick(() => {
+          this.closeChiefSheet();
+        })
+      } else {
+        this.sheetBackCircle()
+      }
+
+      Blank()
+
+      if (this.chiefSheetPage === 0) {
+        Row() {
+          Text('设置')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.sheetActionColor())
+        }
+        .height(30)
+        .padding({ left: 14, right: 14 })
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor(this.sheetFill())
+        .borderRadius(15)
+        .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
+        .onClick(() => {
+          this.openSheetPage(1);
+        })
+      } else if (this.chiefSheetPage === 1) {
+        if (this.state.roleSaving) {
+          LoadingProgress()
+            .width(20)
+            .height(20)
+            .color(this.purple())
+        } else {
+          // 保存：默认不点亮，内容改动后才变实心高亮
+          Row() {
+            Text('保存')
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.roleCanSave() ? '#FFFFFF' : this.secondaryText())
+          }
+          .height(30)
+          .padding({ left: 16, right: 16 })
+          .justifyContent(FlexAlign.Center)
+          .backgroundColor(this.roleCanSave() ? this.sheetActionColor() : this.sheetFill())
+          .borderRadius(15)
+          .border({
+            width: 0.6,
+            color: this.roleCanSave() ? this.sheetActionColor()
+              : (this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)')
+          })
+          .opacity(this.roleCanSave() ? 1 : 0.55)
+          .onClick(() => {
+            this.saveRole();
+          })
+        }
+      } else if (this.chiefSheetPage === 2) {
+        this.sheetPlusCircle(this.memoryEditable(), () => {
+          this.openMemoryForm();
+        })
+      } else {
+        this.sheetPlusCircle(this.scheduleEditable(), () => {
+          this.openScheduleForm();
+        })
+      }
+    }
+    .width('100%')
+    .height(40)
+    .padding({ left: 2, right: 2 })
+    .alignItems(VerticalAlign.Center)
+    .margin({ bottom: 6 })
+  }
+
+  /** 名片页「记忆」行：数量内联读取，回包后自动刷新（之前用值参数会一直显示 0） */
+  @Builder
+  sheetMemoryRow() {
+    Row() {
+      Text('记忆')
+        .fontSize(15)
+        .fontColor(this.ink())
+      Blank()
+      Text(this.chiefMemoryCount().toString() + ' 条')
+        .fontSize(15)
+        .fontColor(this.secondaryText())
+      Image(this.isDark ? $r('app.media.chev_down_white') : $r('app.media.chev_right_gray'))
+        .width(12)
+        .height(12)
+        .objectFit(ImageFit.Contain)
+        .margin({ left: 6 })
+        .opacity(0.55)
+        .rotate({ angle: -90 })
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 48 })
+    .alignItems(VerticalAlign.Center)
+    .onClick(() => {
+      this.openSheetPage(2);
+    })
+  }
+
+  /** 名片页「定时任务」行 */
+  @Builder
+  sheetScheduleRow() {
+    Row() {
+      Text('定时任务')
+        .fontSize(15)
+        .fontColor(this.ink())
+      Blank()
+      Text(this.chiefScheduleCount().toString() + ' 个')
+        .fontSize(15)
+        .fontColor(this.secondaryText())
+      Image(this.isDark ? $r('app.media.chev_down_white') : $r('app.media.chev_right_gray'))
+        .width(12)
+        .height(12)
+        .objectFit(ImageFit.Contain)
+        .margin({ left: 6 })
+        .opacity(0.55)
+        .rotate({ angle: -90 })
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 48 })
+    .alignItems(VerticalAlign.Center)
+    .onClick(() => {
+      this.openSheetPage(3);
+    })
+  }
+
+  /** 名片页「近 30 天用量」行（已挪到定时任务下面） */
+  @Builder
+  sheetUsageRow() {
+    Row() {
+      Text('近 30 天用量')
+        .fontSize(15)
+        .fontColor(this.ink())
+      Blank()
+      Text(this.chiefUsageText())
+        .fontSize(15)
+        .fontColor(this.secondaryText())
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 48 })
+    .alignItems(VerticalAlign.Center)
+  }
+
+  /** 弹窗内「记忆」页：该 Bot 的记忆列表（编辑仍在角色页） */
+  @Builder
+  chiefMemoryPane() {
+    Column() {
+      if (this.editOpError.length > 0) {
+        Text(this.editOpError)
+          .fontSize(13)
+          .fontColor('#D9534F')
+          .width('100%')
+          .margin({ bottom: 8 })
+      }
+
+      // 右上「+」展开的新增表单（留在弹窗内，不弹二级对话框）
+      if (this.memoryAdding) {
+        Column({ space: 8 }) {
+          TextArea({ text: this.memoryDraft, placeholder: '记一条：这个 Bot 需要长期记住的事' })
+            .fontSize(14)
+            .fontColor(this.ink())
+            .height(88)
+            .backgroundColor(this.sheetFill())
+            .borderRadius(12)
+            .onChange((value: string) => {
+              this.memoryDraft = value;
+            })
+          Row({ space: 10 }) {
+            Blank()
+            Text('取消')
+              .fontSize(13)
+              .fontColor(this.secondaryText())
+              .height(30)
+              .padding({ left: 14, right: 14 })
+              .backgroundColor(this.sheetFill())
+              .borderRadius(15)
+              .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
+              .onClick(() => {
+                this.memoryAdding = false;
+                this.memoryDraft = '';
+              })
+            Text('添加')
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.memoryDraft.trim().length > 0 ? '#FFFFFF' : this.secondaryText())
+              .height(30)
+              .padding({ left: 16, right: 16 })
+              .backgroundColor(this.memoryDraft.trim().length > 0 ? this.sheetActionColor() : this.sheetFill())
+              .borderRadius(15)
+              .opacity(this.memoryDraft.trim().length > 0 ? 1 : 0.55)
+              .onClick(() => {
+                this.addMemoryNow();
+              })
+          }
+          .width('100%')
+        }
+        .width('100%')
+        .padding(12)
+        .backgroundColor(this.sheetFill())
+        .borderRadius(18)
+        .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
+        .margin({ bottom: 10 })
+      }
+
+      if (this.chiefMemories().length === 0) {
+        Column() {
+          Text('还没有记忆')
+            .fontSize(15)
+            .fontColor(this.secondaryText())
+            .width('100%')
+        }
+        .width('100%')
+        .padding(16)
+        .backgroundColor(this.sheetFill())
+        .borderRadius(18)
+        .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
+      } else {
+        Scroll() {
+          Column({ space: 10 }) {
+            ForEach(this.chiefMemories(), (memory: BotMemory) => {
+              Column({ space: 4 }) {
+                if (memory.topic !== undefined && memory.topic.length > 0) {
+                  Text(memory.topic)
+                    .fontSize(13)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(this.cardAccent())
+                    .width('100%')
+                }
+                Text(memory.text)
+                  .fontSize(14)
+                  .fontColor(this.ink())
+                  .width('100%')
+              }
+              .width('100%')
+              .padding(14)
+              .alignItems(HorizontalAlign.Start)
+              .backgroundColor(this.sheetFill())
+              .borderRadius(16)
+              .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
+            }, (memory: BotMemory) => memory.id)
+          }
+          .width('100%')
+          .padding({ bottom: 8 })
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .scrollBar(BarState.Off)
+        .align(Alignment.Top)
+      }
+      Text('编辑与删除在「我的 Bot → ' + this.chiefName() + '」里完成。')
+        .fontSize(12)
+        .fontColor(this.secondaryText())
+        .width('100%')
+        .margin({ top: 10 })
+    }
+    .width('100%')
+    .layoutWeight(1)
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  /** 弹窗内「定时任务」页：只读列表，与首页定时任务面板同一行样式 */
+  @Builder
+  chiefSchedulePane() {
+    Column() {
+      if (this.editOpError.length > 0) {
+        Text(this.editOpError)
+          .fontSize(13)
+          .fontColor('#D9534F')
+          .width('100%')
+          .margin({ bottom: 8 })
+      }
+
+      // 右上「+」展开的新建表单（每天固定时刻）
+      if (this.scheduleAdding) {
+        Column({ space: 8 }) {
+          TextInput({ text: this.scheduleTitle, placeholder: '任务名称' })
+            .fontSize(15)
+            .fontColor(this.ink())
+            .height(42)
+            .backgroundColor(this.sheetFill())
+            .borderRadius(12)
+            .onChange((value: string) => {
+              this.scheduleTitle = value;
+            })
+          TextArea({ text: this.schedulePrompt, placeholder: '到点让它做什么…' })
+            .fontSize(14)
+            .fontColor(this.ink())
+            .height(84)
+            .backgroundColor(this.sheetFill())
+            .borderRadius(12)
+            .onChange((value: string) => {
+              this.schedulePrompt = value;
+            })
+          Row({ space: 8 }) {
+            Text('每天')
+              .fontSize(13)
+              .fontColor(this.secondaryText())
+            TextInput({ text: this.scheduleTime, placeholder: '08:30' })
+              .fontSize(15)
+              .fontColor(this.ink())
+              .height(36)
+              .width(96)
+              .textAlign(TextAlign.Center)
+              .backgroundColor(this.sheetFill())
+              .borderRadius(10)
+              .onChange((value: string) => {
+                this.scheduleTime = value;
+              })
+            Text('本地时区')
+              .fontSize(12)
+              .fontColor(this.secondaryText())
+            Blank()
+          }
+          .width('100%')
+          Row({ space: 10 }) {
+            Blank()
+            Text('取消')
+              .fontSize(13)
+              .fontColor(this.secondaryText())
+              .height(30)
+              .padding({ left: 14, right: 14 })
+              .backgroundColor(this.sheetFill())
+              .borderRadius(15)
+              .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
+              .onClick(() => {
+                this.scheduleAdding = false;
+                this.scheduleTitle = '';
+                this.schedulePrompt = '';
+              })
+            Text('创建')
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.scheduleFormValid() ? '#FFFFFF' : this.secondaryText())
+              .height(30)
+              .padding({ left: 16, right: 16 })
+              .backgroundColor(this.scheduleFormValid() ? this.sheetActionColor() : this.sheetFill())
+              .borderRadius(15)
+              .opacity(this.scheduleFormValid() ? 1 : 0.55)
+              .onClick(() => {
+                this.addScheduleNow();
+              })
+          }
+          .width('100%')
+        }
+        .width('100%')
+        .padding(12)
+        .backgroundColor(this.sheetFill())
+        .borderRadius(18)
+        .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
+        .margin({ bottom: 10 })
+      }
+
+      if (this.chiefSchedules().length === 0) {
+        Column() {
+          Text(this.state.schedulesAvailable ? '这个 Bot 还没有定时任务' : this.scheduleStateText())
+            .fontSize(15)
+            .fontColor(this.secondaryText())
+            .width('100%')
+        }
+        .width('100%')
+        .padding(16)
+        .backgroundColor(this.sheetFill())
+        .borderRadius(18)
+        .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
+      } else {
+        List({ space: 12 }) {
+          ForEach(this.chiefSchedules(), (task: BotSchedule) => {
+            ListItem() {
+              this.scheduleRow(task)
+            }
+          }, (task: BotSchedule) => task.id)
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .scrollBar(BarState.Off)
+      }
+    }
+    .width('100%')
+    .layoutWeight(1)
+    .alignItems(HorizontalAlign.Start)
+  }
 
   /** 弹窗切到设置页：把当前资料灌进草稿并拉取可选模型档位 */
   private openSheetSettings(): void {
@@ -1714,12 +2619,45 @@ export struct BotHomePage {
     return '开启后，其他 Bot 无法读取它的工作文件夹、记忆和对话。';
   }
 
+  /** iOS §7.6 表单行：左标签、右侧控件（右对齐输入框/值+箭头） */
   @Builder
-  sheetFieldLabel(label: string) {
+  formRowLabel(label: string) {
     Text(label)
-      .fontSize(13)
-      .fontColor(this.secondaryText())
-      .width('100%')
+      .fontSize(15)
+      .fontColor(this.ink())
+      .flexShrink(0)
+  }
+
+  /** iOS 分组表单的 footer：12pt 次级说明，紧贴在分组卡片下方（负 margin 抵消分组间距） */
+  @Builder
+  formFooter(text: string) {
+    if (text.length > 0) {
+      Text(text)
+        .fontSize(12)
+        .fontColor(this.secondaryText())
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 6 })
+        .margin({ top: -20 })
+    }
+  }
+
+  /** 只读行（左标签、右值） */
+  @Builder
+  formValueRow(label: string, value: string) {
+    Row() {
+      this.formRowLabel(label)
+      Blank()
+      Text(value)
+        .fontSize(15)
+        .fontColor(this.secondaryText())
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .constraintSize({ maxWidth: '60%' })
+        .textAlign(TextAlign.End)
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 44 })
+    .alignItems(VerticalAlign.Center)
   }
 
   @Builder
@@ -1770,6 +2708,40 @@ export struct BotHomePage {
     }
   }
 
+  /** 「更换主 Bot」候选：非群聊、非当前主 Bot、非私密角色 */
+  @Builder
+  mainBotMenu() {
+    Menu() {
+      ForEach(this.state.chats, (chat: BotChat) => {
+        if (!chat.room && chat.id !== this.state.mainBotId
+          && !(chat.profile !== undefined && chat.profile.privateRole)) {
+          MenuItem({ content: chat.name })
+            .onClick(() => {
+              const current: string = this.state.mainBotId ?? '';
+              const ok: boolean = BotStore.get().replacePrimary(current, chat.id);
+              if (!ok) {
+                this.editOpError = '更换失败：当前不可编辑，或主机未连接';
+              }
+            })
+        }
+      }, (chat: BotChat) => chat.id)
+    }
+  }
+
+  /** 设置页分组标题（iOS Form 的 section header） */
+  @Builder
+  formSectionTitle(title: string) {
+    Text(title)
+      .fontSize(11.5)
+      .fontWeight(FontWeight.Medium)
+      .fontColor(this.secondaryText())
+      .width('100%')
+      // 缩进对齐卡片内的文字（卡片左右内边距 16）
+      .padding({ left: 16, bottom: 4 })
+      // 外层列间距 22，这里吃掉 14 → 标题距自己模块 8，距上一个模块仍是 22
+      .margin({ bottom: -14 })
+  }
+
   @Builder
   permissionMenu() {
     Menu() {
@@ -1782,45 +2754,16 @@ export struct BotHomePage {
     }
   }
 
-  /** 弹窗内「角色设置」页（与名片同一个底部玻璃弹窗） */
+  /**
+   * 弹窗内「角色设置」页：布局对齐 iOS §7.6（insetGrouped 表单）——
+   * 头部资料行 → 资料 / 模型 / 工作区与权限 / 说明 / 操控 分组（左标签 + 右对齐控件 + 组下方 footer）
+   * → 记忆 / 定时任务导航组。所有动作都留在弹窗内。
+   */
   @Builder
   chiefSettingsPane() {
     Column() {
-      Row() {
-        Text('‹ 返回')
-          .fontSize(15)
-          .fontColor(this.primaryButton())
-          .onClick(() => {
-            this.chiefSheetPage = 0;
-          })
-        Blank()
-        Text('角色设置')
-          .fontSize(17)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.ink())
-        Blank()
-        if (this.state.roleSaving) {
-          LoadingProgress()
-            .width(20)
-            .height(20)
-            .color(this.purple())
-        } else {
-          Text('保存')
-            .fontSize(15)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.roleCanSave() ? this.primaryButton() : this.secondaryText())
-            .opacity(this.roleCanSave() ? 1 : 0.5)
-            .onClick(() => {
-              this.saveRole();
-            })
-        }
-      }
-      .width('100%')
-      .height(40)
-      .alignItems(VerticalAlign.Center)
-
       Scroll() {
-        Column({ space: 12 }) {
+        Column({ space: 22 }) {
           if (this.editOpError.length > 0) {
             Text(this.editOpError)
               .fontSize(13)
@@ -1828,102 +2771,147 @@ export struct BotHomePage {
               .width('100%')
           }
 
-          // 资料
-          Column({ space: 8 }) {
-            this.sheetFieldLabel('名字')
-            TextInput({ text: this.editName, placeholder: 'Bot 名称' })
-              .fontSize(15)
-              .fontColor(this.ink())
-              .height(42)
-              .backgroundColor(this.sheetFill())
-              .borderRadius(12)
-              .enabled(this.roleEditable())
-              .onChange((value: string) => {
-                this.editName = value;
-              })
-            this.sheetFieldLabel('标签')
-            TextInput({ text: this.editRole, placeholder: '一句话说明（不授予权限）' })
-              .fontSize(15)
-              .fontColor(this.ink())
-              .height(42)
-              .backgroundColor(this.sheetFill())
-              .borderRadius(12)
-              .enabled(this.roleEditable())
-              .onChange((value: string) => {
-                this.editRole = value;
-              })
-            this.sheetFieldLabel('说明')
-            TextArea({ text: this.editInstructions, placeholder: '这个 Bot 负责什么…' })
-              .fontSize(14)
-              .fontColor(this.ink())
-              .height(96)
-              .backgroundColor(this.sheetFill())
-              .borderRadius(12)
-              .enabled(this.roleEditable())
-              .onChange((value: string) => {
-                this.editInstructions = value;
-              })
+          // 头部资料行：头像 56 + 名字 + 角色（透明行底，对齐 iOS）
+          Row({ space: 12 }) {
+            if (this.chiefHasImage()) {
+              this.hostAvatar(this.sheetBot() as BotChat, 56)
+            } else {
+              this.orcaAvatar(56, 0.58)
+            }
+            Column({ space: 2 }) {
+              Text(this.editName.length > 0 ? this.editName : this.chiefName())
+                .fontSize(20)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(this.ink())
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text(this.editRole.length > 0 ? this.editRole : this.chiefRoleLabel())
+                .fontSize(13)
+                .fontColor(this.secondaryText())
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
           }
           .width('100%')
-          .padding(14)
+          .alignItems(VerticalAlign.Center)
+
+          // ── 资料 ──
+          this.formSectionTitle('资料')
+          Column() {
+            Row({ space: 12 }) {
+              this.formRowLabel('名字')
+              TextInput({ text: this.editName, placeholder: 'Bot 名称' })
+                .fontSize(15)
+                .fontColor(this.ink())
+                .backgroundColor(Color.Transparent)
+                .padding(0)
+                .height(44)
+                .layoutWeight(1)
+                .textAlign(TextAlign.End)
+                .enabled(this.roleEditable())
+                .onChange((value: string) => {
+                  this.editName = value;
+                })
+            }
+            .width('100%')
+            .constraintSize({ minHeight: 44 })
+            .alignItems(VerticalAlign.Center)
+
+            Divider().color(this.lineColor()).strokeWidth(0.5)
+
+            Row({ space: 12 }) {
+              this.formRowLabel('标签')
+              TextInput({ text: this.editRole, placeholder: '选填' })
+                .fontSize(15)
+                .fontColor(this.ink())
+                .backgroundColor(Color.Transparent)
+                .padding(0)
+                .height(44)
+                .layoutWeight(1)
+                .textAlign(TextAlign.End)
+                .enabled(this.roleEditable())
+                .onChange((value: string) => {
+                  this.editRole = value;
+                })
+            }
+            .width('100%')
+            .constraintSize({ minHeight: 44 })
+            .alignItems(VerticalAlign.Center)
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16 })
           .backgroundColor(this.sheetFill())
           .borderRadius(18)
           .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
 
-          // 运行
+          this.formFooter('标签为选填，会显示在 Bot 名字下方。')
+
+          // ── 模型 ──
+          this.formSectionTitle('模型')
           Column() {
             Row() {
               this.sheetNavRow('模型', this.roleModelLabel())
             }
             .width('100%')
+            .padding({ left: 16, right: 16 })
             .bindMenu(this.modelMenu())
             .enabled(this.roleEditable() && this.state.models.length > 0)
             if (this.state.efforts.length > 0 || this.editEffort.length > 0) {
-              Divider().color(this.lineColor()).strokeWidth(0.5)
+              Divider().color(this.lineColor()).strokeWidth(0.5).margin({ left: 16 })
               Row() {
                 this.sheetNavRow('推理强度', this.roleEffortLabel())
               }
               .width('100%')
+              .padding({ left: 16, right: 16 })
               .bindMenu(this.effortMenu())
               .enabled(this.roleEditable())
             }
-            Divider().color(this.lineColor()).strokeWidth(0.5)
-            Row() {
-              this.sheetNavRow('权限', this.rolePermissionLabel())
-            }
-            .width('100%')
-            .bindMenu(this.permissionMenu())
-            .enabled(this.roleEditable() && this.state.permissions.length > 0)
-            Divider().color(this.lineColor()).strokeWidth(0.5)
-            Column({ space: 6 }) {
-              this.sheetFieldLabel('工作文件夹')
+          }
+          .width('100%')
+          .backgroundColor(this.sheetFill())
+          .borderRadius(18)
+          .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
+
+          this.formFooter('模型更改从下一条消息开始生效。')
+
+          // ── 工作区与权限 ──
+          this.formSectionTitle('工作区与权限')
+          Column() {
+            Row({ space: 12 }) {
+              this.formRowLabel('工作文件夹')
               TextInput({ text: this.editWorkDir, placeholder: '总工作区' })
                 .fontSize(15)
                 .fontColor(this.ink())
-                .height(42)
-                .backgroundColor(this.sheetFill())
-                .borderRadius(12)
+                .backgroundColor(Color.Transparent)
+                .padding(0)
+                .height(44)
+                .layoutWeight(1)
+                .textAlign(TextAlign.End)
                 .enabled(this.roleEditable())
                 .onChange((value: string) => {
                   this.editWorkDir = value;
                 })
             }
             .width('100%')
-            .padding({ top: 6, bottom: 6 })
-            .alignItems(HorizontalAlign.Start)
+            .constraintSize({ minHeight: 44 })
+            .alignItems(VerticalAlign.Center)
+
             Divider().color(this.lineColor()).strokeWidth(0.5)
+
             Row() {
-              Column({ space: 2 }) {
-                Text('隐私')
-                  .fontSize(15)
-                  .fontColor(this.ink())
-                Text(this.rolePrivacyHint())
-                  .fontSize(12)
-                  .fontColor(this.secondaryText())
-                  .maxLines(2)
-              }
-              .alignItems(HorizontalAlign.Start)
-              .layoutWeight(1)
+              this.sheetNavRow('权限', this.rolePermissionLabel())
+            }
+            .width('100%')
+            .bindMenu(this.permissionMenu())
+            .enabled(this.roleEditable() && this.state.permissions.length > 0)
+
+            Divider().color(this.lineColor()).strokeWidth(0.5)
+
+            Row({ space: 12 }) {
+              this.formRowLabel('隐私')
+              Blank()
               Toggle({ type: ToggleType.Switch, isOn: this.editPrivate })
                 .enabled(this.roleEditable() && !(this.isMainBotId(this.chiefId())))
                 .onChange((value: boolean) => {
@@ -1931,30 +2919,159 @@ export struct BotHomePage {
                 })
             }
             .width('100%')
-            .constraintSize({ minHeight: 52 })
+            .constraintSize({ minHeight: 44 })
             .alignItems(VerticalAlign.Center)
           }
           .width('100%')
-          .padding({ left: 14, right: 14, top: 4, bottom: 4 })
+          .padding({ left: 16, right: 16 })
           .backgroundColor(this.sheetFill())
           .borderRadius(18)
           .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
 
-          // 记忆 / 定时任务：进完整页面编辑（弹窗内只给入口与数量）
+          this.formFooter('允许修改工作区以外的文件，范围仍受主机系统权限限制。')
+          this.formFooter(this.rolePrivacyHint())
+
+          // ── 说明 ──
+          this.formSectionTitle('说明')
           Column() {
-            this.roleSheetAction('记忆', this.chiefMemoryCount().toString() + ' 条', () => {
-              this.openChiefRole();
-            })
-            Divider().color(this.lineColor()).strokeWidth(0.5)
-            this.roleSheetAction('定时任务', this.chiefScheduleCount().toString() + ' 个', () => {
-              this.openChiefRole();
-            })
+            TextArea({ text: this.editInstructions, placeholder: '这个 Bot 负责什么…' })
+              .fontSize(14)
+              .fontColor(this.ink())
+              .backgroundColor(Color.Transparent)
+              .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+              .constraintSize({ minHeight: 96, maxHeight: 180 })
+              .width('100%')
+              .enabled(this.roleEditable())
+              .onChange((value: string) => {
+                this.editInstructions = value;
+              })
           }
           .width('100%')
-          .padding({ left: 14, right: 14, top: 2, bottom: 2 })
           .backgroundColor(this.sheetFill())
           .borderRadius(18)
           .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
+
+          this.formFooter('这段说明会写入 Bot 的系统提示词。')
+
+          // ── 操控（只读） ──
+          this.formSectionTitle('操控')
+          Column() {
+            this.formValueRow('电脑操控', this.state.computerEnabled ? '已开启' : '已关闭')
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16 })
+          .backgroundColor(this.sheetFill())
+          .borderRadius(18)
+          .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
+
+          this.formFooter('各 Bot 的电脑操控授权可在 DS Bot 网页端管理。')
+
+          // ── 记忆 / 定时任务（弹窗内翻页） ──
+          this.formSectionTitle('内容')
+          Column() {
+            this.sheetMemoryRow()
+            Divider().color(this.lineColor()).strokeWidth(0.5)
+            this.sheetScheduleRow()
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16 })
+          .backgroundColor(this.sheetFill())
+          .borderRadius(18)
+          .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
+
+          // ── 管理（对齐 iOS §7.6 第 8/9 组） ──
+          this.formSectionTitle('管理')
+          Column() {
+            if (this.isMainBotId(this.chiefId())) {
+              Row() {
+                Text('更换主 Bot')
+                  .fontSize(15)
+                  .fontColor(this.ink())
+                Blank()
+                Text('›')
+                  .fontSize(17)
+                  .fontColor(this.secondaryText())
+              }
+              .width('100%')
+              .constraintSize({ minHeight: 48 })
+              .alignItems(VerticalAlign.Center)
+              .bindMenu(this.mainBotMenu(), {
+                onDisappear: () => {
+                }
+              })
+              .enabled(this.roleEditable())
+              Divider().color(this.lineColor()).strokeWidth(0.5)
+            }
+            if (!this.isMainBotId(this.chiefId())) {
+              Row() {
+                Text('设为主 Bot')
+                  .fontSize(15)
+                  .fontColor(this.ink())
+                Blank()
+                Text('›')
+                  .fontSize(17)
+                  .fontColor(this.secondaryText())
+              }
+              .width('100%')
+              .constraintSize({ minHeight: 48 })
+              .alignItems(VerticalAlign.Center)
+              .enabled(this.roleEditable())
+              .onClick(() => {
+                const current: string = this.state.mainBotId ?? '';
+                const ok: boolean = BotStore.get().replacePrimary(current, this.chiefId());
+                if (!ok) {
+                  this.editOpError = '设为主 Bot 失败：当前不可编辑，或主机未连接';
+                }
+              })
+              Divider().color(this.lineColor()).strokeWidth(0.5)
+            }
+            Row() {
+              Text('复制一份')
+                .fontSize(15)
+                .fontColor(this.ink())
+              Blank()
+              Text('›')
+                .fontSize(17)
+                .fontColor(this.secondaryText())
+            }
+            .width('100%')
+            .constraintSize({ minHeight: 48 })
+            .alignItems(VerticalAlign.Center)
+            .enabled(this.roleEditable())
+            .onClick(() => {
+              const ok: boolean = BotStore.get().duplicateRole(this.chiefId());
+              if (!ok) {
+                this.editOpError = '复制失败：当前不可编辑，或主机未连接';
+              }
+            })
+            if (!this.isMainBotId(this.chiefId()) && this.state.botDeletionSupported) {
+              Divider().color(this.lineColor()).strokeWidth(0.5)
+              Row() {
+                Text('删除 Bot')
+                  .fontSize(15)
+                  .fontColor('#D6263C')
+                Blank()
+                Text('›')
+                  .fontSize(17)
+                  .fontColor('#D6263C')
+                  .opacity(0.7)
+              }
+              .width('100%')
+              .constraintSize({ minHeight: 48 })
+              .alignItems(VerticalAlign.Center)
+              .enabled(this.roleEditable())
+              .onClick(() => {
+                this.confirmDeleteBot();
+              })
+            }
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16 })
+          .backgroundColor(this.sheetFill())
+          .borderRadius(18)
+          .border({ width: 0.6, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.75)' })
+
+          this.formFooter('主 Bot 可以创建和修改团队 Bot，并管理群聊；复制分工和模型，新 Bot 从空白记忆开始。')
         }
         .width('100%')
         .padding({ bottom: 8 })
@@ -1966,7 +3083,7 @@ export struct BotHomePage {
       .align(Alignment.Top)
     }
     .width('100%')
-    .constraintSize({ maxHeight: 560 })
+    .layoutWeight(1)
   }
 
   // ==================== 定时任务面板（只读，§6） ====================
@@ -2051,34 +3168,42 @@ export struct BotHomePage {
       .justifyContent(FlexAlign.Center)
       .padding({ top: 8, bottom: 14 })
 
-      // 标题行：22 semibold + 关闭 40×40
+      // 工具条：关闭固定在左上角（与角色名片弹窗一致）
+      Row() {
+        Row() {
+          Text('关闭')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.ink())
+        }
+        .height(30)
+        .padding({ left: 14, right: 14 })
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor(appGlassFill(this.isDark))
+        .backdropBlur(appGlassBlur(this.isDark))
+        .clip(true)
+        .borderRadius(15)
+        .border({ width: 1, color: appGlassBorderColor(this.isDark) })
+        .shadow(appGlassShadow(this.isDark))
+        .onClick(() => {
+          this.scheduleOpen = false;
+        })
+        Blank()
+      }
+      .width('100%')
+      .height(40)
+      .alignItems(VerticalAlign.Center)
+
       Row() {
         Text('定时任务')
           .fontSize(22)
           .fontWeight(FontWeight.Bold)
           .fontColor(this.ink())
         Blank()
-        Row() {
-          Text('关闭')
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.ink())
-        }
-        .height(32)
-        .padding({ left: 16, right: 16 })
-        .justifyContent(FlexAlign.Center)
-        .backgroundColor(appGlassFill(this.isDark))
-        .backdropBlur(appGlassBlur(this.isDark))
-        .clip(true)
-        .borderRadius(16)
-        .border({ width: 1, color: appGlassBorderColor(this.isDark) })
-        .shadow(appGlassShadow(this.isDark))
-        .onClick(() => {
-          this.scheduleOpen = false;
-        })
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
+      .margin({ top: 2 })
 
       Text('让助理按时替你做事。')
         .fontSize(15)
@@ -2107,7 +3232,7 @@ export struct BotHomePage {
           }, (task: BotSchedule) => task.id)
         }
         .width('100%')
-        .constraintSize({ maxHeight: 420 })
+        .layoutWeight(1)
         .scrollBar(BarState.Off)
       }
 
@@ -2118,7 +3243,8 @@ export struct BotHomePage {
         .margin({ top: 16 })
     }
     .width('100%')
-    .padding({ left: 20, right: 20, top: 6, bottom: 20 + this.safeBottom })
+    .height('100%')
+    .padding({ left: 20, right: 20, top: 6, bottom: 16 + this.safeBottom })
     // 面板本身交给系统沉浸玻璃材质绘制（见 build() 的 bindSheet），这里只排内容
     .backgroundColor(Color.Transparent)
   }
@@ -2144,7 +3270,8 @@ export struct BotHomePage {
         this.chatList()
       }
       .width('100%')
-      .padding({ left: 22, right: 22, top: this.topInset() + 18, bottom: 24 + this.safeBottom })
+      // 与工作模式首页一致：safeTop + 14
+      .padding({ left: 22, right: 22, top: this.topInset() + 14, bottom: 24 + this.safeBottom })
       .alignItems(HorizontalAlign.Start)
     }
     .width('100%')
@@ -2219,6 +3346,11 @@ export struct BotHomePage {
             this.compactHome()
           }
 
+          // 顶部轻提示：浮在内容之上、不挡触摸
+          if (this.toastText.length > 0) {
+            this.topToast()
+          }
+
           // 抽屉遮罩：点击收回
           if (this.drawerOpen) {
             Column()
@@ -2235,7 +3367,7 @@ export struct BotHomePage {
             .width(0)
             .height(0)
             .bindSheet($$this.scheduleOpen, this.scheduleSheet(), {
-              height: SheetSize.FIT_CONTENT,
+              height: '92%',
               dragBar: false,
               showClose: false,
               preferType: SheetType.BOTTOM,
@@ -2268,7 +3400,7 @@ export struct BotHomePage {
       })
       // Chief 角色名片：底部原生沉浸玻璃弹窗（永远是系统玻璃样式）
       .bindSheet($$this.chiefSheetOpen, this.chiefRoleSheet(), {
-        height: SheetSize.FIT_CONTENT,
+        height: '92%',
         dragBar: false,
         showClose: false,
         preferType: SheetType.BOTTOM,
@@ -2317,16 +3449,15 @@ export struct BotHomePage {
 
       // 首项：模式切换（Bot 模式 → 切换到工作模式，尾随双箭头）
       Row({ space: 10 }) {
-        Image($r('app.media.workspace_drawer_mark'))
+        Image(this.isDark ? $r('app.media.workspace_drawer_mark_white') : $r('app.media.workspace_drawer_mark'))
           .width(24)
           .height(24)
           .objectFit(ImageFit.Contain)
-          .colorFilter(this.iconTint(this.ink()))
         Text('切换到工作模式')
           .fontSize(17)
           .fontColor(this.isDark ? '#FFFFFF' : '#101318')
           .layoutWeight(1)
-        Image($r('app.media.mode_swap'))
+        Image(this.isDark ? $r('app.media.mode_swap_dark') : $r('app.media.mode_swap'))
           .width(16)
           .height(19.6)
           .objectFit(ImageFit.Contain)
@@ -2348,7 +3479,7 @@ export struct BotHomePage {
         }, 430);
       })
 
-      this.drawerItem($r('app.media.pinwheel_ink'), $r('app.media.pinwheel_ink'), '插件', 'plugins')
+      this.drawerItem($r('app.media.pinwheel_ink'), $r('app.media.pinwheel_white'), '插件', 'plugins')
       this.drawerItem($r('app.media.automation_ink'), $r('app.media.automation_white'), '自动化任务', 'schedule')
       this.drawerItem($r('app.media.connector_ink'), $r('app.media.connector_white'), '连接器', 'connectors')
 

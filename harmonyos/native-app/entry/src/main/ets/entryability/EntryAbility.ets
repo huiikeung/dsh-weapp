@@ -10,7 +10,7 @@ import { PrivacyConsent } from '../services/PrivacyConsent';
 import {
   AppState, AttachmentImageCache, DeviceConnectors, MergedConnectorAdapter, locationConnector, calendarConnector, remindersConnector, photosConnector, alarmsConnector,
   musicConnector, healthConnector, mapsConnector,
-  BotStore, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, ThemeManager,
+  BOT_BG_DEFAULT, BotStore, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, ThemeManager,
   parsePairingPayload, sodiumSelfTest
 } from 'nativecore';
 export default class EntryAbility extends UIAbility {
@@ -116,6 +116,9 @@ export default class EntryAbility extends UIAbility {
       if (storedDefaultEffort.length > 0) {
         AppStorage.setOrCreate<string>('defaultEffort', storedDefaultEffort);
       }
+      // Bot 首页背景配色：必须在 init 之后立刻写进 AppStorage，
+      // 否则 Bot 页首帧先用默认配色、等设置页读到偏好再跳色（进页面会看到一次明显变色）
+      AppStorage.setOrCreate<string>('botBgTheme', PreferencesStore.get().getString('botBgTheme', BOT_BG_DEFAULT));
       // 工作步骤展示偏好 → AppStorage（对话页 StorageProp 响应式读取）
       AppStorage.setOrCreate<string>('workStepMode', PreferencesStore.get().getString('workStepMode', 'detailed'));
       AppStorage.setOrCreate<string>('workStepTiming', PreferencesStore.get().getString('workStepTiming', 'completion'));
