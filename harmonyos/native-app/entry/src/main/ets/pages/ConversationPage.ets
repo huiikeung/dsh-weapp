@@ -10256,9 +10256,9 @@ export struct ConversationPage {
     }, 500);
   }
 
-  /** 胶囊宽度（展开 36 / 折叠视觉 12，触摸区域给到 24，避免贴边细把手点不中） */
+  /** 胶囊宽度（展开 36 / 折叠 12；折叠态用 responseRegion 扩触摸区，视觉保持贴边） */
   private capsuleWidth(): number {
-    return this.capsuleExpanded ? TURN_TRACK_WIDTH : 24;
+    return this.capsuleExpanded ? TURN_TRACK_WIDTH : 12;
   }
 
   /** 胶囊左上角坐标：展开时离边 10，折叠后贴边（0）露出细把手，不挡视线 */
@@ -10355,6 +10355,13 @@ export struct ConversationPage {
     }
     .width(this.capsuleWidth())
     .position({ x: this.capsuleX(), y: this.capsuleY() })
+    // 折叠态视觉仍贴边 12vp，但触摸区域向屏内扩到 24vp，细把手不再难点
+    .responseRegion({
+      x: this.capsuleExpanded ? 0 : (this.capsuleSide === 'left' ? 0 : -12),
+      y: 0,
+      width: this.capsuleExpanded ? '100%' : 24,
+      height: '100%'
+    })
     .zIndex(60)
     // 点胶囊 = 原生系统菜单（材质 / 圆角 / 描边 / 动画 / 点空白收起全部由系统提供）
     .bindMenu(this.turnNavMenuOpen, this.turnNavPanel(), {
@@ -10556,13 +10563,13 @@ export struct ConversationPage {
       }
       .width(300)
       .height(430)
-      // 外观对齐右上角「⋯」原生菜单：同一档材质色 + 同款圆角/细边/投影
+      // 外观对齐系统菜单的玻璃：更高档模糊 + 半透明底 + 同款圆角/细边/投影
       .borderRadius(16)
-      .backgroundColor(this.menuMaterial())
-      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, {
+      .backgroundColor(this.isDark ? 'rgba(44,44,48,0.58)' : 'rgba(250,250,252,0.72)')
+      .backgroundBlurStyle(this.isDark ? BlurStyle.COMPONENT_ULTRA_THICK : BlurStyle.COMPONENT_THICK, {
         colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT
       })
-      .border({ width: 0.5, color: this.dividerColor() })
+      .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
       .shadow({ radius: 20, color: this.isDark ? 'rgba(0,0,0,0.35)' : 'rgba(16,19,24,0.12)', offsetY: 6 })
       .clip(true)
       .position({ x: this.turnNavPanelX(), y: this.turnNavPanelY() })
