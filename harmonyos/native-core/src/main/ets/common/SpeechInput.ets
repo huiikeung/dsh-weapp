@@ -116,6 +116,24 @@ export class SpeechInput {
     const rawProviders: Object | undefined = field(frame, 'providers');
     if (rawProviders !== undefined && Array.isArray(rawProviders)) {
       const providers = rawProviders as Object[];
+      // 首选「已经就绪（ready）」的 provider：本地模型常见的是 standby（端口已探到、模型未加载），
+      // 首次按住会先去加载模型（几分钟），体验上就是「说了没反应」。若主机同时提供了云端 ready provider，
+      // 优先用它，保证按住说话能立刻出字；没有 ready 时才回退到选中的那个。
+      let readyProviderId: string = '';
+      let readyLanguage: string = '';
+      for (const one of providers) {
+        const id: string = str(one, 'id') ?? '';
+        const prepared = asRec(field(one, 'preparation'));
+        const phase: string = prepared !== undefined ? (str(prepared, 'phase') ?? '') : '';
+        if (phase === 'ready' && readyProviderId.length === 0) {
+          readyProviderId = id;
+          readyLanguage = str(selection as Object, 'language') ?? '';
+          const langs: Object | undefined = field(one, 'languages');
+          if (langs !== undefined && Array.isArray(langs) && !(langs as Object[]).includes(readyLanguage)) {
+            readyLanguage = (langs as Object[]).length > 0 ? String((langs as Object[])[0]) : 'auto';
+          }
+        }
+      }
       for (const one of providers) {
         const id: string = str(one, 'id') ?? '';
         if (id === providerId) {
@@ -125,12 +143,22 @@ export class SpeechInput {
             if (phase !== 'ready' && phase !== 'standby') {
               throw new SpeechFailure('speech/not-ready', SpeechFailure.messageFor('speech/not-ready'));
             }
+            if (phase !== 'ready' && readyProviderId.length > 0 && readyProviderId !== providerId) {
+              // 选中的 provider 还在待机：改用已就绪的 provider
+              Logger.info('speech provider ' + providerId + ' phase=' + phase + ' → fallback ' + readyProviderId);
+              providerId = readyProviderId;
+              language = readyLanguage;
+            }
           }
           const langs: Object | undefined = field(one, 'languages');
-          if (langs !== undefined && Array.isArray(langs) && !(langs as Object[]).includes('auto')) {
+          if (langs !== undefined && Array.isArray(langs) && !(langs as Object[]).includes(language)) {
             language = str(selection as Object, 'language') ?? language;
           }
         }
+      }
+      if (providerId.length === 0 && readyProviderId.length > 0) {
+        providerId = readyProviderId;
+        language = readyLanguage;
       }
     }
     const seconds: number = Math.min(120, maxDurationSeconds, (maxAudioBytes - 44) / BYTE_RATE);

@@ -2361,10 +2361,11 @@ export struct BotChatPage {
 
         // 长按语音全屏特效（与工作模式同一套 VoiceRipplePanel：画布光晕 + 粒子波形 + 状态文案）。
         // 必须放在 composerDock 之后：Stack 里后面的兄弟节点在上层，否则会被输入条压住。
-        // 不拦触摸（手指仍压在下面的输入条上），所以包的这层也要一起关掉命中测试。
-        Column() {
+        // 只在录音期间挂载 —— 空闲时若常驻一层全屏容器，即使 hitTestBehavior(None)
+        // 在部分版本上仍会吃掉页面的点击/滑动手势。
+        if (this.voiceRecording) {
           VoiceRipplePanel({
-            visible: this.voiceRecording,
+            visible: true,
             cancelArmed: this.voiceCancelArmed,
             isDark: this.isDark,
             status: this.voiceStatus,
@@ -2372,10 +2373,8 @@ export struct BotChatPage {
           })
             .width('100%')
             .height('100%')
+            .hitTestBehavior(HitTestMode.None)
         }
-        .width('100%')
-        .height('100%')
-        .hitTestBehavior(HitTestMode.None)
       }
       .width('100%')
       .height('100%')
