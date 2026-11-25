@@ -109,6 +109,8 @@ export class GatewayClient {
   private pairRetryCount: number = 0;
   // 当前连接收到的 hello 里的 gatewayId（每次新建连接清空）
   private helloGatewayIdOwn: string = '';
+  // 每次「扫码配对」生成一个独立的主机档案 id（对齐 iOS：新配对=新 profile，绝不覆盖旧主机）
+  private pendingPairHostId: string = '';
   private lastConnectAttemptAt: number = 0;
   private altCredentialTried: string[] = [];
   private tailnetBlockedUntil: number = 0;
@@ -888,6 +890,10 @@ export class GatewayClient {
   }
 
   /** 扫码配对：按二维码里的候选地址顺序尝试（直连 ws/wss 优先）。 */
+  private newHostId(): string {
+    return 'host-' + Date.now().toString(36) + '-' + Math.floor(Math.random() * 1000000).toString(36);
+  }
+
   connectPairing(result: PairingResult): void {
     if (!result.ok || result.pairCode.length === 0 || result.expiresAt <= Date.now() || result.candidates.length === 0) {
       this.publish(ConnectionState.FAILED);
@@ -895,6 +901,8 @@ export class GatewayClient {
       return;
     }
     this.ensureNetworkMonitor();
+    // 新配对：先准备一个全新档案 id；只有 hello 的 gatewayId 命中已有主机时才复用它
+    this.pendingPairHostId = this.newHostId();
     // 全部候选留档，切换网络时据此重排
     this.allEndpoints = result.candidates.slice();
     // 局域网优先（蜂窝网络下自动改为公网优先）
@@ -2785,12 +2793,27 @@ export class GatewayClient {
     // 「最近使用」也永远落在最后一条地址档案上。这里按 中继 id → 网关名 → 地址 复用既有档案。
     const helloGatewayId: string = this.helloGatewayIdOwn.length > 0
       ? this.helloGatewayIdOwn : (AppStorage.get<string>('gatewayId') ?? '');
-    const existing: SavedGateway | null =
-      CredentialStore.get().findExisting(relayNodeId, helloGatewayId, profile.wsUrl);
+    const freshPairing: boolean = this.pendingPairHostId.length > 0;
+    // 对齐 iOS 的 profile 匹配顺序：
+    //   1) 网关实例 UUID（hello.gatewayId）命中 → 同一台主机，更新该档案；
+    //   2) 中继 id 命中 → 同一台主机；
+    //   3) 只有「非新配对」（自动重连）才允许按地址/历史端点复用；
+    //   4) 新配对且以上都不命中 → 用本次的新 id 追加一条，绝不覆盖旧主机。
+    let existing: SavedGateway | null = null;
+    if (helloGatewayId.length > 0) {
+      existing = CredentialStore.get().findByGatewayId(helloGatewayId);
+    }
+    if (existing === null && relayNodeId.length > 0) {
+      existing = CredentialStore.get().findExisting(relayNodeId, '', '');
+    }
+    if (existing === null && !freshPairing) {
+      existing = CredentialStore.get().findExisting('', '', profile.wsUrl);
+    }
     const gatewayId: string = existing !== null
       ? existing.id
-      : (relayNodeId.length > 0 ? relayNodeId
-        : (helloGatewayId.length > 0 ? helloGatewayId : profile.wsUrl));
+      : (freshPairing ? this.pendingPairHostId
+        : (relayNodeId.length > 0 ? relayNodeId
+          : (helloGatewayId.length > 0 ? helloGatewayId : profile.wsUrl)));
     // 端点取并集：换网络时既要记住新地址，也不能丢掉之前能用的地址
     const endpoints: string[] = existing !== null && existing.endpoints !== undefined
       ? existing.endpoints.slice() : [];
@@ -2820,6 +2843,8 @@ export class GatewayClient {
       // 用户起的备注名和主机类型必须原样保留：以前每次重连都会新建档案把它们冲掉
       alias: existing !== null ? existing.alias : undefined,
       deviceKind: existing !== null ? existing.deviceKind : undefined,
+      gatewayId: helloGatewayId.length > 0 ? helloGatewayId
+        : (existing !== null ? existing.gatewayId : undefined),
       preferredEndpoint: (this.isTailnetAddress(profile.wsUrl) && profile.wsUrl.indexOf('.ts.net') < 0)
         ? (existing !== null ? existing.preferredEndpoint : undefined)
         : profile.wsUrl
@@ -2834,7 +2859,9 @@ export class GatewayClient {
       this.currentProfile.relayNodeId = gateway.relayNodeId;
       this.currentProfile.relayAgentPubKey = gateway.relayAgentPubKey;
     }
-    Logger.info('PERSIST_SAVED id=' + gateway.id + ' total=' + CredentialStore.get().list().length);
+    this.pendingPairHostId = '';
+    Logger.info('PERSIST_SAVED id=' + gateway.id + ' gw=' + (gateway.gatewayId ?? '') +
+      ' total=' + CredentialStore.get().list().length);
   }
 
   /** 使用已保存凭据自动重连（免扫码）。返回是否发起了连接。 */

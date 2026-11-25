@@ -27,6 +27,8 @@ export interface SavedGateway {
   alias?: string;
   /** 主机类型：desktopcomputer / server.rack（旧数据没有该字段时按电脑显示）。 */
   deviceKind?: string;
+  /** 网关实例 UUID（hello.gatewayId）：跨网络稳定，是「同一台主机」的唯一身份。 */
+  gatewayId?: string;
   /** 上次成功连接的端点（对齐 iOS preferredEndpoint）：冷启动优先尝试它。 */
   preferredEndpoint?: string;
 }
@@ -119,6 +121,10 @@ export class CredentialStore {
 
   /** 同一台物理主机的归组键：中继节点 id → 网关名 → 连接地址。 */
   private hostIdentityKey(item: SavedGateway): string {
+    // 对齐 iOS：同一台网关以「网关实例 UUID」为准，其次中继 id，最后才用地址。
+    if (item.gatewayId !== undefined && item.gatewayId.length > 0) {
+      return 'gw:' + item.gatewayId;
+    }
     if (item.relayNodeId !== undefined && item.relayNodeId.length > 0) {
       return 'relay:' + item.relayNodeId;
     }
@@ -167,6 +173,7 @@ export class CredentialStore {
     if (groups.length === this.cached.length) {
       return;
     }
+    Logger.warn('CRED merge duplicates: before=' + this.cached.length + ' groups=' + groups.length);
     const merged: SavedGateway[] = [];
     for (const group of groups) {
       if (group.length === 1) {
@@ -304,6 +311,17 @@ export class CredentialStore {
    * 以前直接拿地址当 id，每换一次网络就多出一条「新主机」：
    * 切换列表里同一台重复出现，「最近使用」也永远落在最后一条地址档案上。
    */
+  /** 按网关实例 UUID 找主机档案（iOS 的 gatewayId 冲突判定同款） */
+  findByGatewayId(gatewayId: string): SavedGateway | null {
+    this.ensureLoaded();
+    if (gatewayId.length === 0) {
+      return null;
+    }
+    const found: SavedGateway | undefined = this.cached.find((item: SavedGateway) =>
+      item.gatewayId === gatewayId || item.id === gatewayId);
+    return found !== undefined ? found : null;
+  }
+
   findExisting(relayNodeId: string, gatewayId: string, wsUrl: string): SavedGateway | null {
     this.ensureLoaded();
     if (relayNodeId.length > 0) {
@@ -369,11 +387,13 @@ export class CredentialStore {
     else this.cached.push(gateway);
     this.activeId = gateway.id;
     this.persist();
-    Logger.info('saved gateway ' + gateway.id + ' (' + gateway.wsUrl + ')');
+    Logger.info('CRED save id=' + gateway.id + ' gw=' + (gateway.gatewayId ?? '') +
+      ' total=' + this.cached.length + ' url=' + gateway.wsUrl);
   }
 
   remove(id: string): boolean {
     this.ensureLoaded();
+    Logger.warn('CRED remove request id=' + id);
     const index: number = this.cached.findIndex((item: SavedGateway) => item.id === id);
     if (index < 0) return false;
     this.cached.splice(index, 1);
