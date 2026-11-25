@@ -1,4 +1,5 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 import {
   GatewayClient, SessionStore, SessionSummary, GatewayFrame, ScheduleTask, ScheduleDraft,
   SCHEDULE_RULES, SCHEDULE_INTERVAL_UNIT_TITLES, SCHEDULE_RULE_AT, SCHEDULE_RULE_EVERY,
@@ -1908,7 +1909,7 @@ export struct SchedulePage {
         },
         systemMaterialEffect: {
           materialType: hdsMaterial.MaterialType.IMMERSIVE,
-          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+          materialLevel: currentGlassMaterialLevel()
         },
         originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
         scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }

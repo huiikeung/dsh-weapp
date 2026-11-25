@@ -1,4 +1,5 @@
 import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
+import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 import { PreferencesStore, StatusAppearance } from 'nativecore';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
@@ -245,12 +246,7 @@ export struct StatusStylesPage {
               this.optionCard(option)
             }, (option: StatusStyleOption) => option.id)
 
-            Text('只改变文字流光 · 自动保存')
-              .fontSize(12)
-              .fontColor(this.subColor())
-              .width('100%')
-              .textAlign(TextAlign.Center)
-              .padding({ top: 10 })
+            // 底部不再提示「自动保存」（统一去掉这类页脚说明）
           }
           .width('100%')
           .padding({ left: 16, right: 16, top: 4, bottom: 30 })
@@ -275,7 +271,7 @@ export struct StatusStylesPage {
         },
         systemMaterialEffect: {
           materialType: hdsMaterial.MaterialType.IMMERSIVE,
-          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+          materialLevel: currentGlassMaterialLevel()
         },
         originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
         scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }

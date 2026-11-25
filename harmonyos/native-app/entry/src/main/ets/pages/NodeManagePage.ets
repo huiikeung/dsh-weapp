@@ -1,4 +1,5 @@
 import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
+import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { CredentialStore, GatewayClient } from 'nativecore';
 import type { SavedGateway } from 'nativecore';
@@ -257,7 +258,7 @@ export struct NodeManagePage {
         },
         systemMaterialEffect: {
           materialType: hdsMaterial.MaterialType.IMMERSIVE,
-          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+          materialLevel: currentGlassMaterialLevel()
         },
         originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
         scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }

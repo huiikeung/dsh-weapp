@@ -1,4 +1,5 @@
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
+import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 /**
  * 字号大小二级页（对齐小程序 pages/settings 的字体与字号弹窗内容）。
  *
@@ -337,7 +338,7 @@ export struct FontSizePage {
             .backgroundColor(this.cardBg())
             .borderRadius(14)
 
-            Text('实际可用字体取决于设备；找不到的字体将使用后备字体。偏好保存在当前 App，自动生效。')
+            Text('实际可用字体取决于设备；找不到的字体将使用后备字体。')
               .fontSize(12)
               .fontColor(this.subColor())
               .width('100%')
@@ -366,7 +367,7 @@ export struct FontSizePage {
         },
         systemMaterialEffect: {
           materialType: hdsMaterial.MaterialType.IMMERSIVE,
-          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+          materialLevel: currentGlassMaterialLevel()
         },
         originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
         scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }

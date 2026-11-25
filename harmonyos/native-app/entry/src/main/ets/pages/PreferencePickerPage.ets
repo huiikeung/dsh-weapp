@@ -1,4 +1,5 @@
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
+import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 /**
  * 设置项二级页（对齐小程序 settings 二级页形态）。
  *
@@ -11,7 +12,7 @@ import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
  * 由设置页的 @Watch 回调复用既有 applyOptionChoice 逻辑（含偏好持久化与主题应用）。
  */
 
-import { Logger, PreferencesStore, WorkStepPresentation } from 'nativecore';
+import { BOT_PALETTES, Logger, PreferencesStore, WorkStepPresentation } from 'nativecore';
 import { ProcLoaderView } from '../components/ProcLoaderView';
 import { Haptics } from '../services/Haptics';
 import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
@@ -119,6 +120,11 @@ function optionsFor(kind: string): PickerOption[] {
     push('float', '浮起', '卡片带阴影');
     push('plain', '朴素', '无阴影描边');
     push('compact', '紧凑', '更小的间距');
+  } else if (kind === 'botbg') {
+    // Bot 模式首页背景配色（真实选项在这里，否则页面会空白）
+    for (const palette of BOT_PALETTES) {
+      push(palette.id, palette.name, palette.hint);
+    }
   }
   return out;
 }
@@ -427,12 +433,10 @@ export struct PreferencePickerPage {
               })
             }
 
-            Text(this.kind === 'procion' ? '动效保存在当前 App · 自动保存' : '保存在当前 App · 自动保存')
-              .fontSize(12.9)
-              .fontColor(this.subColor())
+            // 底部不再提示「保存在当前 App · 自动保存」（用户要求所有页面去掉）
+            Column()
               .width('100%')
-              .textAlign(TextAlign.Center)
-              .padding({ top: 9, bottom: 24 })
+              .height(18)
           }
           .width('100%')
           .padding({ left: 18.7, right: 18.7 })
@@ -460,7 +464,7 @@ export struct PreferencePickerPage {
         },
         systemMaterialEffect: {
           materialType: hdsMaterial.MaterialType.IMMERSIVE,
-          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+          materialLevel: currentGlassMaterialLevel()
         },
         originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
         scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }

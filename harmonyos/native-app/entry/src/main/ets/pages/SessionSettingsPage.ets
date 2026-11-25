@@ -1,4 +1,5 @@
 import { KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
+import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { GatewayClient, PreferencesStore, SessionStore, SessionSummary, WorkspaceRow } from 'nativecore';
 import type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from 'nativecore';
@@ -712,7 +713,7 @@ export struct SessionSettingsPage {
         },
         systemMaterialEffect: {
           materialType: hdsMaterial.MaterialType.IMMERSIVE,
-          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+          materialLevel: currentGlassMaterialLevel()
         },
         originalStyle: { contentStyle: this.TITLE_BAR_CONTENT },
         scrollEffectStyle: { contentStyle: this.TITLE_BAR_CONTENT }

@@ -7,6 +7,7 @@
  *   底色用中性玻璃（不偏蓝），不加外发光——菜单本身也没有发光。
  */
 import { Logger } from 'nativecore';
+import { HdsGlassSurface } from './HdsGlassSurface';
 
 @Component
 export struct NavBackButton {
@@ -18,6 +19,11 @@ export struct NavBackButton {
   @Prop glass: boolean = true;
   /** 圆钮直径（对话页顶栏与右侧 36vp 小圆钮保持一致） */
   @Prop diameter: number = 40;
+  /**
+   * 自定义返回动作：提供时不走默认 pop（例如 Bot 聊天页需要先关闭会话再退栈）。
+   * 用普通成员而不是 @Prop —— API 23 起 @Prop 不能修饰函数类型。
+   */
+  onBack?: () => void;
 
   /** 箭头颜色：与页面正文同色系 */
   private ink(): string {
@@ -29,18 +35,22 @@ export struct NavBackButton {
     return this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)';
   }
 
-  /** 边缘：白色细边（深浅色都用白，浅色下更亮更通透） */
-  private menuOutline(): string {
-    return this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)';
-  }
-
-  /** 投影：系统菜单那种柔和下拉阴影 */
-  private menuShadow(): string {
-    return this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)';
-  }
-
+  /**
+   * 原生弹窗同款材质：直接用系统模糊样式（AlertDialog / 菜单就用它），
+   * 不再自绘 backdropBlur + 白色 1vp 描边 —— 浅色下那圈 90% 白边就是它造成的。
+   */
   build() {
     Stack({ alignContent: Alignment.Center }) {
+      // 玻璃背板：与首页圆钮同一套 HdsGlassSurface（HdsTabs 悬浮 Bar 出真材质），
+      // 因此设置页的「玻璃材质」档位对返回键同样生效。
+      if (this.glass) {
+        HdsGlassSurface() {
+          Row()
+            .width(this.diameter)
+            .height(this.diameter)
+            .backgroundColor(Color.Transparent)
+        }
+      }
       Button({ type: ButtonType.Circle }) {
         SymbolGlyph($r('sys.symbol.chevron_backward'))
           .fontSize(this.diameter * 0.45)
@@ -50,18 +60,13 @@ export struct NavBackButton {
       .width(this.diameter)
       .height(this.diameter)
       .backgroundColor(Color.Transparent)
-      .clip(true)
-      // 系统液态玻璃材质（与原生标题栏 systemMaterialEffect 同一套 IMMERSIVE 材质），
-      // 不再用「半透明白 + backdropBlur」的手写玻璃
-      // 与原生返回键同款：透明底 + 纯背景模糊（白色细边与投影在外层 Stack 上）
-      .backdropBlur(this.glass ? 10 : 0)
-      // 与系统菜单同款 1vp 中性描边（Button 自己画，避免被外层圆角影响）
-      .border(this.glass
-        ? { width: 1, color: this.menuOutline() }
-        : { width: 0, color: Color.Transparent })
       .accessibilityText(this.label)
       // 返回逻辑内置：不依赖各页面自己挂 onClick（漏挂/被覆盖时点了没反应）
       .onClick(() => {
+        if (this.onBack !== undefined) {
+          this.onBack();
+          return;
+        }
         const stack: NavPathStack | undefined = AppStorage.get<NavPathStack>('navPathStack');
         if (stack !== undefined && stack.size() > 0) {
           Logger.info('nav back pop size=' + stack.size().toString());
@@ -73,10 +78,5 @@ export struct NavBackButton {
     }
     .width(this.diameter)
     .height(this.diameter)
-    .borderRadius(this.diameter / 2)
-    // 投影画在不裁剪的容器上（Button 会裁剪自身 shadow）
-    .shadow(this.glass
-      ? { radius: 14, color: this.menuShadow(), offsetX: 0, offsetY: 6 }
-      : { radius: 0, color: Color.Transparent, offsetX: 0, offsetY: 0 })
   }
 }

@@ -1,3 +1,4 @@
+import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 import {
   GatewayClient, GatewayFrame, PI_NS, PI_PREFIX, PROVIDER_PROTOCOLS, ProviderConfigDraft, ProviderProtocol,
   asRec, buildProviderConfig, credentialRefFor, formatTokenCount, isValidProviderBaseURL, parseNamespace,
@@ -979,7 +980,7 @@ export struct AddProviderPage {
         },
         systemMaterialEffect: {
           materialType: hdsMaterial.MaterialType.IMMERSIVE,
-          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+          materialLevel: currentGlassMaterialLevel()
         },
         originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
         scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }

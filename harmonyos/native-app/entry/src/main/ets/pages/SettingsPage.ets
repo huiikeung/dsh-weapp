@@ -1,6 +1,10 @@
 import { common } from '@kit.AbilityKit';
+import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
+import {
+  applyGlassLevel, ensureGlassLevel, GLASS_LEVEL_DEFAULT, GLASS_LEVEL_KEY, GLASS_LEVEL_OPTIONS, GlassLevelOption
+} from '../common/GlassMaterial';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import {
   GatewayClient, GatewayProfile, PairingResult, parsePairingPayload, ThemeManager, ThemeMode
@@ -26,6 +30,8 @@ export struct SettingsPage {
   @StorageLink('transportKind') transportKind: string = '';
   @Consume('pageStack') pageStack: NavPathStack;
   @StorageLink('safeTopVp') safeTopVp: number = 0;
+  /** 玻璃材质档位：改这里，所有 HdsGlassSurface（首页按钮/置底按钮/模式按钮/队列任务目标面板）一起换 */
+  @StorageLink(GLASS_LEVEL_KEY) glassLevel: number = GLASS_LEVEL_DEFAULT;
 
   private options: ThemeOption[] = [
     { key: 'system', title: '跟随系统', subtitle: '随系统深浅色切换' },
@@ -55,6 +61,11 @@ export struct SettingsPage {
 
   private scroller: Scroller = new Scroller();
 
+  aboutToAppear(): void {
+    // 进设置页先同步已存档位，避免刚打开时勾选项和实际材质不一致
+    ensureGlassLevel();
+  }
+
   build() {
     HdsNavDestination() {
       Column() {
@@ -72,6 +83,21 @@ export struct SettingsPage {
             ForEach(this.options, (option: ThemeOption, index: number) => {
               this.themeRow(option, index)
             }, (option: ThemeOption) => option.key)
+          }
+          .width('100%')
+          .borderRadius(18)
+          .backgroundColor(this.cardBg())
+
+          Text('玻璃材质')
+            .fontSize(13)
+            .fontColor(this.subColor())
+            .width('100%')
+            .padding({ left: 4, top: 8 })
+
+          Column() {
+            ForEach(GLASS_LEVEL_OPTIONS, (option: GlassLevelOption) => {
+              this.glassLevelRow(option)
+            }, (option: GlassLevelOption) => option.label)
           }
           .width('100%')
           .borderRadius(18)
@@ -211,7 +237,7 @@ export struct SettingsPage {
         },
         systemMaterialEffect: {
           materialType: hdsMaterial.MaterialType.IMMERSIVE,
-          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+          materialLevel: currentGlassMaterialLevel()
         },
         originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
         scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }
@@ -311,6 +337,34 @@ export struct SettingsPage {
       }
     }
     .width('100%')
+  }
+
+  @Builder
+  glassLevelRow(option: GlassLevelOption) {
+    Row() {
+      Column({ space: 4 }) {
+        Text(option.label)
+          .fontSize(16)
+          .fontColor(this.textColor())
+        Text(option.detail)
+          .fontSize(12)
+          .fontColor(this.subColor())
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+
+      if (this.glassLevel === option.value) {
+        Text('✓')
+          .fontSize(18)
+          .fontColor('#2E6BE6')
+      }
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 14, bottom: 14 })
+    .onClick(() => {
+      this.glassLevel = option.value;
+      applyGlassLevel(option.value);
+    })
   }
 
   @Builder

@@ -24,6 +24,7 @@ import { SettingsPage } from './SettingsPage';
 import { ModelsPage } from './ModelsPage';
 import { TailscalePage } from './TailscalePage';
 import { StatusStylesPage } from './StatusStylesPage';
+import { GlassMaterialPage } from './GlassMaterialPage';
 import { PreferencePickerPage } from './PreferencePickerPage';
 import { FontSizePage } from './FontSizePage';
 import { ClawbotPage } from './ClawbotPage';
@@ -180,6 +181,8 @@ struct Index {
       ModelsPage();
     } else if (name === 'tailscale') {
       TailscalePage();
+    } else if (name === 'glass-material') {
+      GlassMaterialPage();
     } else if (name === 'status-styles') {
       StatusStylesPage();
     } else if (name === 'pref-picker') {

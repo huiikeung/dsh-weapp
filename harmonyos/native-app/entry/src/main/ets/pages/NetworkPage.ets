@@ -1,4 +1,5 @@
 import { http } from '@kit.NetworkKit';
+import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 import { GatewayClient, SavedGateway } from 'nativecore';
 import { HdsNavDestination, HdsNavDestinationTitleMode, HdsTitleBarContentStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
@@ -852,7 +853,7 @@ export struct NetworkPage {
         },
         systemMaterialEffect: {
           materialType: hdsMaterial.MaterialType.IMMERSIVE,
-          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+          materialLevel: currentGlassMaterialLevel()
         },
         originalStyle: { contentStyle: TITLE_BAR_CONTENT },
         scrollEffectStyle: { contentStyle: TITLE_BAR_CONTENT }

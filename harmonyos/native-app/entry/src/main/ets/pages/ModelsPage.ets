@@ -31,7 +31,6 @@ export struct ModelsPage {
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
   @StorageLink('safeBottomVp') safeBottomStorage: number = 0;
   @State sheetVisible: boolean = false;
-  @State sheetOpen: boolean = false;
   @State sheetKind: string = 'add';
   @StorageLink('defaultModel') defaultModelValue: string = '';
 
@@ -97,7 +96,6 @@ export struct ModelsPage {
 
   /** 关闭所有模型弹层（原实现自己调自己导致无限递归） */
   private closeSheets(): void {
-    this.sheetOpen = false;
     this.discoverOpen = false;
     this.addOpen = false;
     this.discoverSelected = [];
@@ -133,16 +131,15 @@ export struct ModelsPage {
     return this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)';
   }
 
-  /** 卡片玻璃底（与 Agent 预设弹窗卡片一致） */
-  /** 卡片底 = 页面背景色（靠细描边 + 投影分层，不再用白色玻璃底） */
+  /** 卡片底（对齐 Agent 预设二级页：未选中浅底） */
   private glassCardBg(): string {
-    return this.pageBg();
+    return this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(16,19,24,0.03)';
   }
 
   /** 卡片玻璃描边（与 Agent 预设弹窗卡片一致） */
   /** 卡片边框 = 返回按钮同款（浅色白 90%、深色白 16%） */
   private glassEdge(): string {
-    return this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)';
+    return this.dividerColor();
   }
 
   /** 虚线新增入口底色/描边（与预设弹窗添加卡片一致） */
@@ -337,7 +334,6 @@ export struct ModelsPage {
     this.addProviderId = providerId;
     this.addProviderName = providerName;
     this.sheetKind = 'add';
-    this.sheetOpen = true;
     this.formId = '';
     this.formName = '';
     this.formContext = '';
@@ -441,7 +437,6 @@ export struct ModelsPage {
     this.discoverLoading = true;
     this.discoverOpen = true;
     this.sheetKind = 'discover';
-    this.sheetOpen = true;
     const existing: string[] = [];
     for (const row of provider.models) {
       existing.push(row.id);
@@ -611,6 +606,570 @@ export struct ModelsPage {
       this.closeSheets();
       this.discoverSelected = [];
     });
+  }
+
+  /** 获取模型：原生玻璃半模态内容（bindSheet 挂载） */
+  @Builder
+  discoverSheet() {
+          Column({ space: 0 }) {
+            Column() {
+              Column()
+                .width(36)
+                .height(4)
+                .borderRadius(2)
+                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)')
+            }
+            .width('100%')
+            .height(14)
+            .justifyContent(FlexAlign.Center)
+
+            Stack({ alignContent: Alignment.Center }) {
+              Column({ space: 2 }) {
+                Text('获取模型')
+                  .fontSize(17)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(this.textColor())
+                Text(this.discoverProviderName)
+                  .fontSize(11.5)
+                  .fontColor(this.subColor())
+              }
+              .alignItems(HorizontalAlign.Center)
+              Row() {
+                Text('取消')
+                  .fontSize(16)
+                  .fontColor(this.textColor())
+                  .height(44)
+                  .onClick(() => {
+                    if (!this.saving) {
+                      this.closeSheets();
+                    }
+                  })
+                Blank()
+                Text(this.saving ? '正在添加…' : '添加 ' + this.discoverSelected.length + ' 个')
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(this.saving ? this.subColor() : '#2E6BE6')
+                  .height(44)
+                  .onClick(() => {
+                    if (!this.saving) {
+                      this.submitDiscovery();
+                    }
+                  })
+              }
+              .width('100%')
+              .height(48)
+              .padding({ left: 16, right: 16 })
+            }
+            .width('100%')
+            .height(52)
+
+            if (this.discoverLoading) {
+              Text('正在获取模型…')
+                .fontSize(14)
+                .fontColor(this.subColor())
+                .width('100%')
+                .padding({ top: 34, bottom: 44 })
+                .textAlign(TextAlign.Center)
+            } else if (this.discoverError.length > 0) {
+              Column({ space: 12 }) {
+                Text(this.discoverError)
+                  .fontSize(13)
+                  .lineHeight(19)
+                  .fontColor('#FF5A5F')
+                  .width('100%')
+                if (this.discoverNeedsManual) {
+                  Text('手动添加模型')
+                    .fontSize(14)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor('#FFFFFF')
+                    .width('100%')
+                    .height(42)
+                    .textAlign(TextAlign.Center)
+                    .borderRadius(11)
+                    .backgroundColor('#2E6BE6')
+                    .onClick(() => {
+                      const providerId: string = this.discoverProviderId;
+                      const providerName: string = this.discoverProviderName;
+                      this.closeSheets();
+                      this.openAddModel(providerId, providerName);
+                    })
+                }
+              }
+              .width('100%')
+              .alignItems(HorizontalAlign.Start)
+              .padding({ left: 18, right: 18, top: 8, bottom: 24 })
+            } else {
+              Row() {
+                Text('已选择 ' + this.discoverSelected.length + ' 个')
+                  .fontSize(12.5)
+                  .fontColor(this.subColor())
+                Blank()
+                Text(this.discoverSelected.length === this.discoverRows.length ? '取消全选' : '全选')
+                  .fontSize(13.5)
+                  .fontColor('#2E6BE6')
+                  .onClick(() => {
+                    this.selectAllDiscover();
+                  })
+              }
+              .width('100%')
+              .padding({ left: 18, right: 18, bottom: 6 })
+
+              Scroll() {
+                Column({ space: 0 }) {
+                  ForEach(this.discoverRows, (row: DiscoveredModel) => {
+                    Row() {
+                      Text(this.discoverSelected.indexOf(row.id) >= 0 ? '✓' : '')
+                        .fontSize(11)
+                        .fontColor('#FFFFFF')
+                        .width(19)
+                        .height(19)
+                        .textAlign(TextAlign.Center)
+                        .backgroundColor(this.discoverSelected.indexOf(row.id) >= 0 ? '#2E6BE6' : 'rgba(16,19,24,0.05)')
+                        .border({ width: 1, color: this.discoverSelected.indexOf(row.id) >= 0 ? '#2E6BE6' : this.dividerColor() })
+                        .borderRadius(5)
+                      Column({ space: 2 }) {
+                        Row({ space: 6 }) {
+                          Text(row.name)
+                            .fontSize(15)
+                            .fontWeight(FontWeight.Medium)
+                            .fontColor(this.textColor())
+                            .maxLines(1)
+                            .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          if (row.existing) {
+                            Text('已添加')
+                              .fontSize(10.5)
+                              .fontColor(this.subColor())
+                              .border({ width: 1, color: this.dividerColor() })
+                              .borderRadius(999)
+                              .padding({ left: 6, right: 6, top: 1, bottom: 1 })
+                          }
+                        }
+                        .width('100%')
+                        Text(row.id)
+                          .fontSize(11)
+                          .fontColor(this.subColor())
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          .width('100%')
+                        if (row.meta.length > 0) {
+                          Text(row.meta)
+                            .fontSize(11)
+                            .fontColor(this.subColor())
+                            .maxLines(1)
+                            .textOverflow({ overflow: TextOverflow.Ellipsis })
+                            .width('100%')
+                        }
+                      }
+                      .alignItems(HorizontalAlign.Start)
+                      .layoutWeight(1)
+                      .margin({ left: 9 })
+                    }
+                    .width('100%')
+                    .alignItems(VerticalAlign.Center)
+                    .padding({ top: 9, bottom: 9 })
+                    .onClick(() => {
+                      this.toggleDiscoverRow(row.id);
+                    })
+                  }, (row: DiscoveredModel) => row.id)
+                }
+                .width('100%')
+              }
+              .constraintSize({ maxHeight: 380 })
+              .scrollBar(BarState.Off)
+              .align(Alignment.Top)
+              .width('100%')
+              .padding({ left: 18, right: 18 })
+            }
+
+            Row({ space: 10 }) {
+              Text('取消')
+                .fontSize(17)
+                .fontColor(this.textColor())
+                .textAlign(TextAlign.Center)
+                .layoutWeight(1)
+                .height(50)
+                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
+                .border({ width: 1, color: this.dividerColor() })
+                .borderRadius(11)
+                .onClick(() => {
+                  if (!this.saving) {
+                    this.closeSheets();
+                  }
+                })
+              Text(this.saving ? '正在添加…' : '添加 ' + this.discoverSelected.length + ' 个')
+                .fontSize(17)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.discoverSelected.length > 0 ? this.textColor() : this.subColor())
+                .textAlign(TextAlign.Center)
+                .layoutWeight(1)
+                .height(50)
+                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
+                .border({ width: 1, color: this.dividerColor() })
+                .borderRadius(11)
+                .opacity(this.saving ? 0.55 : 1)
+                .onClick(() => {
+                  if (!this.saving) {
+                    this.submitDiscovery();
+                  }
+                })
+            }
+            .width('100%')
+            .padding({ left: 18, right: 18, top: 12, bottom: 14 })
+          }
+    .padding({ bottom: (this.safeBottomStorage > 0 ? this.safeBottomStorage : 20) + 8 })
+  }
+
+  /** 添加模型：原生玻璃半模态内容（bindSheet 挂载；键盘避让交给原生 sheet） */
+  @Builder
+  addSheetBuilder() {
+          Column({ space: 0 }) {
+            Column() {
+              Column()
+                .width(36)
+                .height(4)
+                .borderRadius(2)
+                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)')
+            }
+            .width('100%')
+            .height(14)
+            .justifyContent(FlexAlign.Center)
+
+            Stack({ alignContent: Alignment.Center }) {
+              Column({ space: 2 }) {
+                Text('添加模型')
+                  .fontSize(17)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(this.textColor())
+                Text(this.addProviderName)
+                  .fontSize(11.5)
+                  .fontColor(this.subColor())
+              }
+              .alignItems(HorizontalAlign.Center)
+              Row() {
+                Text('取消')
+                  .fontSize(16)
+                  .fontColor(this.textColor())
+                  .height(44)
+                  .onClick(() => {
+                    if (!this.saving) {
+                      this.closeSheets();
+                    }
+                  })
+                Blank()
+                Text(this.saving ? '正在保存…' : '添加')
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(this.saving ? this.subColor() : '#2E6BE6')
+                  .height(44)
+                  .onClick(() => {
+                    if (!this.saving) {
+                      this.submitAddModel();
+                    }
+                  })
+              }
+              .width('100%')
+              .height(48)
+              .padding({ left: 16, right: 16 })
+            }
+            .width('100%')
+            .height(52)
+
+            Scroll() {
+              Column({ space: 0 }) {
+                Text('手动填写模型 ID 与参数；也可在提供商卡片里点「获取模型」批量导入。')
+                  .fontSize(12)
+                  .lineHeight(18)
+                  .fontColor(this.subColor())
+                  .width('100%')
+                  .margin({ bottom: 12 })
+
+                Text('模型 ID')
+                  .fontSize(13)
+                  .fontColor(this.subColor())
+                  .width('100%')
+                  .margin({ bottom: 6 })
+                TextInput({ text: this.formId, placeholder: '上游接口使用的模型 ID' })
+                  .height(46)
+                  .fontSize(15)
+                  .padding({ left: 12, right: 12 })
+                  .fontColor(this.textColor())
+                  .placeholderColor(this.subColor())
+                  .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)')
+                  .border({ width: 1, color: this.dividerColor() })
+                  .borderRadius(9)
+                  .margin({ bottom: 14 })
+                  .onChange((v: string) => {
+                    this.formId = v;
+                  })
+
+                Text('显示名称')
+                  .fontSize(13)
+                  .fontColor(this.subColor())
+                  .width('100%')
+                  .margin({ bottom: 6 })
+                TextInput({ text: this.formName, placeholder: '可选' })
+                  .height(46)
+                  .fontSize(15)
+                  .padding({ left: 12, right: 12 })
+                  .fontColor(this.textColor())
+                  .placeholderColor(this.subColor())
+                  .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)')
+                  .border({ width: 1, color: this.dividerColor() })
+                  .borderRadius(9)
+                  .margin({ bottom: 14 })
+                  .onChange((v: string) => {
+                    this.formName = v;
+                  })
+
+                Row({ space: 10 }) {
+                  Column({ space: 0 }) {
+                Text('上下文窗口')
+                  .fontSize(13)
+                  .fontColor(this.subColor())
+                  .width('100%')
+                  .margin({ bottom: 6 })
+                TextInput({ text: this.formContext, placeholder: '1000000' })
+                  .height(46)
+                  .fontSize(15)
+                  .padding({ left: 12, right: 12 })
+                  .type(InputType.Number)
+                  .fontColor(this.textColor())
+                  .placeholderColor(this.subColor())
+                  .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)')
+                  .border({ width: 1, color: this.dividerColor() })
+                  .borderRadius(9)
+                  .margin({ bottom: 14 })
+                  .onChange((v: string) => {
+                    this.formContext = v;
+                  })
+                  }
+                  .layoutWeight(1)
+                  .alignItems(HorizontalAlign.Start)
+                  Column({ space: 0 }) {
+                Text('最大输出 Token')
+                  .fontSize(13)
+                  .fontColor(this.subColor())
+                  .width('100%')
+                  .margin({ bottom: 6 })
+                TextInput({ text: this.formMaxTokens, placeholder: '8192' })
+                  .height(46)
+                  .fontSize(15)
+                  .padding({ left: 12, right: 12 })
+                  .type(InputType.Number)
+                  .fontColor(this.textColor())
+                  .placeholderColor(this.subColor())
+                  .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)')
+                  .border({ width: 1, color: this.dividerColor() })
+                  .borderRadius(9)
+                  .margin({ bottom: 14 })
+                  .onChange((v: string) => {
+                    this.formMaxTokens = v;
+                  })
+                  }
+                  .layoutWeight(1)
+                  .alignItems(HorizontalAlign.Start)
+                }
+                .width('100%')
+
+                Text('输入类型')
+                  .fontSize(13)
+                  .fontColor(this.subColor())
+                  .width('100%')
+                  .margin({ bottom: 8 })
+                Row({ space: 22 }) {
+                  Row({ space: 6 }) {
+                    Text(this.formText ? '✓' : '')
+                      .fontSize(11)
+                      .fontColor('#FFFFFF')
+                      .width(19)
+                      .height(19)
+                      .textAlign(TextAlign.Center)
+                      .backgroundColor(this.formText ? '#2E6BE6' : 'rgba(16,19,24,0.05)')
+                      .border({ width: 1, color: this.formText ? '#2E6BE6' : this.dividerColor() })
+                      .borderRadius(5)
+                    Text('文本').fontSize(15).fontColor(this.textColor())
+                  }
+                  .onClick(() => {
+                    this.formText = !this.formText;
+                  })
+                  Row({ space: 6 }) {
+                    Text(this.formImage ? '✓' : '')
+                      .fontSize(11)
+                      .fontColor('#FFFFFF')
+                      .width(19)
+                      .height(19)
+                      .textAlign(TextAlign.Center)
+                      .backgroundColor(this.formImage ? '#2E6BE6' : 'rgba(16,19,24,0.05)')
+                      .border({ width: 1, color: this.formImage ? '#2E6BE6' : this.dividerColor() })
+                      .borderRadius(5)
+                    Text('图片').fontSize(15).fontColor(this.textColor())
+                  }
+                  .onClick(() => {
+                    this.formImage = !this.formImage;
+                  })
+                }
+                .width('100%')
+                .margin({ bottom: 14 })
+
+                Row() {
+                  Text('支持推理')
+                    .fontSize(15)
+                    .fontColor(this.textColor())
+                  Blank()
+                  Toggle({ type: ToggleType.Switch, isOn: this.formReasoning })
+                    .selectedColor('#2E6BE6')
+                    .onChange((on: boolean) => {
+                      this.toggleFormReasoning(on);
+                    })
+                }
+                .width('100%')
+                .height(38)
+
+                if (this.formReasoning) {
+                  Row() {
+                    Text('档位')
+                      .fontSize(12)
+                      .fontColor(this.subColor())
+                      .layoutWeight(1)
+                    Text('API 参数值')
+                      .fontSize(12)
+                      .fontColor(this.subColor())
+                      .layoutWeight(1)
+                      .textAlign(TextAlign.Center)
+                    Row().width(28)
+                  }
+                  .width('100%')
+                  .padding({ top: 10, bottom: 4 })
+
+                  ForEach(this.formReasoningRows, (row: ReasoningRowDraft, index: number) => {
+                    Row({ space: 8 }) {
+                      Row({ space: 4 }) {
+                        Text(this.reasoningLevelLabel(row.level))
+                          .fontSize(14)
+                          .fontColor(this.textColor())
+                        Text('⌄')
+                          .fontSize(11)
+                          .fontColor(this.subColor())
+                      }
+                      .layoutWeight(1)
+                      .height(40)
+                      .justifyContent(FlexAlign.Center)
+                      .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)')
+                      .border({ width: 1, color: this.dividerColor() })
+                      .borderRadius(9)
+                      .bindMenu(this.reasoningMenu(index))
+
+                      TextInput({ text: row.value, placeholder: row.level === 'off' ? '关闭思考' : row.level })
+                        .layoutWeight(1)
+                        .height(40)
+                        .fontSize(14)
+                        .enabled(row.level !== 'off')
+                        .textAlign(TextAlign.Center)
+                        .padding({ left: 8, right: 8 })
+                        .fontColor(this.textColor())
+                        .placeholderColor(this.subColor())
+                        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)')
+                        .border({ width: 1, color: this.dividerColor() })
+                        .borderRadius(9)
+                        .onChange((v: string) => {
+                          this.setReasoningValue(index, v);
+                        })
+
+                      Text('×')
+                        .fontSize(16)
+                        .fontColor(this.subColor())
+                        .width(28)
+                        .height(28)
+                        .textAlign(TextAlign.Center)
+                        .onClick(() => {
+                          this.removeReasoningRow(index);
+                        })
+                    }
+                    .width('100%')
+                    .padding({ top: 5, bottom: 5 })
+                  }, (row: ReasoningRowDraft, index: number) => row.level + '-' + index.toString())
+
+                  Text('＋ 添加档位')
+                    .fontSize(14)
+                    .fontColor('#2E6BE6')
+                    .width('100%')
+                    .height(40)
+                    .textAlign(TextAlign.Center)
+                    .border({ width: 1, color: this.dashEdge(), style: BorderStyle.Dashed })
+                    .borderRadius(9)
+                    .margin({ top: 6 })
+                    .onClick(() => {
+                      this.addReasoningRow();
+                    })
+
+                  Text('关闭表示不支持推理；开启后可配置档位与 API 参数值。')
+                    .fontSize(11.5)
+                    .lineHeight(17)
+                    .fontColor(this.subColor())
+                    .width('100%')
+                    .margin({ top: 8 })
+                }
+
+                Text('留空表示使用提供商默认值；模型 ID 必须与上游一致。')
+                  .fontSize(12)
+                  .lineHeight(18)
+                  .fontColor(this.subColor())
+                  .width('100%')
+
+                if (this.formError.length > 0) {
+                  Text(this.formError)
+                    .fontSize(13)
+                    .lineHeight(19)
+                    .fontColor('#FF5A5F')
+                    .width('100%')
+                    .margin({ top: 8 })
+                }
+              }
+              .width('100%')
+              .alignItems(HorizontalAlign.Start)
+            }
+            .constraintSize({ maxHeight: 470 })
+            .scrollBar(BarState.Off)
+            .align(Alignment.Top)
+            .width('100%')
+            .padding({ left: 18, right: 18, top: 2 })
+
+            Row({ space: 10 }) {
+              Text('取消')
+                .fontSize(17)
+                .fontColor(this.textColor())
+                .textAlign(TextAlign.Center)
+                .layoutWeight(1)
+                .height(50)
+                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
+                .border({ width: 1, color: this.dividerColor() })
+                .borderRadius(11)
+                .onClick(() => {
+                  if (!this.saving) {
+                    this.closeSheets();
+                  }
+                })
+              Text(this.saving ? '正在保存…' : '添加')
+                .fontSize(17)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.textColor())
+                .textAlign(TextAlign.Center)
+                .layoutWeight(1)
+                .height(50)
+                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
+                .border({ width: 1, color: this.dividerColor() })
+                .borderRadius(11)
+                .opacity(this.saving ? 0.55 : 1)
+                .onClick(() => {
+                  if (!this.saving) {
+                    this.submitAddModel();
+                  }
+                })
+            }
+            .width('100%')
+            .padding({ left: 18, right: 18, top: 12, bottom: 14 })
+          }
+    .padding({ bottom: (this.safeBottomStorage > 0 ? this.safeBottomStorage : 20) + 8 })
   }
 
   private scroller: Scroller = new Scroller();
@@ -968,607 +1527,33 @@ export struct ModelsPage {
         .height('100%')
         .backgroundColor(this.pageBg())
 
-        if (this.discoverOpen) {
-          Column()
-            .width('100%')
-            .height('100%')
-            .backgroundColor('rgba(0,0,0,0.42)')
-            .onClick(() => {
-              if (!this.saving) {
-                this.closeSheets();
-              }
-            })
-
-          Column({ space: 0 }) {
-            Column() {
-              Column()
-                .width(36)
-                .height(4)
-                .borderRadius(2)
-                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)')
-            }
-            .width('100%')
-            .height(14)
-            .justifyContent(FlexAlign.Center)
-
-            Stack({ alignContent: Alignment.Center }) {
-              Column({ space: 2 }) {
-                Text('获取模型')
-                  .fontSize(17)
-                  .fontWeight(FontWeight.Medium)
-                  .fontColor(this.textColor())
-                Text(this.discoverProviderName)
-                  .fontSize(11.5)
-                  .fontColor(this.subColor())
-              }
-              .alignItems(HorizontalAlign.Center)
-              Row() {
-                Text('取消')
-                  .fontSize(16)
-                  .fontColor(this.textColor())
-                  .height(44)
-                  .onClick(() => {
-                    if (!this.saving) {
-                      this.closeSheets();
-                    }
-                  })
-                Blank()
-                Text(this.saving ? '正在添加…' : '添加 ' + this.discoverSelected.length + ' 个')
-                  .fontSize(16)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(this.saving ? this.subColor() : '#2E6BE6')
-                  .height(44)
-                  .onClick(() => {
-                    if (!this.saving) {
-                      this.submitDiscovery();
-                    }
-                  })
-              }
-              .width('100%')
-              .height(48)
-              .padding({ left: 16, right: 16 })
-            }
-            .width('100%')
-            .height(52)
-
-            if (this.discoverLoading) {
-              Text('正在获取模型…')
-                .fontSize(14)
-                .fontColor(this.subColor())
-                .width('100%')
-                .padding({ top: 34, bottom: 44 })
-                .textAlign(TextAlign.Center)
-            } else if (this.discoverError.length > 0) {
-              Column({ space: 12 }) {
-                Text(this.discoverError)
-                  .fontSize(13)
-                  .lineHeight(19)
-                  .fontColor('#FF5A5F')
-                  .width('100%')
-                if (this.discoverNeedsManual) {
-                  Text('手动添加模型')
-                    .fontSize(14)
-                    .fontWeight(FontWeight.Medium)
-                    .fontColor('#FFFFFF')
-                    .width('100%')
-                    .height(42)
-                    .textAlign(TextAlign.Center)
-                    .borderRadius(11)
-                    .backgroundColor('#2E6BE6')
-                    .onClick(() => {
-                      const providerId: string = this.discoverProviderId;
-                      const providerName: string = this.discoverProviderName;
-                      this.closeSheets();
-                      this.openAddModel(providerId, providerName);
-                    })
-                }
-              }
-              .width('100%')
-              .alignItems(HorizontalAlign.Start)
-              .padding({ left: 18, right: 18, top: 8, bottom: 24 })
-            } else {
-              Row() {
-                Text('已选择 ' + this.discoverSelected.length + ' 个')
-                  .fontSize(12.5)
-                  .fontColor(this.subColor())
-                Blank()
-                Text(this.discoverSelected.length === this.discoverRows.length ? '取消全选' : '全选')
-                  .fontSize(13.5)
-                  .fontColor('#2E6BE6')
-                  .onClick(() => {
-                    this.selectAllDiscover();
-                  })
-              }
-              .width('100%')
-              .padding({ left: 18, right: 18, bottom: 6 })
-
-              Scroll() {
-                Column({ space: 0 }) {
-                  ForEach(this.discoverRows, (row: DiscoveredModel) => {
-                    Row() {
-                      Text(this.discoverSelected.indexOf(row.id) >= 0 ? '✓' : '')
-                        .fontSize(11)
-                        .fontColor('#FFFFFF')
-                        .width(19)
-                        .height(19)
-                        .textAlign(TextAlign.Center)
-                        .backgroundColor(this.discoverSelected.indexOf(row.id) >= 0 ? '#2E6BE6' : 'rgba(16,19,24,0.05)')
-                        .border({ width: 1, color: this.discoverSelected.indexOf(row.id) >= 0 ? '#2E6BE6' : this.dividerColor() })
-                        .borderRadius(5)
-                      Column({ space: 2 }) {
-                        Row({ space: 6 }) {
-                          Text(row.name)
-                            .fontSize(15)
-                            .fontWeight(FontWeight.Medium)
-                            .fontColor(this.textColor())
-                            .maxLines(1)
-                            .textOverflow({ overflow: TextOverflow.Ellipsis })
-                          if (row.existing) {
-                            Text('已添加')
-                              .fontSize(10.5)
-                              .fontColor(this.subColor())
-                              .border({ width: 1, color: this.dividerColor() })
-                              .borderRadius(999)
-                              .padding({ left: 6, right: 6, top: 1, bottom: 1 })
-                          }
-                        }
-                        .width('100%')
-                        Text(row.id)
-                          .fontSize(11)
-                          .fontColor(this.subColor())
-                          .maxLines(1)
-                          .textOverflow({ overflow: TextOverflow.Ellipsis })
-                          .width('100%')
-                        if (row.meta.length > 0) {
-                          Text(row.meta)
-                            .fontSize(11)
-                            .fontColor(this.subColor())
-                            .maxLines(1)
-                            .textOverflow({ overflow: TextOverflow.Ellipsis })
-                            .width('100%')
-                        }
-                      }
-                      .alignItems(HorizontalAlign.Start)
-                      .layoutWeight(1)
-                      .margin({ left: 9 })
-                    }
-                    .width('100%')
-                    .alignItems(VerticalAlign.Center)
-                    .padding({ top: 9, bottom: 9 })
-                    .onClick(() => {
-                      this.toggleDiscoverRow(row.id);
-                    })
-                  }, (row: DiscoveredModel) => row.id)
-                }
-                .width('100%')
-              }
-              .constraintSize({ maxHeight: 380 })
-              .scrollBar(BarState.Off)
-              .align(Alignment.Top)
-              .width('100%')
-              .padding({ left: 18, right: 18 })
-            }
-
-            Row({ space: 10 }) {
-              Text('取消')
-                .fontSize(17)
-                .fontColor(this.textColor())
-                .textAlign(TextAlign.Center)
-                .layoutWeight(1)
-                .height(50)
-                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
-                .border({ width: 1, color: this.dividerColor() })
-                .borderRadius(11)
-                .onClick(() => {
-                  if (!this.saving) {
-                    this.closeSheets();
-                  }
-                })
-              Text(this.saving ? '正在添加…' : '添加 ' + this.discoverSelected.length + ' 个')
-                .fontSize(17)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(this.discoverSelected.length > 0 ? this.textColor() : this.subColor())
-                .textAlign(TextAlign.Center)
-                .layoutWeight(1)
-                .height(50)
-                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
-                .border({ width: 1, color: this.dividerColor() })
-                .borderRadius(11)
-                .opacity(this.saving ? 0.55 : 1)
-                .onClick(() => {
-                  if (!this.saving) {
-                    this.submitDiscovery();
-                  }
-                })
-            }
-            .width('100%')
-            .padding({ left: 18, right: 18, top: 12, bottom: 14 })
-          }
-          .width('100%')
-          .constraintSize({ maxHeight: '86%' })
-          .borderRadius({ topLeft: 20, topRight: 20 })
-          // 原生玻璃：系统 COMPONENT_THICK 模糊材质 + 玻璃色叠层（对齐设置页/系统弹窗）
-          .backgroundColor(this.isDark ? 'rgba(44,46,52,0.70)' : 'rgba(255,255,255,0.72)')
-          .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, {
-            colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT
+        // 获取模型：原生玻璃半模态（bindSheet + 系统 ImmersiveMaterial，与设置页诊断弹窗同款）
+        Column()
+          .width(1)
+          .height(1)
+          .opacity(0.01)
+          .bindSheet($$this.discoverOpen, this.discoverSheet(), {
+            height: 620,
+            dragBar: false,
+            showClose: false,
+            preferType: SheetType.BOTTOM,
+            backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2C2E34' : '#FFFFFF'),
+            systemMaterial: this.sheetMaterial()
           })
-          .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.65)' })
-          .shadow(appGlassShadow(this.isDark))
-          .padding({ bottom: this.safeBottomStorage > 0 ? this.safeBottomStorage : 20 })
-          .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 420 })).animation({ duration: 320, curve: Curve.Friction }))
-        }
 
-        if (this.addOpen) {
-          Column()
-            .width('100%')
-            .height('100%')
-            .backgroundColor('rgba(0,0,0,0.42)')
-            .onClick(() => {
-              if (!this.saving) {
-                this.closeSheets();
-              }
-            })
-
-          Column({ space: 0 }) {
-            Column() {
-              Column()
-                .width(36)
-                .height(4)
-                .borderRadius(2)
-                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)')
-            }
-            .width('100%')
-            .height(14)
-            .justifyContent(FlexAlign.Center)
-
-            Stack({ alignContent: Alignment.Center }) {
-              Column({ space: 2 }) {
-                Text('添加模型')
-                  .fontSize(17)
-                  .fontWeight(FontWeight.Medium)
-                  .fontColor(this.textColor())
-                Text(this.addProviderName)
-                  .fontSize(11.5)
-                  .fontColor(this.subColor())
-              }
-              .alignItems(HorizontalAlign.Center)
-              Row() {
-                Text('取消')
-                  .fontSize(16)
-                  .fontColor(this.textColor())
-                  .height(44)
-                  .onClick(() => {
-                    if (!this.saving) {
-                      this.closeSheets();
-                    }
-                  })
-                Blank()
-                Text(this.saving ? '正在保存…' : '添加')
-                  .fontSize(16)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(this.saving ? this.subColor() : '#2E6BE6')
-                  .height(44)
-                  .onClick(() => {
-                    if (!this.saving) {
-                      this.submitAddModel();
-                    }
-                  })
-              }
-              .width('100%')
-              .height(48)
-              .padding({ left: 16, right: 16 })
-            }
-            .width('100%')
-            .height(52)
-
-            Scroll() {
-              Column({ space: 0 }) {
-                Text('手动填写模型 ID 与参数；也可在提供商卡片里点「获取模型」批量导入。')
-                  .fontSize(12)
-                  .lineHeight(18)
-                  .fontColor(this.subColor())
-                  .width('100%')
-                  .margin({ bottom: 12 })
-
-                Text('模型 ID')
-                  .fontSize(13)
-                  .fontColor(this.subColor())
-                  .width('100%')
-                  .margin({ bottom: 6 })
-                TextInput({ text: this.formId, placeholder: '上游接口使用的模型 ID' })
-                  .height(46)
-                  .fontSize(15)
-                  .padding({ left: 12, right: 12 })
-                  .fontColor(this.textColor())
-                  .placeholderColor(this.subColor())
-                  .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)')
-                  .border({ width: 1, color: this.dividerColor() })
-                  .borderRadius(9)
-                  .margin({ bottom: 14 })
-                  .onChange((v: string) => {
-                    this.formId = v;
-                  })
-
-                Text('显示名称')
-                  .fontSize(13)
-                  .fontColor(this.subColor())
-                  .width('100%')
-                  .margin({ bottom: 6 })
-                TextInput({ text: this.formName, placeholder: '可选' })
-                  .height(46)
-                  .fontSize(15)
-                  .padding({ left: 12, right: 12 })
-                  .fontColor(this.textColor())
-                  .placeholderColor(this.subColor())
-                  .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)')
-                  .border({ width: 1, color: this.dividerColor() })
-                  .borderRadius(9)
-                  .margin({ bottom: 14 })
-                  .onChange((v: string) => {
-                    this.formName = v;
-                  })
-
-                Row({ space: 10 }) {
-                  Column({ space: 0 }) {
-                Text('上下文窗口')
-                  .fontSize(13)
-                  .fontColor(this.subColor())
-                  .width('100%')
-                  .margin({ bottom: 6 })
-                TextInput({ text: this.formContext, placeholder: '1000000' })
-                  .height(46)
-                  .fontSize(15)
-                  .padding({ left: 12, right: 12 })
-                  .type(InputType.Number)
-                  .fontColor(this.textColor())
-                  .placeholderColor(this.subColor())
-                  .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)')
-                  .border({ width: 1, color: this.dividerColor() })
-                  .borderRadius(9)
-                  .margin({ bottom: 14 })
-                  .onChange((v: string) => {
-                    this.formContext = v;
-                  })
-                  }
-                  .layoutWeight(1)
-                  .alignItems(HorizontalAlign.Start)
-                  Column({ space: 0 }) {
-                Text('最大输出 Token')
-                  .fontSize(13)
-                  .fontColor(this.subColor())
-                  .width('100%')
-                  .margin({ bottom: 6 })
-                TextInput({ text: this.formMaxTokens, placeholder: '8192' })
-                  .height(46)
-                  .fontSize(15)
-                  .padding({ left: 12, right: 12 })
-                  .type(InputType.Number)
-                  .fontColor(this.textColor())
-                  .placeholderColor(this.subColor())
-                  .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)')
-                  .border({ width: 1, color: this.dividerColor() })
-                  .borderRadius(9)
-                  .margin({ bottom: 14 })
-                  .onChange((v: string) => {
-                    this.formMaxTokens = v;
-                  })
-                  }
-                  .layoutWeight(1)
-                  .alignItems(HorizontalAlign.Start)
-                }
-                .width('100%')
-
-                Text('输入类型')
-                  .fontSize(13)
-                  .fontColor(this.subColor())
-                  .width('100%')
-                  .margin({ bottom: 8 })
-                Row({ space: 22 }) {
-                  Row({ space: 6 }) {
-                    Text(this.formText ? '✓' : '')
-                      .fontSize(11)
-                      .fontColor('#FFFFFF')
-                      .width(19)
-                      .height(19)
-                      .textAlign(TextAlign.Center)
-                      .backgroundColor(this.formText ? '#2E6BE6' : 'rgba(16,19,24,0.05)')
-                      .border({ width: 1, color: this.formText ? '#2E6BE6' : this.dividerColor() })
-                      .borderRadius(5)
-                    Text('文本').fontSize(15).fontColor(this.textColor())
-                  }
-                  .onClick(() => {
-                    this.formText = !this.formText;
-                  })
-                  Row({ space: 6 }) {
-                    Text(this.formImage ? '✓' : '')
-                      .fontSize(11)
-                      .fontColor('#FFFFFF')
-                      .width(19)
-                      .height(19)
-                      .textAlign(TextAlign.Center)
-                      .backgroundColor(this.formImage ? '#2E6BE6' : 'rgba(16,19,24,0.05)')
-                      .border({ width: 1, color: this.formImage ? '#2E6BE6' : this.dividerColor() })
-                      .borderRadius(5)
-                    Text('图片').fontSize(15).fontColor(this.textColor())
-                  }
-                  .onClick(() => {
-                    this.formImage = !this.formImage;
-                  })
-                }
-                .width('100%')
-                .margin({ bottom: 14 })
-
-                Row() {
-                  Text('支持推理')
-                    .fontSize(15)
-                    .fontColor(this.textColor())
-                  Blank()
-                  Toggle({ type: ToggleType.Switch, isOn: this.formReasoning })
-                    .selectedColor('#2E6BE6')
-                    .onChange((on: boolean) => {
-                      this.toggleFormReasoning(on);
-                    })
-                }
-                .width('100%')
-                .height(38)
-
-                if (this.formReasoning) {
-                  Row() {
-                    Text('档位')
-                      .fontSize(12)
-                      .fontColor(this.subColor())
-                      .layoutWeight(1)
-                    Text('API 参数值')
-                      .fontSize(12)
-                      .fontColor(this.subColor())
-                      .layoutWeight(1)
-                      .textAlign(TextAlign.Center)
-                    Row().width(28)
-                  }
-                  .width('100%')
-                  .padding({ top: 10, bottom: 4 })
-
-                  ForEach(this.formReasoningRows, (row: ReasoningRowDraft, index: number) => {
-                    Row({ space: 8 }) {
-                      Row({ space: 4 }) {
-                        Text(this.reasoningLevelLabel(row.level))
-                          .fontSize(14)
-                          .fontColor(this.textColor())
-                        Text('⌄')
-                          .fontSize(11)
-                          .fontColor(this.subColor())
-                      }
-                      .layoutWeight(1)
-                      .height(40)
-                      .justifyContent(FlexAlign.Center)
-                      .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)')
-                      .border({ width: 1, color: this.dividerColor() })
-                      .borderRadius(9)
-                      .bindMenu(this.reasoningMenu(index))
-
-                      TextInput({ text: row.value, placeholder: row.level === 'off' ? '关闭思考' : row.level })
-                        .layoutWeight(1)
-                        .height(40)
-                        .fontSize(14)
-                        .enabled(row.level !== 'off')
-                        .textAlign(TextAlign.Center)
-                        .padding({ left: 8, right: 8 })
-                        .fontColor(this.textColor())
-                        .placeholderColor(this.subColor())
-                        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)')
-                        .border({ width: 1, color: this.dividerColor() })
-                        .borderRadius(9)
-                        .onChange((v: string) => {
-                          this.setReasoningValue(index, v);
-                        })
-
-                      Text('×')
-                        .fontSize(16)
-                        .fontColor(this.subColor())
-                        .width(28)
-                        .height(28)
-                        .textAlign(TextAlign.Center)
-                        .onClick(() => {
-                          this.removeReasoningRow(index);
-                        })
-                    }
-                    .width('100%')
-                    .padding({ top: 5, bottom: 5 })
-                  }, (row: ReasoningRowDraft, index: number) => row.level + '-' + index.toString())
-
-                  Text('＋ 添加档位')
-                    .fontSize(14)
-                    .fontColor('#2E6BE6')
-                    .width('100%')
-                    .height(40)
-                    .textAlign(TextAlign.Center)
-                    .border({ width: 1, color: this.dashEdge(), style: BorderStyle.Dashed })
-                    .borderRadius(9)
-                    .margin({ top: 6 })
-                    .onClick(() => {
-                      this.addReasoningRow();
-                    })
-
-                  Text('关闭表示不支持推理；开启后可配置档位与 API 参数值。')
-                    .fontSize(11.5)
-                    .lineHeight(17)
-                    .fontColor(this.subColor())
-                    .width('100%')
-                    .margin({ top: 8 })
-                }
-
-                Text('留空表示使用提供商默认值；模型 ID 必须与上游一致。')
-                  .fontSize(12)
-                  .lineHeight(18)
-                  .fontColor(this.subColor())
-                  .width('100%')
-
-                if (this.formError.length > 0) {
-                  Text(this.formError)
-                    .fontSize(13)
-                    .lineHeight(19)
-                    .fontColor('#FF5A5F')
-                    .width('100%')
-                    .margin({ top: 8 })
-                }
-              }
-              .width('100%')
-              .alignItems(HorizontalAlign.Start)
-            }
-            .constraintSize({ maxHeight: 470 })
-            .scrollBar(BarState.Off)
-            .align(Alignment.Top)
-            .width('100%')
-            .padding({ left: 18, right: 18, top: 2 })
-
-            Row({ space: 10 }) {
-              Text('取消')
-                .fontSize(17)
-                .fontColor(this.textColor())
-                .textAlign(TextAlign.Center)
-                .layoutWeight(1)
-                .height(50)
-                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
-                .border({ width: 1, color: this.dividerColor() })
-                .borderRadius(11)
-                .onClick(() => {
-                  if (!this.saving) {
-                    this.closeSheets();
-                  }
-                })
-              Text(this.saving ? '正在保存…' : '添加')
-                .fontSize(17)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(this.textColor())
-                .textAlign(TextAlign.Center)
-                .layoutWeight(1)
-                .height(50)
-                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
-                .border({ width: 1, color: this.dividerColor() })
-                .borderRadius(11)
-                .opacity(this.saving ? 0.55 : 1)
-                .onClick(() => {
-                  if (!this.saving) {
-                    this.submitAddModel();
-                  }
-                })
-            }
-            .width('100%')
-            .padding({ left: 18, right: 18, top: 12, bottom: 14 })
-          }
-          .width('100%')
-          .constraintSize({ maxHeight: '86%' })
-          .borderRadius({ topLeft: 20, topRight: 20 })
-          // 原生玻璃：系统 COMPONENT_THICK 模糊材质 + 玻璃色叠层（对齐设置页/系统弹窗）
-          .backgroundColor(this.isDark ? 'rgba(44,46,52,0.70)' : 'rgba(255,255,255,0.72)')
-          .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, {
-            colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT
+        // 添加模型：原生玻璃半模态（bindSheet + 系统 ImmersiveMaterial，与设置页诊断弹窗同款）
+        Column()
+          .width(1)
+          .height(1)
+          .opacity(0.01)
+          .bindSheet($$this.addOpen, this.addSheetBuilder(), {
+            height: '85%',
+            dragBar: false,
+            showClose: false,
+            preferType: SheetType.BOTTOM,
+            backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2C2E34' : '#FFFFFF'),
+            systemMaterial: this.sheetMaterial()
           })
-          .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.65)' })
-          .shadow(appGlassShadow(this.isDark))
-          .padding({ bottom: this.safeBottomStorage > 0 ? this.safeBottomStorage : 20 })
-          .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 420 })).animation({ duration: 320, curve: Curve.Friction }))
-        }
 
         // 删除确认（原生玻璃居中弹窗）
         if (this.deleteOpen) {

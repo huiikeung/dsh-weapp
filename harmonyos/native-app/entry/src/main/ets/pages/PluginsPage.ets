@@ -1,4 +1,5 @@
 import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
+import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 import { uiMaterial } from '@kit.ArkUI';
 import { GatewayClient, OfficialPluginItem, PluginItem, parseNamespace } from 'nativecore';
 import { MarkdownBodyView } from '../components/MarkdownBodyView';
@@ -1441,7 +1442,7 @@ export struct PluginsPage {
         },
         systemMaterialEffect: {
           materialType: hdsMaterial.MaterialType.IMMERSIVE,
-          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+          materialLevel: currentGlassMaterialLevel()
         },
         originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
         scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }

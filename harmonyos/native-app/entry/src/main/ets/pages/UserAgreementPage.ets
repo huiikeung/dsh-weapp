@@ -1,4 +1,5 @@
 import { NavBackButton } from '../components/NavBackButton';
+import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { APP_DISPLAY_NAME, DEVELOPER_NAME, USER_AGREEMENT_EFFECTIVE_AT, USER_AGREEMENT_VERSION } from '../common/LegalDocs';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
@@ -294,7 +295,7 @@ export struct UserAgreementPage {
         },
         systemMaterialEffect: {
           materialType: hdsMaterial.MaterialType.IMMERSIVE,
-          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+          materialLevel: currentGlassMaterialLevel()
         },
         originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
         scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }

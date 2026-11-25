@@ -138,6 +138,22 @@ export struct HostSwitcherBar {
     return this.botLight() ? 'rgba(37,35,50,0.06)' : 'rgba(255,255,255,0.08)';
   }
 
+  // ==================== Chief 卡片同款（对齐 BotHomePage.glassHairline / glassShadow）====================
+  /** 卡片发丝边：深 0.16 白 / 浅 0.90 白 */
+  private cardHairline(): string {
+    return this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)';
+  }
+
+  /** 卡片投影：radius 14 / offsetY 6（只挂未裁剪外层） */
+  private cardShadow(): ShadowOptions {
+    return {
+      radius: 14,
+      color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)',
+      offsetX: 0,
+      offsetY: 6
+    };
+  }
+
   /** 圆形玻璃钮描边：工作模式 24% 白 → Bot 浅底 24% 墨 */
   private glassBorder(): string {
     return this.botLight() ? 'rgba(37,35,50,0.24)' : 'rgba(255,255,255,0.24)';
@@ -1431,18 +1447,20 @@ export struct HostSwitcherBar {
             .height(13)
             .colorFilter(this.iconTint(this.pillInk()))
         }
-        .padding({ left: 14, right: 14, top: 7, bottom: 7 })
-        .borderRadius(999)
-        .border({ width: 1, color: this.pillBorder() })
-        .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
-        .backgroundColor(this.pillFill())
-        .shadow({ radius: 12, color: 'rgba(3,14,30,0.22)', offsetY: 4 })
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        // 与 Chief 卡片完全同款：透明底 + backdropBlur(10) + 1vp 发丝边 + 半径 21 + 卡片投影
+        .backgroundColor(Color.Transparent)
+        .backdropBlur(10)
+        .clip(true)
+        .borderRadius(21)
+        .border({ width: 1, color: this.cardHairline() })
+        .shadow(this.cardShadow())
         .onClick(() => {
           this.refreshSavedHosts();
           this.hostSheetOpen = true;
         })
       }
-      .height(49)
+      .height(48)
       .justifyContent(FlexAlign.Center)
 
       Blank()
@@ -1455,9 +1473,8 @@ export struct HostSwitcherBar {
             .objectFit(ImageFit.Contain)
             .colorFilter(this.iconTint(this.glassIconColor()))
         }
-        .width(49)
-        .height(49)
-        .borderRadius(24.5)
+        .width(48)
+        .height(48)
         .justifyContent(FlexAlign.Center)
         .onAreaChange((oldArea: Area, newArea: Area) => {
           const gx: number = Number(newArea.globalPosition.x);
@@ -1465,9 +1482,13 @@ export struct HostSwitcherBar {
             this.pairBtnX = gx;
           }
         })
-        .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
-        .backgroundColor(this.glassFill())
-        .border({ width: 1, color: this.glassBorder() })
+        // 与 Chief 卡片完全同款：透明底 + backdropBlur(10) + 1vp 发丝边 + 半径 21 + 卡片投影
+        .backgroundColor(Color.Transparent)
+        .backdropBlur(10)
+        .clip(true)
+        .borderRadius(21)
+        .border({ width: 1, color: this.cardHairline() })
+        .shadow(this.cardShadow())
         .onClick(() => {
           this.pairMenuOpen = !this.pairMenuOpen;
         })
@@ -1501,13 +1522,16 @@ export struct HostSwitcherBar {
           .objectFit(ImageFit.Contain)
           .colorFilter(this.iconTint(this.glassIconColor()))
       }
-      .width(49)
-      .height(49)
-      .borderRadius(24.5)
+      .width(48)
+      .height(48)
       .justifyContent(FlexAlign.Center)
-      .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
-      .backgroundColor(this.glassFill())
-      .border({ width: 1, color: this.glassBorder() })
+      // 与 Chief 卡片完全同款
+      .backgroundColor(Color.Transparent)
+      .backdropBlur(10)
+      .clip(true)
+      .borderRadius(21)
+      .border({ width: 1, color: this.cardHairline() })
+      .shadow(this.cardShadow())
       .margin({ left: 10.6 })
       .onClick(() => {
         this.pageStack.pushPathByName('session-settings', null);

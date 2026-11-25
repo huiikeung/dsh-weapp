@@ -21,6 +21,7 @@ import type { TeamMemberView, TeamTaskView } from 'nativecore';
 import type { SpeechLimits } from 'nativecore';
 import type { DownloadResult, GatewayImageAttachment, UploadResult } from 'nativecore';
 import type { GatewayPendingQuestionRequest, GatewayQuestion, GatewayQuestionAnswer, GatewayQuestionOption } from 'nativecore';
+import { currentGlassLevel, ensureGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 import { ConversationRowView } from '../components/ConversationRowView';
 import { ConversationComposer, MetricMenuPair, RefChipItem, RefDirItem, RefSessionItem, SkillItem } from '../components/ConversationComposer';
 import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
@@ -29,6 +30,7 @@ import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, HdsTabs, 
 import { ConversationProgress } from '../components/ConversationProgress';
 import { TrajectoryPanel } from '../components/TrajectoryPanel';
 import { FluKeCoin } from '../components/FluKeCoin';
+import { HdsGlassSurface } from '../components/HdsGlassSurface';
 import { StatusBarStyle } from '../services/StatusBarStyle';
 import { Haptics } from '../services/Haptics';
 import { HoldingHand } from '../services/HoldingHand';
@@ -400,6 +402,8 @@ export struct ConversationPage {
 
   /** 底部 dock（队列/任务/目标+输入条）实测高度：时间线底部留白与「回到底部」按钮避让用 */
   @State private dockHeight: number = 220;
+  /** 排队消息 / 任务 / 目标卡片区实测高度：时间线末尾让出同样的高度，鲸尾行不被压住 */
+  @State private dockStackH: number = 0;
   /** 输入卡实测高度（composer 上报）：玻璃背板用它精确对齐 */
   @State dockCardHeight: number = 0;
   /** 胶囊高度：单独用状态驱动并参与补间，保证它和输入卡同一条动画收缩 */
@@ -634,6 +638,8 @@ export struct ConversationPage {
   @State tasksExpanded: boolean = false;
   @State goalEditing: boolean = false;
   @State goalDraft: string = '';
+  /** 进入「编辑目标」前的草稿：保存/取消后还原，避免吞掉用户正在写的内容 */
+  private goalEditBackup: string = '';
   private goalBusyTimer: number = -1;
   /** 系统手势条高度（vp）：输入条据此抬升。 */
   @StorageLink('safeBottomVp') bottomInset: number = 0;
@@ -691,6 +697,8 @@ export struct ConversationPage {
 
   // ==================== 生命周期 ====================
   aboutToAppear(): void {
+    // 玻璃材质档位：把设置页存的档位灌回 AppStorage，所有 HdsGlassSurface 一起生效
+    ensureGlassLevel();
     // 诊断：确认设备是否支持 IMMERSIVE（液态玻璃）材质
     try {
       Logger.info('GLASSDIAG immersiveSupported=' + uiMaterial.isImmersiveMaterialSupported().toString());
@@ -798,6 +806,11 @@ export struct ConversationPage {
    * 放行退出页面，草稿由 aboutToDisappear 落盘，不会丢。
    */
   onBackPress(): boolean {
+    // 编辑目标中：返回 = 取消编辑，还原原草稿（不退出页面）
+    if (this.goalEditing) {
+      this.finishGoalEdit(false);
+      return true;
+    }
     if (this.composerFocused) {
       this.collapseComposer();
       return true;
@@ -3454,6 +3467,23 @@ export struct ConversationPage {
     return 26;
   }
 
+  /**
+   * 展开态玻璃（队列展开 / 任务展开 / 目标编辑）：与输入框展开态同一套配方
+   * —— backdropBlur(22) + 半透明底 + 1vp #66FFFFFF 细亮边 + 28 圆角。
+   * 输入框那份见 ConversationComposer 展开态卡片；两边要同步改。
+   */
+  private expandedGlassBlur(): number {
+    return 22;
+  }
+
+  private expandedGlassFill(): string {
+    return this.isDark ? 'rgba(30,30,32,0.72)' : 'rgba(255,255,255,0.72)';
+  }
+
+  private expandedGlassRadius(): number {
+    return 28;
+  }
+
   /** 沉浸光感材质（与悬浮 TabBar 背板同一套 uiMaterial） */
   private dockMaterial(): uiMaterial.Material {
     return new uiMaterial.ImmersiveMaterial({
@@ -3701,9 +3731,9 @@ export struct ConversationPage {
     return false;
   }
 
-  /** 顶栏次要图标色：与「协作」图标（dsh_team / dsh_team_dark 的描边）取同一灰度 */
+  /** 顶栏图标色：与返回键（NavBackButton.ink）完全一致 */
   private navIconColor(): string {
-    return this.isDark ? '#ABB2BE' : '#737985';
+    return this.isDark ? '#F1F4FA' : '#101318';
   }
 
   /** 连接状态点：连接中=琥珀、失败=红；已连接时随会话运行状态——运行中绿、空闲灰（对齐产品约定）。 */
@@ -3981,6 +4011,11 @@ export struct ConversationPage {
   }
 
   private async onSend(): Promise<void> {
+    // 「编辑目标」态下，发送 = 保存目标，不作为对话消息发出
+    if (this.goalEditing) {
+      this.finishGoalEdit(true);
+      return;
+    }
     const typed: string = this.draft.trim();
     let refPrefix: string = '';
     for (const chip of this.refChips) {
@@ -4315,8 +4350,8 @@ export struct ConversationPage {
     const next: boolean = !this.voiceMode;
     this.voiceMode = next;
     if (next) {
-      // 进入语音态：收起键盘，露出折叠条的长按区
-      this.composerFocused = false;
+      // 收键盘。展开卡片原地切成「按住说话」（composer 的语音触摸层已覆盖文字域），
+      // 不再塌回折叠条 —— 只有未展开的胶囊才需要塌下去露出长按区。
       try {
         this.getUIContext().getFocusController().clearFocus();
       } catch (err) {
@@ -4897,13 +4932,47 @@ export struct ConversationPage {
     }, 5000);
   }
 
-  private saveGoalEdit(): void {
-    const text: string = this.goalDraft.trim();
-    this.goalEditing = false;
-    if (text.length === 0 || text === this.goal.objective) {
+  /**
+   * 进入「编辑目标」：目标文本直接放进输入框编辑。
+   * 之前是在目标卡片里塞一个 TextArea，但卡片高度有限、长目标看不全，所以改成用主输入框。
+   */
+  private beginGoalEdit(): void {
+    const text: string = this.goal.objective.trim();
+    if (text.length === 0) {
       return;
     }
-    this.mutateGoal('goal-edit', text);
+    if (!this.goalEditing) {
+      this.goalEditBackup = this.draft;
+    }
+    this.goalEditing = true;
+    this.draft = text;
+    this.hint = '编辑目标中：发送即保存，返回键取消';
+    // 展开输入条并聚焦（键盘随焦点弹出）
+    this.composerFocused = true;
+    this.dockBarHeight = this.lastExpandedCardHeight;
+    setTimeout(() => {
+      try {
+        this.getUIContext().getFocusController().requestFocus('composer-draft-area');
+      } catch (err) {
+      }
+    }, 80);
+  }
+
+  /** 退出「编辑目标」态：save=true 时把输入框内容写回目标；随后还原原草稿 */
+  private finishGoalEdit(save: boolean): void {
+    if (!this.goalEditing) {
+      return;
+    }
+    const text: string = this.draft.trim();
+    this.goalEditing = false;
+    this.hint = '';
+    this.draft = this.goalEditBackup;
+    this.goalEditBackup = '';
+    this.composerFocused = false;
+    this.dockBarHeight = 52;
+    if (save && text.length > 0 && text !== this.goal.objective) {
+      this.mutateGoal('goal-edit', text);
+    }
   }
 
   private clearGoal(): void {
@@ -5011,12 +5080,11 @@ export struct ConversationPage {
     return out;
   }
 
-  /** 左上角模式胶囊（与输入条胶囊同一套玻璃：同底色 + 同细亮边） */
+  /** 左上角模式胶囊（玻璃交给 HdsGlassSurface：内容区自挂 systemMaterial 不生效） */
   @Builder
   modeChip() {
     // 平板/宽屏：rpx 会按整屏宽度放大（42rpx≈80vp，显得巨大），这里直接用 vp 定死小尺寸
-    // 用 Button 承载：systemMaterial（沉浸光感液态玻璃）只在这种自带材质层的组件上渲染，
-    // 普通 Row 上挂 systemMaterial 是画不出来的 —— 这样它才和悬浮 TabBar 输入条是同一种玻璃。
+    HdsGlassSurface() {
     Button({ type: ButtonType.Capsule, stateEffect: true }) {
       Row({ space: this.wideInset() > 0 ? 5 : this.rpx(8) }) {
         Text(this.modeChipLabel)
@@ -5038,10 +5106,8 @@ export struct ConversationPage {
     }
     .constraintSize({ minHeight: this.wideInset() > 0 ? 32 : this.rpx(56) })
     .buttonStyle(ButtonStyleMode.NORMAL)
-    // 沉浸光感材质（与悬浮 TabBar 背板同一套 uiMaterial），不要再铺 backgroundColor
-    .systemMaterial(this.dockMaterial())
-    // 材质自带的边缘太淡（实测峰值只有 30/255），补 1vp 细亮边对齐 TabBar 胶囊的 76/255
-    .border({ width: 1, color: this.dockMaterialEdge() })
+    // 玻璃由外层 HdsGlassSurface 出；Button 自身必须透明，否则会盖住材质
+    .backgroundColor('#00000000')
     .onClick(() => {
       this.modeChipOpen = !this.modeChipOpen;
     })
@@ -5061,6 +5127,7 @@ export struct ConversationPage {
         this.modeChipOpen = false;
       }
     })
+    }
   }
 
   /** 模式菜单（原生 bindMenu 内容，与右上角「⋯」菜单同款） */
@@ -5508,8 +5575,30 @@ export struct ConversationPage {
     }
   }
 
+  /**
+   * 单条排队消息：HDS 沉浸光感玻璃（矮条，材质天然是胶囊，圆角=半高，观感正合适）。
+   * 多条 / 展开态：HDS 悬浮 Bar 的形状固定是胶囊（半径=高度一半），高面板会变成大椭圆，
+   * 且系统材质层不受应用层 clip 裁剪、SDK 也没有圆角参数 —— 所以退回原自绘 26vp 圆角。
+   */
   @Builder
   queueDock() {
+    // 折叠态（单条，或有多条但未展开，都只是一行矮条）→ HDS 胶囊玻璃；
+    // 展开成高面板才退回自绘，避免被拉成大椭圆。
+    if (this.visibleQueueCount() === 1 || !this.queueExpanded) {
+      Column() {
+        HdsGlassSurface() {
+          this.queueDockBody(false)
+        }
+      }
+      .width('100%')
+      .margin({ bottom: this.rpx(12) })
+    } else {
+      this.queueDockBody(true)
+    }
+  }
+
+  @Builder
+  queueDockBody(glass: boolean) {
     Column() {
       if (this.visibleQueueCount() > 1) {
         Row({ space: this.rpx(20) }) {
@@ -5693,16 +5782,36 @@ export struct ConversationPage {
     }
     .width('100%')
     .padding({ top: this.rpx(4), bottom: this.rpx(4) })
-    // 与输入条胶囊同一套玻璃：同底色 + 同细亮边 + 同圆角
-    .borderRadius(this.dockGlassRadius())
-    .backgroundColor(this.dockGlassFill())
-    .border({ width: 1, color: this.dockGlassEdge() })
-    .margin({ bottom: this.rpx(12) })
+    // glass=true 走「展开态玻璃」：与输入框展开态同一套模糊/底色/亮边/圆角；
+    // false 时完全透明，玻璃由外层 HdsGlassSurface 出
+    .borderRadius(glass ? this.expandedGlassRadius() : 26)
+    .backdropBlur(glass ? this.expandedGlassBlur() : 0)
+    .backgroundColor(glass ? this.expandedGlassFill() : '#00000000')
+    .border({ width: glass ? 1 : 0, color: this.dockGlassEdge() })
+    .margin({ bottom: glass ? this.rpx(12) : 0 })
     .clip(true)
   }
 
   @Builder
   tasksPanel() {
+    // 折叠态（未展开，只是一行矮条，单/多任务都一样）→ HDS 胶囊玻璃；展开成长面板才退回自绘。
+    if (!this.tasksExpanded) {
+      // 单个任务（矮条）：HDS 胶囊玻璃
+      Column() {
+        HdsGlassSurface() {
+          this.tasksPanelBody(false)
+        }
+      }
+      .width('100%')
+      .margin({ bottom: this.rpx(12) })
+    } else {
+      // 多个任务 / 展开成长面板：原自绘 26vp 圆角（HDS 会变成大椭圆）
+      this.tasksPanelBody(true)
+    }
+  }
+
+  @Builder
+  tasksPanelBody(glass: boolean) {
     Column() {
       Row({ space: this.rpx(16) }) {
         Image($r('app.media.tasks_list'))
@@ -5757,59 +5866,29 @@ export struct ConversationPage {
       }
     }
     .width('100%')
-    // 与输入条胶囊同一套玻璃：同底色 + 同细亮边 + 同圆角
-    .borderRadius(this.dockGlassRadius())
-    .backgroundColor(this.dockGlassFill())
-    .border({ width: 1, color: this.dockGlassEdge() })
-    .margin({ bottom: this.rpx(12) })
+    // glass=true 走原自绘玻璃；false 时透明，玻璃由外层 HdsGlassSurface 出
+    .borderRadius(glass ? this.dockGlassRadius() : 26)
+    .backgroundColor(glass ? this.dockGlassFill() : '#00000000')
+    .border({ width: glass ? 1 : 0, color: this.dockGlassEdge() })
+    .margin({ bottom: glass ? this.rpx(12) : 0 })
     .clip(true)
   }
 
   @Builder
   goalPanel() {
-    if (this.goalEditing) {
-      Row({ space: this.rpx(8) }) {
-        TextArea({ text: this.goalDraft, placeholder: '目标' })
-          .layoutWeight(1)
-          .height(this.rpx(76))
-          .fontSize(15)
-          .fontColor(this.textColor())
-          .placeholderColor(this.subColor())
-          .backgroundColor('rgba(46,107,230,0.07)')
-          .border({ width: 1, color: 'rgba(46,107,230,0.55)', radius: this.rpx(14) })
-          .onChange((value: string) => {
-            this.goalDraft = value;
-          })
-        Text('✓')
-          .fontSize(20)
-          .fontColor(this.subColor())
-          .width(this.rpx(56))
-          .height(this.rpx(64))
-          .textAlign(TextAlign.Center)
-          .onClick(() => {
-            this.saveGoalEdit();
-          })
-        Text('×')
-          .fontSize(22)
-          .fontColor(this.subColor())
-          .width(this.rpx(56))
-          .height(this.rpx(64))
-          .textAlign(TextAlign.Center)
-          .onClick(() => {
-            this.goalEditing = false;
-            this.goalDraft = '';
-          })
+    // 目标卡片永远只做展示（单行矮条，HDS 胶囊玻璃）；
+    // 编辑走主输入框（点铅笔把目标文本填进去），卡片不再内嵌 TextArea。
+    Column() {
+      HdsGlassSurface() {
+        this.goalPanelBody(false)
       }
-      .width('100%')
-      .constraintSize({ minHeight: this.rpx(96) })
-      .padding({ left: this.rpx(20), right: this.rpx(16), top: this.rpx(12), bottom: this.rpx(12) })
-      .alignItems(VerticalAlign.Center)
-      // 与输入条胶囊同一套玻璃：同底色 + 同细亮边 + 同圆角
-      .borderRadius(this.dockGlassRadius())
-      .backgroundColor(this.dockGlassFill())
-      .border({ width: 1, color: this.dockGlassEdge() })
-      .margin({ bottom: this.rpx(12) })
-    } else {
+    }
+    .width('100%')
+    .margin({ bottom: this.rpx(12) })
+  }
+
+  @Builder
+  goalPanelBody(glass: boolean) {
       Row({ space: this.rpx(16) }) {
         Image(this.isDark ? $r('app.media.goal_target_dark') : $r('app.media.goal_target'))
           .width(this.rpx(34))
@@ -5821,13 +5900,45 @@ export struct ConversationPage {
           .fontWeight(FontWeight.Bold)
           .fontColor(this.textColor())
           .flexShrink(0)
-        Text(this.goal.objective)
+        // 编辑中：正文已经搬进输入框，这里只提示状态
+        Text(this.goalEditing ? '正在编辑…' : this.goal.objective)
           .fontSize(15)
-          .fontColor(this.textColor())
+          .fontColor(this.goalEditing ? this.subColor() : this.textColor())
           .layoutWeight(1)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-        if (this.goalBusy) {
+        // 编辑中：右侧换成 ✅ 保存 / ❌ 取消，省得用户一个个删
+        if (this.goalEditing) {
+          Row({ space: this.rpx(8) }) {
+            // 保存：标准实心圆 + 白色系统对勾（主操作）
+            Stack({ alignContent: Alignment.Center }) {
+              Circle({ width: 30, height: 30 })
+                .fill('#2E6BE6')
+              SymbolGlyph($r('sys.symbol.checkmark'))
+                .fontSize(16)
+                .fontColor(['#FFFFFF'])
+            }
+            .width(this.rpx(64))
+            .height(this.rpx(64))
+            .onClick(() => {
+              this.finishGoalEdit(true);
+            })
+            // 取消：中性圆底 + 系统叉号（次要操作）
+            Stack({ alignContent: Alignment.Center }) {
+              Circle({ width: 30, height: 30 })
+                .fill(this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16,19,24,0.08)')
+              SymbolGlyph($r('sys.symbol.xmark'))
+                .fontSize(15)
+                .fontColor([this.subColor()])
+            }
+            .width(this.rpx(64))
+            .height(this.rpx(64))
+            .onClick(() => {
+              this.finishGoalEdit(false);
+            })
+          }
+          .alignItems(VerticalAlign.Center)
+        } else if (this.goalBusy) {
           LoadingProgress()
             .width(this.rpx(30))
             .height(this.rpx(30))
@@ -5856,8 +5967,7 @@ export struct ConversationPage {
             .width(this.rpx(64))
             .height(this.rpx(64))
             .onClick(() => {
-              this.goalEditing = true;
-              this.goalDraft = this.goal.objective;
+              this.beginGoalEdit();
             })
             Stack({ alignContent: Alignment.Center }) {
               Image(this.isDark ? $r('app.media.queue_delete_dark') : $r('app.media.queue_delete'))
@@ -5878,12 +5988,13 @@ export struct ConversationPage {
       .constraintSize({ minHeight: this.rpx(92) })
       .padding({ left: this.rpx(28), right: this.rpx(24) })
       .alignItems(VerticalAlign.Center)
-      // 与输入条胶囊同一套玻璃：同底色 + 同细亮边 + 同圆角
-      .borderRadius(this.dockGlassRadius())
-      .backgroundColor(this.dockGlassFill())
-      .border({ width: 1, color: this.dockGlassEdge() })
-      .margin({ bottom: this.rpx(12) })
-    }
+      // glass=true 走「展开态玻璃」：与输入框展开态同一套模糊/底色/亮边/圆角；
+      // false 时透明，玻璃由外层 HdsGlassSurface 出
+      .borderRadius(glass ? this.expandedGlassRadius() : 26)
+      .backdropBlur(glass ? this.expandedGlassBlur() : 0)
+      .backgroundColor(glass ? this.expandedGlassFill() : '#00000000')
+      .border({ width: glass ? 1 : 0, color: this.dockGlassEdge() })
+      .margin({ bottom: glass ? this.rpx(12) : 0 })
   }
 
   /** 底部浮层：队列/任务/目标 + 输入条（下方内容透过玻璃模糊，与顶部遮罩对称） */
@@ -5988,7 +6099,9 @@ export struct ConversationPage {
   /** 输入区是否处于展开态（与 ConversationComposer.expanded() 同一套判定） */
   private composerExpanded(): boolean {
     // 与 ConversationComposer.expanded() 保持一致：草稿/附件算展开（收键盘不塌回单栏）
-    return this.composerFocused || this.draft.trim().length > 0 || this.pickedAttachments.length > 0;
+    return this.composerFocused || this.draft.trim().length > 0 || this.pickedAttachments.length > 0
+      // 输入条按钮的弹层（模型/推理等级/权限）开着时同样视为展开：气泡位置不塌
+      || this.permissionMenuOpen || this.modelMenuOpen;
   }
 
   /** 系统键盘高度监听（收起键盘时折叠输入条，不等 onBlur） */
@@ -6071,6 +6184,10 @@ export struct ConversationPage {
     if (Date.now() - this.lastInsideComposerTouchAt < 400) {
       return;
     }
+    // 语音态（展开卡片原地按住说话）不折叠：上面的收键盘只是切输入方式，
+    if (this.voiceMode) {
+      return;
+    }
     if (!this.composerFocused && this.composerSheet.length === 0
       && !this.permissionMenuOpen && !this.modelMenuOpen) {
       return;
@@ -6139,12 +6256,15 @@ export struct ConversationPage {
 
   /** 列表末尾留白：滚到底时最后一条消息停在输入框上沿，不被输入框盖住 */
   private timelineEndOffset(): number {
-    return this.dockGlassHeight() + 4;
+    // 末尾让出「输入卡实测高度 + 排队/任务卡片高度」：滚到底时鲸尾行停在卡片上方，不被压住。
+    return this.dockGlassHeight() + 4 + this.dockStackH;
   }
+
 
   /** HDS IMMERSIVE 材质（与顶栏 systemMaterialEffect 同一套管线） */
   private dockGlassMaterial(): SystemMaterialParams {
-    return { materialType: hdsMaterial.MaterialType.IMMERSIVE, materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE };
+    // 档位跟随设置页（玻璃材质：精美/轻柔/流畅/自适应）
+    return { materialType: hdsMaterial.MaterialType.IMMERSIVE, materialLevel: currentGlassMaterialLevel() };
   }
 
   /** 悬浮胶囊样式：官方 HdsTabsFloatingStyle 类型 */
@@ -6170,7 +6290,8 @@ export struct ConversationPage {
           if (this.hint.length > 0) {
             Text(this.hint)
               .fontSize(12)
-              .fontColor('#D65D64')
+              // 编辑目标的提示是引导、不是报错：用次要文字色，别吃错误红
+              .fontColor(this.goalEditing ? this.subColor() : '#D65D64')
               .width('100%')
               .padding({ left: 20, right: 20, top: 2, bottom: 2 })
           }
@@ -6188,7 +6309,16 @@ export struct ConversationPage {
           // 输入条容器：小程序 dock-stack 左右 14vp 内边距 + 底部安全区
           Column() {
           // 底部 dock：排队消息 / 任务 / 目标（对齐小程序 dock-stack）
-          this.dockStack()
+          Column() {
+            this.dockStack()
+          }
+          .width('100%')
+          .onAreaChange((_o: Area, n: Area) => {
+            const hgt: number = Number(n.height);
+            if (hgt >= 0 && Math.abs(hgt - this.dockStackH) > 0.5) {
+              this.dockStackH = hgt;
+            }
+          })
           // 指标弹层（会话统计 / Token 用量 / 上下文已用）：紧贴输入框上方，输入框保持可见可点
           // 之前这个 @Builder 只有定义、没有挂到 build 里，点「查看统计」只改了状态、什么都不会显示。
           if (this.metricPopover.length > 0) {
@@ -6782,7 +6912,7 @@ export struct ConversationPage {
         },
         systemMaterialEffect: {
           materialType: hdsMaterial.MaterialType.IMMERSIVE,
-          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+          materialLevel: currentGlassMaterialLevel()
         },
         originalStyle: { contentStyle: TITLE_BAR_CONTENT },
         scrollEffectStyle: { contentStyle: TITLE_BAR_CONTENT }
@@ -8465,6 +8595,11 @@ export struct ConversationPage {
     return this.isDark ? 'rgba(0,0,0,0.26)' : 'rgba(242,242,244,0.28)';
   }
 
+  /** 顶栏按钮直径：内嵌原生标题栏时与系统返回键同尺寸（48vp），旧布局 36vp */
+  private headerBtnSize(embedded: boolean): number {
+    return embedded ? 48 : 36;
+  }
+
   @Builder
   headerBar(embedded: boolean = false) {
     // 标题/模式字号已调小；右侧三个圆钮之间收紧，标题与返回钮的间距靠标题自身 margin
@@ -8472,7 +8607,6 @@ export struct ConversationPage {
       // 内嵌进原生标题栏时使用系统返回键（液态玻璃 + 自动 pop），不再自己画；
       // 非内嵌（旧布局）时保留自定义返回钮
       if (!embedded) {
-        // 与右上角 36vp 小圆钮同尺寸：按下/hover 高亮圈一致
         NavBackButton({ isDark: this.isDark, diameter: 36 })
           .id('conversation-back')
       }
@@ -8507,20 +8641,26 @@ export struct ConversationPage {
 
       // 团队协作入口：圆形玻璃钮 + 双人线框图标，点开成员弹层（对齐 dsh-mobile TeamNavigationEntry）
       if (this.teamVisible) {
+        Stack({ alignContent: Alignment.Center }) {
+          // 原生沉浸光感背板（与返回键同一套 HdsGlassSurface，跟随玻璃材质档位）
+          HdsGlassSurface() {
+            Row().width(this.headerBtnSize(embedded)).height(this.headerBtnSize(embedded)).backgroundColor(Color.Transparent)
+          }
         Button({ type: ButtonType.Circle }) {
           // 图标沿用小程序 assets/icons/dsh-team(-dark).svg
-          Image(this.isDark ? $r('app.media.dsh_team_dark') : $r('app.media.dsh_team'))
-            .width(20)
-            .height(20)
-            .objectFit(ImageFit.Contain)
+          // 与返回键完全同源：SymbolGlyph + 同字号/同字重/同色
+          SymbolGlyph($r('sys.symbol.person_2'))
+            .fontSize(this.headerBtnSize(embedded) * 0.45)
+            .fontColor([this.navIconColor()])
+            .fontWeight(FontWeight.Medium)
         }
         .id('conversation-team')
         // 圆钮缩小：hover/按下的高亮圈随之变小
-        .width(36)
-        .height(36)
-        .backgroundColor(this.teamPopoverOpen
-          ? (this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
-          : Color.Transparent)
+        .width(this.headerBtnSize(embedded))
+        .height(this.headerBtnSize(embedded))
+        // 去掉展开/按下时的默认高亮底色，只留玻璃背板
+        .backgroundColor(Color.Transparent)
+        .stateEffect(false)
         .accessibilityText('智能体团队')
         .onClick(() => {
           // 侧栏弹窗开着时先关掉它，再打开团队弹层
@@ -8545,34 +8685,33 @@ export struct ConversationPage {
             this.teamPopoverOpen = false;
           }
         })
+        }
+        .width(this.headerBtnSize(embedded))
+        .height(this.headerBtnSize(embedded))
       }
 
       // 会话快捷切换：三横线圆钮（对齐小程序 nav-actions 的 session-switch-trigger）
+        Stack({ alignContent: Alignment.Center }) {
+          // 原生沉浸光感背板（与返回键同一套 HdsGlassSurface，跟随玻璃材质档位）
+          HdsGlassSurface() {
+            Row().width(this.headerBtnSize(embedded)).height(this.headerBtnSize(embedded)).backgroundColor(Color.Transparent)
+          }
       Button({ type: ButtonType.Circle }) {
         // 侧栏图形：圆角框 + 左侧竖线（对齐小程序 nav-sidebar-glyph；配色与左侧「协作」图标一致）
         // 线宽对齐「协作」图标：dsh_team.svg 为 16 viewBox / stroke 1，显示 20vp → 实际 1.25vp
-        Stack({ alignContent: Alignment.TopStart }) {
-          Column()
-            .width(18)
-            .height(16)
-            .border({ width: 1.25, color: this.navIconColor() })
-            .borderRadius(4)
-          Column()
-            .width(1.25)
-            .height(13.5)
-            .backgroundColor(this.navIconColor())
-            .margin({ left: 4.9, top: 1.25 })
-        }
-        .width(18)
-        .height(16)
+        // 与返回键完全同源：SymbolGlyph + 同字号/同字重/同色
+        SymbolGlyph(this.sessionPickerOpen ? $r('sys.symbol.close_sidebar') : $r('sys.symbol.open_sidebar'))
+          .fontSize(this.headerBtnSize(embedded) * 0.45)
+          .fontColor([this.navIconColor()])
+          .fontWeight(FontWeight.Medium)
       }
       .id('conversation-session-switch')
-      .width(36)
-      .height(36)
+      .width(this.headerBtnSize(embedded))
+      .height(this.headerBtnSize(embedded))
       // 打开侧栏时保持高亮，和「协作」按钮展开态一致
-      .backgroundColor(this.sessionPickerOpen
-        ? (this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
-        : Color.Transparent)
+      // 去掉展开/按下时的默认高亮底色，只留玻璃背板
+      .backgroundColor(Color.Transparent)
+      .stateEffect(false)
       .accessibilityText('会话快捷切换')
       .onClick(() => {
         if (this.sessionPickerOpen) {
@@ -8581,18 +8720,31 @@ export struct ConversationPage {
           this.openSessionSwitcher();
         }
       })
+        }
+        .width(this.headerBtnSize(embedded))
+        .height(this.headerBtnSize(embedded))
+        .margin({ left: 8 })
 
+        Stack({ alignContent: Alignment.Center }) {
+          // 原生沉浸光感背板（与返回键同一套 HdsGlassSurface，跟随玻璃材质档位）
+          HdsGlassSurface() {
+            Row().width(this.headerBtnSize(embedded)).height(this.headerBtnSize(embedded)).backgroundColor(Color.Transparent)
+          }
       Button({ type: ButtonType.Circle }) {
         // 颜色与左侧侧栏图标（navIconColor）一致
-        Text('⋯').fontSize(18).fontColor(this.navIconColor())
+        // 系统 more 符号（九宫格）；字号/字重/颜色与返回键完全一致
+        SymbolGlyph($r('sys.symbol.more'))
+          .fontSize(this.headerBtnSize(embedded) * 0.45)
+          .fontColor([this.navIconColor()])
+          .fontWeight(FontWeight.Medium)
       }
       .id('conversation-overflow')
-      .width(36)
-      .height(36)
+      .width(this.headerBtnSize(embedded))
+      .height(this.headerBtnSize(embedded))
       // 菜单展开时保持高亮（与「协作」按钮同款）
-      .backgroundColor(this.moreMenuOpen
-        ? (this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
-        : Color.Transparent)
+      // 去掉展开/按下时的默认高亮底色，只留玻璃背板
+      .backgroundColor(Color.Transparent)
+      .stateEffect(false)
       .accessibilityText('更多')
       .onClick(() => {
         // 侧栏弹窗开着时先关掉它，再展开「⋯」菜单
@@ -8616,6 +8768,10 @@ export struct ConversationPage {
           this.moreMenuOpen = false;
         }
       })
+        }
+        .width(this.headerBtnSize(embedded))
+        .height(this.headerBtnSize(embedded))
+        .margin({ left: 8 })
     }
     .width('100%')
     // 内嵌进原生标题栏时：高度 56、不再叠加安全区（否则标题会被压到偏下）
@@ -9488,7 +9644,7 @@ export struct ConversationPage {
           + '#' + (this.inlineAssistantFiles.get(entry.id)?.length ? this.inlineAssistantFiles.get(entry.id)![0].length.toString() : '0')
           // 折叠条展开状态参与 key：否则页面状态变了但 ForEach 复用旧行，@Prop 不更新 → 点了没反应
           + '#' + (this.liveFoldOpenIds.has(entry.id) ? '1' : '0'))
-        // 运行状态条：普通列表行（跟随内容滚动，不做"始终固定可见"的处理）。
+        // 运行状态条（鲸尾图标行）：与执行图标行同属内容流，跟随时间线滚动（不固定）。
         if (this.progressLabel.length > 0 && this.entries.length > 0) {
           ListItem() {
             ConversationProgress({
@@ -9643,8 +9799,8 @@ export struct ConversationPage {
         }
         .width('100%')
         // 回到底部按钮同样避让底部 dock，显示在输入框上方
-        .padding({ bottom: this.dockHeight + 10 })
-        .justifyContent(FlexAlign.Center)
+        .padding({ bottom: this.dockHeight + 10, right: 14 })
+        .justifyContent(FlexAlign.End)
       }
     }
     .width('100%')
@@ -11549,7 +11705,8 @@ export struct ConversationPage {
         .alignItems(HorizontalAlign.Start)
         .padding({ top: 2, bottom: 2 })
         // APP 玻璃标准（见 common/AppGlass.ets）：侧栏就是这个标准的基准实现
-        .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
+        // 不透明度提高：深 0.46 → 0.74 / 浅 0.24 → 0.62（文字更易读，仍保留玻璃透感）
+        .backgroundColor(this.isDark ? 'rgba(44,44,48,0.74)' : 'rgba(255,255,255,0.62)')
         .backdropBlur(14)
         .borderRadius(APP_GLASS_RADIUS)
         .clip(true)
