@@ -1859,7 +1859,7 @@ export struct HomePage {
         .padding({ left: this.rpx(24), bottom: this.rpx(32) })
 
         // Bot 模式（对齐 dsh-mobile：抽屉首项进入 DS-Bot）
-        this.drawerItem($r('app.media.bot_drawer_mark'), $r('app.media.bot_drawer_mark_white'), '切换到 Bot 模式', 'bot-home')
+        this.drawerItem($r('app.media.bot_drawer_mark'), $r('app.media.bot_drawer_mark_white'), '切换到 Bot 模式', 'bot-home', true)
         // 插件
         this.drawerItem($r('app.media.pinwheel_ink'), $r('app.media.pinwheel_white'), '插件', 'plugins')
         // 自动化任务
@@ -1895,7 +1895,7 @@ export struct HomePage {
   }
 
   @Builder
-  drawerItem(icon: Resource, iconDark: Resource, label: string, route: string) {
+  drawerItem(icon: Resource, iconDark: Resource, label: string, route: string, showSwap: boolean = false) {
     Row({ space: this.rpx(20) }) {
       // 深色模式用白色图标资源（SVG 描边色写死）；PNG 再用颜色矩阵染白
       Image(this.isDark ? iconDark : icon)
@@ -1907,6 +1907,14 @@ export struct HomePage {
         .fontSize(this.rpx(34))
         .fontColor(this.isDark ? '#FFFFFF' : '#101318')
         .layoutWeight(1)
+      // 模式切换项尾随双箭头（与 Bot 模式抽屉「切换到工作模式」对称）
+      if (showSwap) {
+        Image(this.isDark ? $r('app.media.mode_swap_dark') : $r('app.media.mode_swap'))
+          .width(this.rpx(32))
+          .height(this.rpx(39))
+          .objectFit(ImageFit.Contain)
+          .margin({ left: this.rpx(8) })
+      }
     }
     .width('100%')
     .height(this.rpx(104))
