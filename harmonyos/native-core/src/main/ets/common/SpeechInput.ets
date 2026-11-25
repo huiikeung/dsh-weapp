@@ -223,7 +223,10 @@ export class SpeechInput {
           }
         }
       };
-      readLoop();
+      // 关键顺序：必须先 start() 再 read()。
+      // 之前是先起 readLoop 再 start，read() 在未启动的 capturer 上会立刻抛错，
+      // 被 readLoop 的 catch 当成「录音中断」，于是长按刚进入录音就被终止 ——
+      // 表现就是「长按有一点波纹、松手没有任何文字」。
       // 麦克风被占用 / 权限被拒时 start() 可能一直挂着：给一个看门狗，避免长按后无限等
       await new Promise<void>((resolve: () => void, reject: (reason: Object) => void) => {
         const timer = setTimeout(() => {
@@ -237,6 +240,11 @@ export class SpeechInput {
           reject(reason);
         });
       });
+      if (generation !== this.generating || !this.recording) {
+        this.releaseCapturer();
+        return;
+      }
+      readLoop();
     } catch (err) {
       this.recording = false;
       this.releaseCapturer();

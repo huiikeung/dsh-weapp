@@ -706,6 +706,7 @@ export struct BotChatPage {
       }
       this.setVoicePhase('starting');
       await this.dictation.start(limits, (message: string) => {
+        Logger.warn('BOT_VOICE capture error: ' + message);
         this.resetVoice();
       });
       if (token !== this.voiceHoldToken) {
