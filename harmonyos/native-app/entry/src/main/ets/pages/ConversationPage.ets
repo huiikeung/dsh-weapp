@@ -182,6 +182,8 @@ interface TurnNode {
   ordinal: number;
   /** 消息摘要（用户原话） */
   label: string;
+  /** 还没加载出正文的占位行（只显示轮次号 + 加载中） */
+  placeholder?: boolean;
 }
 
 /**
@@ -9994,10 +9996,30 @@ export struct ConversationPage {
     for (let index = 0; index < labels.length; index++) {
       nodes.push({ entryIndex: -1, ordinal: index + 1, label: labels[index] });
     }
+    // 已知总轮次（会话统计投影）比已加载的多：先补「第 k 轮 · 加载中」占位行，
+    // 弹层一打开就是全部轮次，正文随补拉逐条填上，而不是只看到 1 条。
+    const total: number = this.sessionTurnCount();
+    const target: number = Math.min(Math.max(total, nodes.length), 400);
+    for (let ordinal = nodes.length + 1; ordinal <= target; ordinal++) {
+      nodes.push({ entryIndex: -1, ordinal: ordinal, label: '第 ' + ordinal + ' 轮 · 加载中…', placeholder: true });
+    }
+    Logger.info('[TurnNavNodes] labels=' + labels.length.toString() + ' total=' + total.toString() + ' rows=' + nodes.length.toString());
     this.turnNodes = nodes;
-    if (keepSelection || this.turnNodeIndex >= nodes.length) {
+    if (keepSelection) {
+      this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
+    } else if (this.turnNodeIndex >= nodes.length) {
       this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
     }
+  }
+
+  /** 是否还有占位行（正文没加载全） */
+  private turnNodesLoading(): boolean {
+    for (const node of this.turnNodes) {
+      if (node.placeholder === true) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** 重建节点列表；keepSelection=true 时把选中项落到最后一条 */
@@ -10440,14 +10462,14 @@ export struct ConversationPage {
             .fontWeight(FontWeight.Medium)
             .fontColor(this.textColor())
           Blank()
-          if (this.turnNavWarmupRunning) {
+          if (this.turnNavWarmupRunning || this.turnNodesLoading()) {
             LoadingProgress()
               .width(14)
               .height(14)
               .color(this.subColor())
               .margin({ right: 6 })
           }
-          Text('共 ' + this.turnNodes.length.toString() + (this.turnNavWarmupRunning ? ' · 加载中' : ''))
+          Text('共 ' + this.turnNodes.length.toString() + (this.turnNavWarmupRunning || this.turnNodesLoading() ? ' · 加载中' : ''))
             .fontSize(12)
             .fontColor(this.subColor())
         }
@@ -10470,7 +10492,7 @@ export struct ConversationPage {
                   Text(node.label)
                     .fontSize(13)
                     .fontWeight(index === this.turnNodeIndex ? FontWeight.Medium : FontWeight.Regular)
-                    .fontColor(this.textColor())
+                    .fontColor(node.placeholder === true ? this.subColor() : this.textColor())
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     .layoutWeight(1)
@@ -10483,6 +10505,9 @@ export struct ConversationPage {
                   ? (this.isDark ? 'rgba(46,107,230,0.20)' : 'rgba(46,107,230,0.10)')
                   : Color.Transparent)
                 .onClick(() => {
+                  if (node.placeholder === true) {
+                    return;
+                  }
                   this.jumpToTurnNode(index);
                 })
               }

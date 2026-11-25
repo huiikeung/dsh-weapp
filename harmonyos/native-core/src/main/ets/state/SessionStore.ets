@@ -1310,6 +1310,7 @@ export class SessionStore {
 
   /** 发消息后立刻把该会话标成运行中（乐观更新，等事件流与列表快照校正）。 */
   notifySessionStarted(sessionId: string): void {
+    Logger.info('SESSION_OPTIMISTIC start id=' + sessionId);
     this.markSessionRunning(sessionId, true);
     // 发出去就算运行中：鲸尾条立刻出现（对齐小程序发送后立即进入 run 态），
     // 不用等 turns 回第一帧；同时上防抖锁，避免列表帧滞后导致的「闪过又消失」。
@@ -1368,8 +1369,26 @@ export class SessionStore {
         next.push(one);
       }
     }
-    // 列表里还没有这个会话（桌面端刚建的）：直接拉一次列表让它出现。
+    // 列表里还没有这个会话（刚新建 / 桌面端刚建的）：先本地插入一行「运行中」，
+    // 等 sessions 快照回来再校正。以前这里只发一次请求，首页要等到快照才出现状态。
     if (!found) {
+      if (running) {
+        const knownTitle: string = AppStorage.get<string>('sessionTitle') ?? '';
+        const provisionalTitle: string = this.sessionId === targetSessionId && knownTitle.length > 0
+          ? knownTitle : '新会话';
+        next.push({
+          id: targetSessionId,
+          title: provisionalTitle,
+          running: true,
+          updatedAt: Date.now(),
+          cwd: '',
+          agentPreset: ''
+        });
+        this.localRunningAt.set(targetSessionId, true);
+        this.localRunningMarkAt.set(targetSessionId, Date.now());
+        AppStorage.setOrCreate<SessionSummary[]>('sessions', next);
+        Logger.info('SESSION_OPTIMISTIC append id=' + targetSessionId + ' total=' + next.length);
+      }
       this.syncSessionsSoon();
       return;
     }
@@ -2061,7 +2080,7 @@ export class SessionStore {
       let running: boolean = hostRunning;
       const markedAt: number = this.localRunningMarkAt.get(id) ?? 0;
       if (markedAt > 0) {
-        if (Date.now() - markedAt < 2500) {
+        if (Date.now() - markedAt < 6000) {
           running = this.localRunningAt.get(id) ?? hostRunning;
         } else {
           this.localRunningMarkAt.delete(id);
