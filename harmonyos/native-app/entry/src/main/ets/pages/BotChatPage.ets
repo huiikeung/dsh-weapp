@@ -1116,6 +1116,7 @@ export struct BotChatPage {
   }
 
   private openImagePreview(path: string): void {
+    Logger.info('[BotPreview] tap pathLen=' + path.length.toString());
     if (path.length === 0) {
       return;
     }
@@ -3171,6 +3172,20 @@ export struct BotChatPage {
           .hitTestBehavior(HitTestMode.None)
         }
 
+        // 图片预览：独立 1×1 透明锚点（根节点已被角色弹窗占用 bindSheet，同节点只能挂一个）
+        Column()
+          .width(1)
+          .height(1)
+          .opacity(0.01)
+          .bindSheet($$this.previewOpen, this.imagePreviewSheet(), {
+            height: '82%',
+            dragBar: false,
+            showClose: false,
+            preferType: SheetType.BOTTOM,
+            backgroundColor: immersiveSheetSupported() ? Color.Transparent : sheetFallbackColor(this.isDark),
+            systemMaterial: sheetSystemMaterial(this.isDark)
+          })
+
         // 交付文件预览：1×1 透明锚点，用系统半模态承载（原生玻璃材质，与图片预览同一套）。
         // ArkUI 一个节点只能挂一个 bindSheet，所以单独放在这个节点上。
         Column()
@@ -3248,15 +3263,8 @@ export struct BotChatPage {
       this.stopLiveTimer();
     })
     // 角色弹窗挂在根节点上：和首页 Chief 卡同一个组件、同一套样式，就地弹出
-    // 图片预览：与工作模式同一套底部玻璃 sheet（下拉/点空白关闭）
-    .bindSheet($$this.previewOpen, this.imagePreviewSheet(), {
-      height: '82%',
-      dragBar: false,
-      showClose: false,
-      preferType: SheetType.BOTTOM,
-      backgroundColor: immersiveSheetSupported() ? Color.Transparent : sheetFallbackColor(this.isDark),
-      systemMaterial: sheetSystemMaterial(this.isDark)
-    })
+    // 注意：ArkUI 一个节点只能挂一个 bindSheet。图片预览以前也挂在这个根节点上，
+    // 结果被下面的角色弹窗顶掉 → 点回复里的图片完全没反应。现在挪到独立 1×1 锚点。
     .bindSheet($$this.roleSheetOpen, this.roleSheet(), {
       height: '92%',
       dragBar: false,
