@@ -3119,8 +3119,10 @@ export struct ConversationPage {
     // 节点弹层开着 / 胶囊展开预热中：完全不重建时间线（不重载列表＝屏幕不闪），
     // 只用原始 items 数一下轮次，让胶囊上的 N/总数动起来。
     if (this.turnNavOpen || this.turnNavMenuOpen || this.capsuleExpanded) {
-      // 弹层/胶囊期间用原始事件里的用户轮次（比 items 更及时，补拉后立刻可见）
-      this.refreshTurnNodesPreview(this.turnNavOpen);
+      // 弹层/胶囊期间用原始事件里的用户轮次；标题补全完成后不要再被这几条覆盖
+      if (!this.turnNavFetching && !this.turnNavFetched) {
+        this.refreshTurnNodesPreview(this.turnNavOpen);
+      }
       // 胶囊默认就是展开态（偏好里 capsuleDefaultExpanded=true），进页面时不会走 tapCapsule，
       // 这里兜底启动预热：只要展开着就保证历史会被拉完（重试定时器会自愈晚到的首屏）。
       if (this.capsuleExpanded) {
@@ -7016,6 +7018,7 @@ export struct ConversationPage {
   /** 会话节点预热是否进行中（展开胶囊时就开始拉历史，避免开弹层才等） */
   @State private turnNavWarmupRunning: boolean = false;
   @State private turnNavFetching: boolean = false;
+  @State private turnNavFetched: boolean = false;
   /** 预热的自愈重试定时器：首屏还没落地 / 某页偶发失败时，展开期间持续检查并续拉 */
   private warmupRetryTimer: number = -1;
   /** 当前预览/选中的节点下标 */
@@ -9833,6 +9836,7 @@ export struct ConversationPage {
     // 弹层列表直接用原始事件里的用户轮次（时间线在弹层打开期间不重建，entries 会滞后）
     this.refreshTurnNodesPreview(true);
     this.turnNavOpen = true;
+    this.turnNavFetched = false;
     Logger.info('[CapsuleOpen] nodes=' + this.turnNodes.length.toString());
     this.scrollTurnListTo(this.turnNodeIndex);
     this.startTurnTitleFetch();
@@ -9857,6 +9861,7 @@ export struct ConversationPage {
     };
     SessionStore.get().fetchAllTurnTitles(apply).then((labels: string[]) => {
       this.turnNavFetching = false;
+      this.turnNavFetched = true;
       apply(labels);
       this.scrollTurnListTo(this.turnNodeIndex);
     }).catch(() => {
