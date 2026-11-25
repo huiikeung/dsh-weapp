@@ -1649,7 +1649,13 @@ export struct BotChatPage {
       // 与工作模式对话页同一套：系统沉浸光感玻璃背板负责材质与圆角，
       // 内容浮在背板之上单独渲染（背板尺寸跟随内容实测值，像素对齐）。
       HdsGlassSurface({
-        radiusVp: this.composerExpanded() ? DOCK_RADIUS : CAPSULE_RADIUS
+        // 与工作模式同一套圆角规则：
+        //   收起态 = 底部悬浮胶囊，半径取高度一半（radiusRatio 0.5 → 左下/右下都是正圆弧）；
+        //   展开态 = 28 圆角的玻璃卡（radiusVp 优先）。
+        // 之前收起态写死 26，当背板高度不是 52 时（带提示行/宽屏内缩）左右下角就变成小圆角，
+        // 看起来和工作模式的胶囊不一致。
+        radiusVp: this.composerExpanded() ? DOCK_RADIUS : -1,
+        radiusRatio: 0.5
       }) {
         Column() {
           if (this.composerExpanded()) {
