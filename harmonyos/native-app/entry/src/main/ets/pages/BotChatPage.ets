@@ -862,6 +862,59 @@ export struct BotChatPage {
 
   // ==================== 图片预览 / 文件卡（对齐工作模式 + iOS FileReferenceCard） ====================
 
+  /** 可复制（有正文；用户与助手气泡都有，对齐工作模式 user/assistant 行都有复制） */
+  private canCopyMessage(message: BotChatMessage): boolean {
+    return message.text.trim().length > 0;
+  }
+
+  /** 只有助手回复才给「引用」（对齐工作模式：引用只出现在助手回复页脚） */
+  private canQuoteMessage(message: BotChatMessage): boolean {
+    return !this.isMine(message) && message.text.trim().length > 0;
+  }
+
+  private copyMessageText(message: BotChatMessage): void {
+    const text: string = message.text;
+    if (text.trim().length === 0) {
+      return;
+    }
+    try {
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        this.getUIContext().getPromptAction().showToast({ message: '已复制' });
+      }).catch(() => {
+        this.showHint('复制失败');
+      });
+    } catch (error) {
+      this.showHint('复制失败');
+    }
+  }
+
+  /** 引用回复：把引文拼进草稿并展开输入条（同工作模式 quoteReply） */
+  private quoteMessageText(message: BotChatMessage): void {
+    const raw: string = message.text.trim();
+    if (raw.length === 0) {
+      return;
+    }
+    let preview: string = '';
+    const lines: string[] = raw.split(String.fromCharCode(10));
+    for (const line of lines) {
+      const trimmed: string = line.trim();
+      if (trimmed.length > 0) {
+        preview = trimmed;
+        break;
+      }
+    }
+    if (preview.length > 24) {
+      preview = preview.substring(0, 24) + '...';
+    }
+    this.draft = this.draft + String.fromCharCode(10) + '> ' + raw + String.fromCharCode(10);
+    this.composerFocused = true;
+    this.voiceMode = false;
+    if (preview.length > 0) {
+      this.showHint('已引用：' + preview);
+    }
+  }
+
   private openImagePreview(path: string): void {
     if (path.length === 0) {
       return;
@@ -1847,10 +1900,44 @@ export struct BotChatPage {
               .width('100%')
               .alignItems(HorizontalAlign.Start)
             }
-            // 时间 + 发送状态（流式期间不显示，避免抖动）
+            // 页脚（对齐工作模式 turn-footer）：助手回复先显示 复制 / 引用，再显示时间与发送状态。
+            // 复制 14 图标 + 26 命中区；引用 20 图标 + 22×30 命中区；图标不透明度 0.45；左对齐。
             if (!this.isStreaming(message)
-              && (this.timeLabel(message).length > 0 || this.deliveryLabel(message).length > 0)) {
-              Row({ space: 6 }) {
+              && (this.timeLabel(message).length > 0 || this.deliveryLabel(message).length > 0
+                || this.canCopyMessage(message))) {
+              Row({ space: 7 }) {
+                if (this.canCopyMessage(message)) {
+                  Row() {
+                    Image($r('app.media.copy_gray'))
+                      .width(14)
+                      .height(14)
+                      .objectFit(ImageFit.Contain)
+                      .opacity(0.45)
+                  }
+                  .width(26)
+                  .height(26)
+                  .justifyContent(FlexAlign.Center)
+                  .alignItems(VerticalAlign.Center)
+                  .onClick(() => {
+                    this.copyMessageText(message);
+                  })
+                  if (this.canQuoteMessage(message)) {
+                    Row() {
+                      Image($r('app.media.quote_reply'))
+                        .width(20)
+                        .height(20)
+                        .objectFit(ImageFit.Contain)
+                        .opacity(0.45)
+                    }
+                    .width(22)
+                    .height(30)
+                    .justifyContent(FlexAlign.Center)
+                    .alignItems(VerticalAlign.Center)
+                    .onClick(() => {
+                      this.quoteMessageText(message);
+                    })
+                  }
+                }
                 if (this.timeLabel(message).length > 0) {
                   Text(this.timeLabel(message))
                     .fontSize(11)
@@ -1863,6 +1950,7 @@ export struct BotChatPage {
                 }
               }
               .margin({ top: 2 })
+              .alignItems(VerticalAlign.Center)
             }
           }
           .constraintSize({ maxWidth: this.bubbleMaxWidth() })
@@ -2047,7 +2135,7 @@ export struct BotChatPage {
     .backgroundColor(this.cardColor())
     .borderRadius(20)
     .border({ width: 1, color: this.lineColor() })
-    .margin({ left: DOCK_SIDE, right: DOCK_SIDE, bottom: MESSAGE_ROW_GAP })
+    .margin({ bottom: MESSAGE_ROW_GAP })
     .alignItems(HorizontalAlign.Start)
   }
 
