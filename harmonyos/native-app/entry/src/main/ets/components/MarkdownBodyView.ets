@@ -153,27 +153,40 @@ export struct MarkdownBodyView {
     return this.isDark ? 'rgba(241,244,250,0.16)' : 'rgba(16,19,24,0.12)';
   }
 
-  /** 标题字号：对齐小程序 40/36/33/31rpx（正文 32rpx） */
+  /**
+   * 标题字号：对齐 iOS MarkdownUI GitHub 主题（h1 1.75em / h2 1.45em / h3 1.2em / h4-6 1.05em）。
+   * 之前按小程序 40/36/33/31rpx 换算，比 iOS 小一截。
+   */
   private headingSize(level: number): number {
     if (level === 1) {
-      return this.fontSize * 1.25;
+      return this.fontSize * 1.75;
     }
     if (level === 2) {
-      return this.fontSize * 1.125;
+      return this.fontSize * 1.45;
     }
     if (level === 3) {
-      return this.fontSize * 1.031;
+      return this.fontSize * 1.2;
     }
-    return this.fontSize * 0.969;
+    return this.fontSize * 1.05;
   }
 
-  /** 列表正文 30rpx、引用 29rpx、表格 30rpx：按正文比例缩放 */
+  /** 列表 / 引用 / 表格与正文同号（iOS GitHub 主题不缩小） */
   private listSize(): number {
-    return this.fontSize * 0.9375;
+    return this.fontSize;
   }
 
   private quoteSize(): number {
-    return this.fontSize * 0.906;
+    return this.fontSize;
+  }
+
+  /** 行高：iOS 用 relativeLineSpacing(.em(0.22))，等效约 1.42 倍字号 */
+  private bodyLineHeight(size: number): number {
+    return size * 1.42;
+  }
+
+  /** 段间距：iOS paragraph markdownMargin(bottom: 10) */
+  private paragraphGap(): number {
+    return 10;
   }
 
   /** 单元格字号：小程序 .session .md-td 被覆盖成正文字号，这里保持一致 */
@@ -378,20 +391,20 @@ export struct MarkdownBodyView {
     } else if (block.kind === 'heading') {
       Column() {
         this.inline(block.spans, this.headingSize(block.level), this.bodyColor(),
-          FontWeight.Bold, this.headingSize(block.level) + 9)
+          FontWeight.Bold, this.bodyLineHeight(this.headingSize(block.level)))
       }
       .width('100%')
-      .margin({ top: 8, bottom: 4 })
+      .margin({ top: 6, bottom: 8 })
     } else if (block.kind === 'quote') {
       // 引用块：左侧竖线用 border-left 画，高度跟随文字。
       // 之前用 Divider().vertical(true)：竖向 Divider 会撑满父容器高度，
       // 在列表里就变成贯穿整屏的长线（文字下面空一大截）。
       Column() {
         this.inline(block.spans, this.quoteSize(), this.secondaryColor(),
-          FontWeight.Normal, this.quoteSize() + 9)
+          FontWeight.Normal, this.bodyLineHeight(this.quoteSize()))
       }
       .width('100%')
-      .padding({ left: 10 })
+      .padding({ left: 12, top: 2, bottom: 2 })
       .border({ width: { left: 2.5 }, color: this.quoteBorderColor() })
       .margin({ top: 4, bottom: 6 })
     } else if (block.kind === 'list') {
@@ -402,7 +415,7 @@ export struct MarkdownBodyView {
           .width(18)
         Column() {
           this.inline(block.spans, this.listSize(), this.bodyColor(),
-            FontWeight.Normal, this.listSize() + 9)
+            FontWeight.Normal, this.bodyLineHeight(this.listSize()))
         }
         .layoutWeight(1)
       }
@@ -432,10 +445,11 @@ export struct MarkdownBodyView {
     } else {
       Column() {
         this.inline(block.spans, this.fontSize, this.bodyColor(),
-          FontWeight.Normal, this.fontSize + 11)
+          FontWeight.Normal, this.bodyLineHeight(this.fontSize))
       }
       .width('100%')
-      .margin({ top: 2, bottom: 6 })
+      // iOS paragraph：margin(top 0, bottom 10)
+      .margin({ top: 0, bottom: this.paragraphGap() })
     }
   }
 

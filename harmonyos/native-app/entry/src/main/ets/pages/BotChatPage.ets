@@ -1900,13 +1900,12 @@ export struct BotChatPage {
               .width('100%')
               .alignItems(HorizontalAlign.Start)
             }
-            // 页脚（对齐工作模式 turn-footer）：助手回复先显示 复制 / 引用，再显示时间与发送状态。
-            // 复制 14 图标 + 26 命中区；引用 20 图标 + 22×30 命中区；图标不透明度 0.45；左对齐。
+            // 页脚（对齐工作模式）：助手回复 = 复制 / 引用 / 时间；用户气泡 = 时间 / 复制（复制在时间右边）。
             if (!this.isStreaming(message)
               && (this.timeLabel(message).length > 0 || this.deliveryLabel(message).length > 0
                 || this.canCopyMessage(message))) {
               Row({ space: 7 }) {
-                if (this.canCopyMessage(message)) {
+                if (!this.isMine(message) && this.canCopyMessage(message)) {
                   Row() {
                     Image($r('app.media.copy_gray'))
                       .width(14)
@@ -1921,22 +1920,22 @@ export struct BotChatPage {
                   .onClick(() => {
                     this.copyMessageText(message);
                   })
-                  if (this.canQuoteMessage(message)) {
-                    Row() {
-                      Image($r('app.media.quote_reply'))
-                        .width(20)
-                        .height(20)
-                        .objectFit(ImageFit.Contain)
-                        .opacity(0.45)
-                    }
-                    .width(22)
-                    .height(30)
-                    .justifyContent(FlexAlign.Center)
-                    .alignItems(VerticalAlign.Center)
-                    .onClick(() => {
-                      this.quoteMessageText(message);
-                    })
+                }
+                if (!this.isMine(message) && this.canQuoteMessage(message)) {
+                  Row() {
+                    Image($r('app.media.quote_reply'))
+                      .width(20)
+                      .height(20)
+                      .objectFit(ImageFit.Contain)
+                      .opacity(0.45)
                   }
+                  .width(22)
+                  .height(30)
+                  .justifyContent(FlexAlign.Center)
+                  .alignItems(VerticalAlign.Center)
+                  .onClick(() => {
+                    this.quoteMessageText(message);
+                  })
                 }
                 if (this.timeLabel(message).length > 0) {
                   Text(this.timeLabel(message))
@@ -1947,6 +1946,22 @@ export struct BotChatPage {
                   Text(this.deliveryLabel(message))
                     .fontSize(11)
                     .fontColor(this.subColor())
+                }
+                if (this.isMine(message) && this.canCopyMessage(message)) {
+                  Row() {
+                    Image($r('app.media.copy_gray'))
+                      .width(14)
+                      .height(14)
+                      .objectFit(ImageFit.Contain)
+                      .opacity(0.45)
+                  }
+                  .width(26)
+                  .height(26)
+                  .justifyContent(FlexAlign.Center)
+                  .alignItems(VerticalAlign.Center)
+                  .onClick(() => {
+                    this.copyMessageText(message);
+                  })
                 }
               }
               .margin({ top: 2 })
