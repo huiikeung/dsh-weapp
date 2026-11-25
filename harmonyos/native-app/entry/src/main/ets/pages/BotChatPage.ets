@@ -1762,6 +1762,8 @@ export struct BotChatPage {
           Column() {
             this.answeredCard(message)
           }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
           Blank()
         }
         .width('100%')
@@ -1982,7 +1984,7 @@ export struct BotChatPage {
     .backgroundColor(this.cardColor())
     .borderRadius(20)
     .border({ width: 1, color: this.lineColor() })
-    .margin({ left: DOCK_SIDE, right: DOCK_SIDE, bottom: MESSAGE_ROW_GAP })
+    .margin({ bottom: MESSAGE_ROW_GAP })
     .alignItems(HorizontalAlign.Start)
   }
 
@@ -2459,12 +2461,22 @@ export struct BotChatPage {
               // 待处理交互卡：时间线内（§5.1 / §5.2）
               if (this.pendingApproval() !== null) {
                 ListItem() {
-                  this.approvalCard(this.pendingApproval() as BotInteraction)
+                  Row() {
+                    this.approvalCard(this.pendingApproval() as BotInteraction)
+                  }
+                  .width('100%')
+                  .padding({ left: DOCK_SIDE, right: DOCK_SIDE })
+                  .alignItems(VerticalAlign.Top)
                 }
               }
               if (this.pendingQuestion() !== null) {
                 ListItem() {
-                  this.questionCard(this.pendingQuestion() as BotInteraction)
+                  Row() {
+                    this.questionCard(this.pendingQuestion() as BotInteraction)
+                  }
+                  .width('100%')
+                  .padding({ left: DOCK_SIDE, right: DOCK_SIDE })
+                  .alignItems(VerticalAlign.Top)
                 }
               }
 
