@@ -1049,7 +1049,7 @@ export struct BotChatPage {
   fileImageCard(file: BotPresentedFile, single: boolean) {
     Stack({ alignContent: Alignment.Center }) {
       if (this.fileImagePath(file).length > 0) {
-        Image(this.fileImagePath(file))
+        Image(this.fileUri(this.fileImagePath(file)))
           .width('100%')
           .constraintSize({ maxHeight: 320 })
           .objectFit(ImageFit.Cover)
@@ -1076,16 +1076,28 @@ export struct BotChatPage {
     .onClick(() => {
       const ready: string = this.fileImagePath(file);
       if (ready.length > 0) {
-        this.openImagePreview(ready);
+        this.openImagePreview(this.fileUri(ready));
       }
     })
+  }
+
+  /**
+   * ArkUI 的 Image 只认 file:// 前缀的本地文件：
+   * downloadAttachment 返回的是裸绝对路径（/data/storage/...），
+   * 直接丢给 Image 会「什么都看不到」，这里统一补前缀。
+   */
+  private fileUri(path: string): string {
+    if (path.length === 0) {
+      return '';
+    }
+    return path.startsWith('file://') ? path : 'file://' + path;
   }
 
   private openImagePreview(path: string): void {
     if (path.length === 0) {
       return;
     }
-    this.previewPath = path;
+    this.previewPath = this.fileUri(path);
     this.previewZoom = 1;
     this.previewZoomBase = 1;
     this.previewOpen = true;
@@ -1432,7 +1444,7 @@ export struct BotChatPage {
             .fontColor(this.subColor())
             .padding(24)
         } else if (this.filePreviewIsImage && this.filePreviewLocalPath.length > 0) {
-          this.zoomablePreviewImage(this.filePreviewLocalPath)
+          this.zoomablePreviewImage(this.fileUri(this.filePreviewLocalPath))
         } else if (this.filePreviewText.length > 0) {
           Scroll() {
             Text(this.filePreviewText)
