@@ -6901,9 +6901,6 @@ export struct ConversationPage {
         }
       })
     }
-    // 系统返回键隐藏：它的尺寸固定（45vp），和右侧三个圆（54vp）对不齐；
-    // 返回键改由 headerBar 里自绘的 NavBackButton 承担（同一套 HdsGlassSurface）
-    .hideBackButton(true)
     // 原生标题栏：内容从标题栏下滚过时系统渐变模糊 + 玻璃材质；标题栏内容用原 headerBar（保留标题/状态/三个圆钮）
     .titleBar({
       avoidLayoutSafeArea: true,
@@ -8599,25 +8596,24 @@ export struct ConversationPage {
   }
 
   /**
-   * 顶栏圆钮直径：四个圆（返回 + 团队 + 会话切换 + 更多）统一用它。
-   * HdsGlassSurface 的 HdsTabs 背板会外扩约 6vp（48 → 实际渲染 54vp），
-   * 所以返回键也用同一个 nominal（48），渲染出来和右侧三个圆一样大。
+   * 顶栏按钮直径：要和系统返回键（标题栏里 45vp 的那个圆）看起来一样大。
+   * HdsGlassSurface 的 HdsTabs 背板有最小尺寸（nominal 48 → 实际渲染 54vp），
+   * 所以这里按 40 给，渲染出来约 45vp，和返回键同大。
    */
   private headerBtnSize(embedded: boolean): number {
-    return embedded ? 48 : 36;
+    return embedded ? 40 : 36;
   }
 
   @Builder
   headerBar(embedded: boolean = false) {
     // 标题/模式字号已调小；右侧三个圆钮之间收紧，标题与返回钮的间距靠标题自身 margin
     Row({ space: 2 }) {
-      // 四个圆钮统一自绘：系统返回键固定 45vp，和右侧三个圆对不齐，
-      // 所以隐藏系统返回键，返回键也用同一套 HdsGlassSurface（渲染尺寸与右侧一致）。
-      // 隐藏后标题栏内容区仍从「系统返回键右侧」开始（左内缩 45vp），这里用负 margin 拉回去，
-      // 让返回键回到原来系统返回键的位置（距屏幕左 18vp）
-      NavBackButton({ isDark: this.isDark, diameter: this.headerBtnSize(embedded) })
-        .id('conversation-back')
-        .margin({ left: embedded ? -45 : 0 })
+      // 内嵌进原生标题栏时使用系统返回键（液态玻璃 + 自动 pop），不再自己画；
+      // 非内嵌（旧布局）时保留自定义返回钮
+      if (!embedded) {
+        NavBackButton({ isDark: this.isDark, diameter: 36 })
+          .id('conversation-back')
+      }
 
       Column({ space: 2 }) {
         Text(this.activeSessionTitle())
@@ -8641,9 +8637,8 @@ export struct ConversationPage {
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
-      // 与左侧返回按钮拉开距离（embedded 时返回键已被负 margin 拉回原位，
-      // 这里补 4vp 让标题仍落在原来的 x 位置）
-      .margin({ left: embedded ? 4 : 12 })
+      // 与左侧返回按钮拉开距离（按钮之间不放 space，避免右上角三个钮过散）
+      .margin({ left: 12 })
       .onClick(() => {
         this.openSessionSwitcher();
       })
