@@ -15,10 +15,11 @@
 import {
   BotAnswerChoice, BotChat, BotChatImage, BotChatMessage, BotInteraction,
   BotPresentedFile, BotQuestionAnswer, BotSnapshot, BotStore, emptyBotSnapshot,
-  GatewayClient, pickDocuments, pickImages, uploadAttachment
+  GatewayClient, pickDocuments, pickImages, uploadAttachment, SpeechFailure, SpeechInput
 } from 'nativecore';
-import type { PickedAttachment, UploadResult } from 'nativecore';
+import type { PickedAttachment, SpeechLimits, UploadResult } from 'nativecore';
 import { common } from '@kit.AbilityKit';
+import { abilityAccessCtrl } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
@@ -114,6 +115,29 @@ export struct BotChatPage {
   @State attachMenuOpen: boolean = false;
   /** 输入框上方的轻提示（附件失败等） */
   @State hint: string = '';
+  /** 语音输入开关（设置页「语音输入」）与当前是否处于语音模式 */
+  @StorageLink('voiceInputEnabled') voiceInputEnabled: boolean = true;
+  @State voiceMode: boolean = false;
+  @State voiceRecording: boolean = false;
+  @State voiceCancelArmed: boolean = false;
+  @State voiceStatus: string = '';
+  @State voicePhase: string = 'idle';
+  private dictation: SpeechInput = new SpeechInput();
+  private speechLimits: SpeechLimits | null = null;
+  private voiceHoldToken: number = 0;
+  private voiceHoldTimer: number = -1;
+  private voiceStartX: number = 0;
+  private voiceStartY: number = 0;
+  private voiceHolding: boolean = false;
+  private voiceArmedLocal: boolean = false;
+  private voiceHoldConsumed: boolean = false;
+  /**
+   * 最近一次「点输入框展开」的时间戳。
+   * 展开时键盘弹起会让时间线自动滚到底（scheduleScroll / scrollEdge），
+   * 那也会触发 onScrollStart —— 之前没有这层保护，展开后立刻被当成「用户在滚动」收回胶囊，
+   * 表现就是「点开了、键盘也弹了，但输入条还是胶囊没变化」。
+   */
+  private composerExpandedAt: number = 0;
   /** 图片大图预览（与工作模式同一套：底部玻璃 sheet + 双指缩放） */
   @State previewOpen: boolean = false;
   @State previewPath: string = '';
@@ -541,6 +565,222 @@ export struct BotChatPage {
   }
 
 
+
+  // ==================== 长按语音输入（与工作模式对话页同一套 SpeechInput 链路） ====================
+
+  private clearVoiceTimer(): void {
+    if (this.voiceHoldTimer >= 0) {
+      clearTimeout(this.voiceHoldTimer);
+      this.voiceHoldTimer = -1;
+    }
+  }
+
+  /** 折叠态占位区/展开态「按住说话」统一的触摸处理：按住 350ms 起录、上滑 64 取消、松手转文字 */
+  private onVoiceTouch(event: TouchEvent): void {
+    if (!this.voiceInputEnabled) {
+      return;
+    }
+    let touch: TouchObject | undefined = undefined;
+    if (event.touches.length > 0) {
+      touch = event.touches[0];
+    } else if (event.changedTouches.length > 0) {
+      touch = event.changedTouches[0];
+    }
+    if (touch === undefined) {
+      return;
+    }
+    if (event.type === TouchType.Down) {
+      this.voiceStartX = touch.x;
+      this.voiceStartY = touch.y;
+      this.voiceHolding = false;
+      this.voiceArmedLocal = false;
+      this.clearVoiceTimer();
+      this.voiceHoldTimer = setTimeout(() => {
+        this.voiceHoldTimer = -1;
+        this.voiceHolding = true;
+        this.voiceHoldConsumed = true;
+        this.onVoiceHoldStart();
+      }, 350);
+      return;
+    }
+    if (event.type === TouchType.Move) {
+      const dy: number = touch.y - this.voiceStartY;
+      const dx: number = touch.x - this.voiceStartX;
+      if (!this.voiceHolding) {
+        if (Math.abs(dy) > 12 || Math.abs(dx) > 12) {
+          this.clearVoiceTimer();
+        }
+        return;
+      }
+      const cancel: boolean = dy < -64;
+      if (cancel !== this.voiceArmedLocal) {
+        this.voiceArmedLocal = cancel;
+        this.onVoiceHoldMove(cancel);
+      }
+      return;
+    }
+    if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+      this.clearVoiceTimer();
+      if (this.voiceHolding) {
+        this.voiceHolding = false;
+        const cancel: boolean = this.voiceArmedLocal || (event.type === TouchType.Cancel)
+          || (touch.y - this.voiceStartY < -64);
+        this.onVoiceHoldEnd(cancel);
+        return;
+      }
+      // 轻点：文字态展开输入（与工作模式一致）
+      if (!this.voiceMode) {
+        this.focusComposer();
+      }
+    }
+  }
+
+  private setVoicePhase(phase: string): void {
+    this.voicePhase = phase;
+    this.voiceRecording = phase !== 'idle';
+    if (this.voiceCancelArmed) {
+      this.voiceStatus = '松手取消';
+    } else if (phase === 'authorizing') {
+      this.voiceStatus = '正在获取麦克风权限';
+    } else if (phase === 'starting') {
+      this.voiceStatus = '正在开启麦克风';
+    } else if (phase === 'recording') {
+      this.voiceStatus = '松手转文字 · 上滑取消';
+    } else if (phase === 'transcribing') {
+      this.voiceStatus = '正在转文字…';
+    } else {
+      this.voiceStatus = '';
+    }
+  }
+
+  private resetVoice(): void {
+    this.speechLimits = null;
+    this.voiceCancelArmed = false;
+    this.setVoicePhase('idle');
+  }
+
+  /** 只在按住时申请一次麦克风权限（已授权时系统直接返回，不反复弹窗） */
+  private async requestMicPermission(): Promise<boolean> {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const manager = abilityAccessCtrl.createAtManager();
+      const result = await manager.requestPermissionsFromUser(context, ['ohos.permission.MICROPHONE']);
+      if (result.authResults.length === 0) {
+        return false;
+      }
+      return result.authResults[0] === 0;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  private async onVoiceHoldStart(): Promise<void> {
+    if (this.voicePhase !== 'idle') {
+      return;
+    }
+    const token: number = ++this.voiceHoldToken;
+    this.voiceCancelArmed = false;
+    this.speechLimits = null;
+    this.setVoicePhase('authorizing');
+    try {
+      const limits: SpeechLimits = await this.dictation.catalog();
+      if (token !== this.voiceHoldToken) {
+        this.resetVoice();
+        return;
+      }
+      this.speechLimits = limits;
+      const granted: boolean = await this.requestMicPermission();
+      if (token !== this.voiceHoldToken) {
+        if (granted) {
+          this.showHint('麦克风已授权，按住输入框再说一次');
+        }
+        this.resetVoice();
+        return;
+      }
+      if (!granted) {
+        throw new SpeechFailure('voice/permission', SpeechFailure.messageFor('voice/permission'));
+      }
+      this.setVoicePhase('starting');
+      await this.dictation.start(limits, (message: string) => {
+        this.resetVoice();
+      });
+      if (token !== this.voiceHoldToken) {
+        this.dictation.cancel();
+        this.resetVoice();
+        return;
+      }
+      this.setVoicePhase('recording');
+    } catch (err) {
+      this.failVoice(err);
+    }
+  }
+
+  private onVoiceHoldMove(cancel: boolean): void {
+    if (this.voiceCancelArmed === cancel) {
+      return;
+    }
+    this.voiceCancelArmed = cancel;
+    if (!this.voiceRecording) {
+      return;
+    }
+    this.voiceStatus = cancel ? '松手取消' : '松手转文字 · 上滑取消';
+  }
+
+  private onVoiceHoldEnd(cancel: boolean): void {
+    this.voiceHoldToken++;
+    this.voiceCancelArmed = false;
+    if (cancel) {
+      this.dictation.cancel();
+      this.resetVoice();
+      return;
+    }
+    const limits: SpeechLimits | null = this.speechLimits;
+    if (this.voicePhase !== 'recording' || limits === null) {
+      if (this.dictation.isActive()) {
+        this.dictation.cancel();
+      }
+      this.resetVoice();
+      return;
+    }
+    this.setVoicePhase('transcribing');
+    this.dictation.stopAndTranscribe(limits).then((text: string) => {
+      this.insertVoiceText(text);
+      this.resetVoice();
+    }).catch((err: Object) => {
+      this.failVoice(err);
+    });
+  }
+
+  private failVoice(err: Object): void {
+    this.resetVoice();
+    const failure: SpeechFailure | null = err instanceof SpeechFailure ? err : null;
+    const message: string = failure !== null
+      ? failure.message
+      : (err instanceof Error ? err.message : SpeechFailure.messageFor(''));
+    this.showHint(message);
+  }
+
+  private insertVoiceText(text: string): void {
+    const trimmed: string = text.trim();
+    if (trimmed.length === 0) {
+      return;
+    }
+    this.draft = this.draft + trimmed;
+    this.voiceMode = false;
+  }
+
+  private toggleVoiceMode(): void {
+    this.voiceMode = !this.voiceMode;
+    if (this.voiceMode) {
+      try {
+        this.getUIContext().getFocusController().clearFocus();
+      } catch (ignored) {
+      }
+    } else {
+      this.focusComposer();
+    }
+  }
+
   // ==================== 图片预览 / 文件卡（对齐工作模式 + iOS FileReferenceCard） ====================
 
   private openImagePreview(path: string): void {
@@ -897,6 +1137,7 @@ export struct BotChatPage {
   }
 
   private focusComposer(): void {
+    this.composerExpandedAt = Date.now();
     // 与工作模式同一套展开动画：250ms EaseOut（与系统键盘弹出同长，卡片和胶囊一起变）
     this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
       this.composerFocused = true;
@@ -1740,35 +1981,75 @@ export struct BotChatPage {
     Row({ space: 6 }) {
           // 左「+」：与工作模式折叠态 composer-plus-inline 同尺寸（36 圆 + 0.9 描边）
           this.plusButton(36)
-          // 占位文字单独挂点击：点「+」/发送不触发展开
+          // 占位文字区：文字态轻点展开输入；语音态按住说话（与工作模式 voice-touch-surface 一致）
           Stack({ alignContent: Alignment.Start }) {
-            Text(this.placeholderText())
-              .fontSize(15)
-              .fontColor(this.isDark ? 'rgba(241,244,250,0.42)' : 'rgba(16,19,24,0.34)')
+            Text(this.voiceRecording ? this.voiceStatus
+              : (this.voiceInputEnabled && this.voiceMode ? '按住说话' : this.placeholderText()))
+              .fontSize(this.voiceRecording ? 13 : 15)
+              .fontColor(this.voiceCancelArmed ? '#D9413A'
+                : (this.isDark ? 'rgba(241,244,250,0.42)' : 'rgba(16,19,24,0.34)'))
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .width('100%')
+            if (this.voiceInputEnabled) {
+              Column()
+                .width('100%')
+                .height('100%')
+                .backgroundColor('#00000000')
+                .onTouch((event: TouchEvent) => this.onVoiceTouch(event))
+            }
           }
           .layoutWeight(1)
           .height(36)
           .onClick(() => {
+            if (this.voiceHoldConsumed) {
+              this.voiceHoldConsumed = false;
+              return;
+            }
+            if (this.voiceRecording) {
+              return;
+            }
+            if (this.voiceMode) {
+              this.toggleVoiceMode();
+              return;
+            }
             this.focusComposer();
           })
-          Stack() {
-            Image($r('app.media.arrow_up_white'))
-              .width(18)
-              .height(18)
-              .objectFit(ImageFit.Contain)
-              .draggable(false)
+          // 右侧：运行中/有草稿 → 发送；否则语音态显示麦克风/键盘切换（与工作模式同三态）
+          if (this.canSend()) {
+            Stack() {
+              Image($r('app.media.arrow_up_white'))
+                .width(18)
+                .height(18)
+                .objectFit(ImageFit.Contain)
+                .draggable(false)
+            }
+            .width(SEND_SIZE)
+            .height(SEND_SIZE)
+            .borderRadius(SEND_SIZE / 2)
+            .backgroundColor('#2E6BE6')
+            .accessibilityText('发送消息')
+            .onClick(() => {
+              this.onSend();
+            })
+          } else if (this.voiceInputEnabled) {
+            Stack() {
+              Image(this.voiceMode ? $r('app.media.voice_keyboard') : $r('app.media.voice_wave'))
+                .width(18)
+                .height(18)
+                .objectFit(ImageFit.Contain)
+                .draggable(false)
+                .syncLoad(true)
+            }
+            .width(34)
+            .height(34)
+            .borderRadius(17)
+            .backgroundColor('#2E6BE6')
+            .accessibilityText(this.voiceMode ? '切换到文字输入' : '切换到语音输入')
+            .onClick(() => {
+              this.toggleVoiceMode();
+            })
           }
-          .width(SEND_SIZE)
-          .height(SEND_SIZE)
-          .borderRadius(SEND_SIZE / 2)
-          .backgroundColor('rgba(46,107,230,0.45)')
-          .accessibilityText('发送消息')
-          .onClick(() => {
-            this.onSend();
-          })
     }
     .width('100%')
     .height(CAPSULE_HEIGHT)
@@ -1812,10 +2093,31 @@ export struct BotChatPage {
           });
         })
 
-      // 展开态底部 chip 行：左「+」（27 圆）+ Blank + 发送（36 圆），与工作模式 chip 行同尺寸
+      // 展开态底部 chip 行：左「+」（27 圆）+ Blank + 语音切换（可选）+ 发送（36 圆），与工作模式同尺寸
       Row({ space: 0 }) {
         this.plusButton(27)
         Blank()
+        if (this.voiceInputEnabled) {
+          Stack() {
+            Image(this.voiceMode ? $r('app.media.voice_keyboard') : $r('app.media.voice_wave'))
+              .width(18)
+              .height(18)
+              .objectFit(ImageFit.Contain)
+              .draggable(false)
+              .syncLoad(true)
+          }
+          .width(SEND_EXPANDED_SIZE)
+          .height(SEND_EXPANDED_SIZE)
+          .borderRadius(SEND_EXPANDED_SIZE / 2)
+          .backgroundColor(this.voiceMode
+            ? (this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16,19,24,0.08)')
+            : Color.Transparent)
+          .margin({ right: 8 })
+          .accessibilityText(this.voiceMode ? '切换到文字输入' : '切换到语音输入')
+          .onClick(() => {
+            this.toggleVoiceMode();
+          })
+        }
         Stack() {
           Image($r('app.media.arrow_up_white'))
             .width(18)
@@ -2010,7 +2312,8 @@ export struct BotChatPage {
             .edgeEffect(EdgeEffect.Spring)
             // 与工作模式一致：开始滚动就收键盘（有草稿/附件时保持展开高度，只收键盘）
             .onScrollStart(() => {
-              if (this.composerFocused) {
+              // 展开瞬间键盘弹起会带动时间线自动滚动，这不是用户滚动：给 1 秒宽限，避免刚展开就被收回。
+              if (this.composerFocused && Date.now() - this.composerExpandedAt > 1000) {
                 this.collapseComposer();
               }
             })
