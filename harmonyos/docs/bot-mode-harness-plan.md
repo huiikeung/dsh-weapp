@@ -98,6 +98,12 @@
 - 收起：新增 `collapseComposer()` —— 有草稿/附件时**只收键盘、保持展开**（草稿为空才真正折叠回胶囊），并 `clearFocus()`；列表 `.onScrollStart` 时自动收起（对齐工作模式「开始滚动收键盘」）。
 - `TextArea.onBlur` 也按同一判定走 `animateTo(250ms)`，避免失焦瞬间跳变。
 
+## 输入条展开态改为自绘玻璃卡（2026-11-25）
+
+- 问题：展开态仍套在 `HdsGlassSurface` 里，而它只渲染「底部悬浮胶囊」（半径=高度一半），所以展开后外观还是椭圆，不是工作模式的输入卡。
+- 工作模式的分层：收起态才用 `HdsGlassSurface` 胶囊背板；展开态**不叠背板**，由卡片自己画 `backdropBlur(22) + 半透明底 + 1px #66FFFFFF 细亮边 + 28 圆角`（两个轮廓相叠会在圆角处露出胶囊弧线）。
+- 已改 `BotChatPage.composerDock`：`composerExpanded()` 时直接渲染 `composerCard()`（自绘 28 圆角玻璃卡），否则才走 `HdsGlassSurface(radiusRatio 0.5)` 胶囊；`composerCard` 补回 `borderRadius(28)/backdropBlur(22)/backgroundColor(半透明)/border(#66FFFFFF)/clip`。
+
 ## 待做（P1/P2）
 
 1. 文件附件上传（bot-attachments receipts 链路；需要网关 upload 协议，iOS 走 FileUploadController）

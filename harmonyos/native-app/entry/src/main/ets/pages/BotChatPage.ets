@@ -2143,8 +2143,14 @@ export struct BotChatPage {
     }
     .width('100%')
     .padding({ left: DOCK_SIDE, right: DOCK_SIDE, top: 12, bottom: 12 })
-    // 圆角与材质由外层 HdsGlassSurface 提供（与工作模式一致），内容自身透明
-    .backgroundColor(Color.Transparent)
+    // 展开态自己画玻璃，不走 HdsGlassSurface 的悬浮胶囊背板：
+    // 工作模式就是这样（展开 = 28 圆角玻璃卡 + 22 模糊 + 半透明底 + 1px 细亮边），
+    // 若仍套悬浮 Bar，圆角会被胶囊几何带成椭圆。
+    .borderRadius(DOCK_RADIUS)
+    .backdropBlur(22)
+    .backgroundColor(this.isDark ? 'rgba(30,30,32,0.72)' : 'rgba(255,255,255,0.72)')
+    .border({ width: 1, color: '#66FFFFFF' })
+    .clip(true)
     .alignItems(HorizontalAlign.Start)
   }
 
@@ -2165,22 +2171,21 @@ export struct BotChatPage {
           .width('100%')
           .padding({ left: 4, right: 4 })
       }
-      // 与工作模式对话页同一套：系统沉浸光感玻璃背板负责材质与圆角，
-      // 内容浮在背板之上单独渲染（背板尺寸跟随内容实测值，像素对齐）。
-      HdsGlassSurface({
-        // 与工作模式同一套圆角规则：
-        //   收起态 = 底部悬浮胶囊，半径取高度一半（radiusRatio 0.5 → 左下/右下都是正圆弧）；
-        //   展开态 = 28 圆角的玻璃卡（radiusVp 优先）。
-        // 之前收起态写死 26，当背板高度不是 52 时（带提示行/宽屏内缩）左右下角就变成小圆角，
-        // 看起来和工作模式的胶囊不一致。
-        radiusVp: this.composerExpanded() ? DOCK_RADIUS : -1,
-        radiusRatio: 0.5
-      }) {
+      // 与工作模式对话页完全同一套分层：
+      //   收起态 —— 系统沉浸光感背板（HdsGlassSurface 悬浮胶囊，半径=高度一半）+ 透明内容；
+      //   展开态 —— 不再叠背板（两个轮廓相叠会在圆角处露出胶囊弧线），改由 composerCard
+      //             自己画 28 圆角玻璃卡（backdropBlur 22 + 半透明底 + 1px 细亮边）。
+      if (this.composerExpanded()) {
+        this.composerCard()
+      } else {
+        // 收起态：系统沉浸光感胶囊背板（HdsGlassSurface）负责材质与圆角，内容透明浮在上面。
+        // 注意 ArkUI 不允许在 trailing closure 之后再链式挂属性，这里用外层 Column 撑满宽度。
         Column() {
-          if (this.composerExpanded()) {
-            this.composerCard()
-          } else {
-            this.composerCapsule()
+          HdsGlassSurface({ radiusRatio: 0.5 }) {
+            Column() {
+              this.composerCapsule()
+            }
+            .width('100%')
           }
         }
         .width('100%')
