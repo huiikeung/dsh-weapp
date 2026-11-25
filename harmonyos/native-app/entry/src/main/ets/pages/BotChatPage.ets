@@ -106,6 +106,8 @@ export struct BotChatPage {
 
   @State draft: string = '';
   @State sending: boolean = false;
+  /** 发送开始时间：发图卡住时靠它解锁，避免后续点击全被吞 */
+  private sendStartedAt: number = 0;
   @State picked: string[] = [];
   @State pickedFor: string = '';
   @State customAnswer: string = '';
@@ -572,9 +574,16 @@ export struct BotChatPage {
     if ((text.length === 0 && selected.length === 0) || this.sending) {
       return;
     }
+    // 上一次卡死（超过 60s）先解锁，否则点发送永远没反应
+    if (this.sending && this.sendStartedAt > 0 && Date.now() - this.sendStartedAt > 60000) {
+      this.sending = false;
+      this.sendStartedAt = 0;
+    }
     this.sending = true;
+    this.sendStartedAt = Date.now();
     this.sendWithAttachments(text, selected).then((ok: boolean) => {
       this.sending = false;
+      this.sendStartedAt = 0;
       if (ok) {
         this.draft = '';
         this.pickedAttachments = [];
@@ -586,6 +595,7 @@ export struct BotChatPage {
       }
     }).catch((error: Error) => {
       this.sending = false;
+      this.sendStartedAt = 0;
       this.showHint('发送失败：' + error.message);
     });
   }
@@ -597,7 +607,7 @@ export struct BotChatPage {
       if (this.isImageAttachment(attachment.name)) {
         // 与工作模式同一条管线：HEIC/BMP/超大图先转 JPEG，避免网关按 mediaType 拒绝
         this.showHint('正在处理图片 ' + attachment.name);
-        const payload: Object | undefined = await buildSendImagePayload(attachment.uri, attachment.name);
+        const payload: Object | undefined = await this.imagePayloadWithTimeout(attachment);
         if (payload !== undefined) {
           images.push(payload);
           continue;
@@ -1689,6 +1699,37 @@ export struct BotChatPage {
       return 'image/heic';
     }
     return 'image/jpeg';
+  }
+
+  /** 图片载荷带超时：解码/转码卡住不能拖死整次发送 */
+  private imagePayloadWithTimeout(attachment: PickedAttachment): Promise<Object | undefined> {
+    return new Promise<Object | undefined>((resolve: (value: Object | undefined) => void) => {
+      let settled: boolean = false;
+      const timer: number = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        Logger.warn('[WriteBody] bot image payload timeout ' + attachment.name);
+        resolve(undefined);
+      }, 20000);
+      buildSendImagePayload(attachment.uri, attachment.name).then((payload: Object | undefined) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(payload);
+      }).catch((error: Error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        Logger.warn('bot image payload failed ' + attachment.name + ': ' + error.message);
+        resolve(undefined);
+      });
+    });
   }
 
   /** 图片附件 → { mediaType, data(base64), name }（单张 ≤12MB） */
