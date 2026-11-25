@@ -2353,8 +2353,16 @@ export struct BotChatPage {
         .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
         if (this.state.supported) {
-          // 长按语音全屏特效（与工作模式同一套 VoiceRipplePanel：画布光晕 + 粒子波形 + 状态文案）。
-          // 盖在对话与输入条之上但不拦触摸，手指仍压在下面输入条上。
+          // 不再叠任何底部遮罩/渐变层：工作模式对话页的底边是「时间线直接裁到输入框底边」，
+          // 正文从玻璃后面滚过、到输入框底部消失，没有额外的渐隐遮罩（ConversationPage.bottomFadeOverlay
+          // 只定义了但并未渲染）。之前这里加过一层 44vp 渐变，看起来就是「输入框底部有一层灰罩」。
+          this.composerDock()
+        }
+
+        // 长按语音全屏特效（与工作模式同一套 VoiceRipplePanel：画布光晕 + 粒子波形 + 状态文案）。
+        // 必须放在 composerDock 之后：Stack 里后面的兄弟节点在上层，否则会被输入条压住。
+        // 不拦触摸（手指仍压在下面的输入条上），所以包的这层也要一起关掉命中测试。
+        Column() {
           VoiceRipplePanel({
             visible: this.voiceRecording,
             cancelArmed: this.voiceCancelArmed,
@@ -2364,12 +2372,10 @@ export struct BotChatPage {
           })
             .width('100%')
             .height('100%')
-            .hitTestBehavior(HitTestMode.None)
-          // 不再叠任何底部遮罩/渐变层：工作模式对话页的底边是「时间线直接裁到输入框底边」，
-          // 正文从玻璃后面滚过、到输入框底部消失，没有额外的渐隐遮罩（ConversationPage.bottomFadeOverlay
-          // 只定义了但并未渲染）。之前这里加过一层 44vp 渐变，看起来就是「输入框底部有一层灰罩」。
-          this.composerDock()
         }
+        .width('100%')
+        .height('100%')
+        .hitTestBehavior(HitTestMode.None)
       }
       .width('100%')
       .height('100%')
