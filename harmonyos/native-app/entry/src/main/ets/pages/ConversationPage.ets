@@ -1,6 +1,7 @@
 import { abilityAccessCtrl, common, Want } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { image } from '@kit.ImageKit';
 import { util } from '@kit.ArkTS';
 import { curves, display, KeyboardAvoidMode, uiMaterial, window as arkWindow } from '@kit.ArkUI';
 import { wideSideInset } from '../common/Responsive';
@@ -79,6 +80,13 @@ const TURN_THUMB_HEIGHT: number = 44;
 const TIMELINE_MIN_INTERVAL_MS: number = 120;
 
 /** 图片发送载荷（ArkTS 不允许未声明类型的对象字面量） */
+/** 图片超过这个大小就先压缩再 base64（相机原图几 MB，base64 后十几 MB 容易发不出去） */
+const SEND_IMAGE_COMPRESS_AT: number = 1.5 * 1024 * 1024;
+/** 压缩目标：单张 ≤ 1.2MB（base64 后约 1.6MB） */
+const SEND_IMAGE_TARGET_BYTES: number = 1.2 * 1024 * 1024;
+/** 压缩后最长边（1600 足够看清，也控制体积） */
+const SEND_IMAGE_MAX_SIDE: number = 1600;
+
 interface ImagePayload {
   mediaType: string;
   data: string;
@@ -4056,7 +4064,8 @@ export struct ConversationPage {
       const fileAttachments: PickedAttachment[] = [];
       for (const attachment of selected) {
         if (this.isImageAttachment(attachment.name)) {
-          const payload: Object | undefined = this.imagePayloadOf(attachment);
+          this.attachmentHint = '正在处理图片 ' + attachment.name;
+          const payload: Object | undefined = await this.imagePayloadForSend(attachment);
           if (payload !== undefined) {
             imagePayloads.push(payload);
             continue;
@@ -9489,6 +9498,93 @@ export struct ConversationPage {
    * 走网关 images[] 而不是上传回执：host 只把 type=image 块计入会话引用，
    * file 块按 attachmentId 回读会被拒（Image is not referenced by this session）。
    */
+  /**
+   * 发送用的图片 payload：
+   * 小图直传原图；大图（> 1.5MB，常见于相机原图）先按最长边 1600 + JPEG 质量阶梯压到 ≤1.2MB 再 base64。
+   * 之前是无条件原图 base64（上限 12MB），20MB+ 的 JSON 一次性塞进 WebSocket 文本帧，
+   * 网关/框架容易直接失败 —— 表现就是「有时候带图发不出去」，小截图却正常。
+   */
+  private async imagePayloadForSend(att: PickedAttachment): Promise<Object | undefined> {
+    const raw: string = att.uri.startsWith('file://') ? att.uri.substring(7) : att.uri;
+    let size: number = 0;
+    try {
+      size = fileIo.statSync(raw).size;
+    } catch (err) {
+      size = 0;
+    }
+    if (size > SEND_IMAGE_COMPRESS_AT) {
+      const compressed: Object | undefined = await this.compressImagePayload(att, raw);
+      if (compressed !== undefined) {
+        return compressed;
+      }
+      Logger.warn('[SEND] compress fallback to raw ' + att.name + ' size=' + Math.round(size / 1024).toString() + 'KB');
+    }
+    return this.imagePayloadOf(att);
+  }
+
+  /** 压缩一张图成 JPEG base64 payload；失败返回 undefined（调用方回退原图） */
+  private async compressImagePayload(att: PickedAttachment, raw: string): Promise<Object | undefined> {
+    let file: fileIo.File | undefined = undefined;
+    let source: image.ImageSource | undefined = undefined;
+    let pixelMap: image.PixelMap | undefined = undefined;
+    let packer: image.ImagePacker | undefined = undefined;
+    try {
+      file = fileIo.openSync(raw, fileIo.OpenMode.READ_ONLY);
+      source = image.createImageSource(file.fd);
+      const info: image.ImageInfo = await source.getImageInfo();
+      let width: number = info.size.width;
+      let height: number = info.size.height;
+      const maxSide: number = Math.max(width, height);
+      if (maxSide > SEND_IMAGE_MAX_SIDE) {
+        const scale: number = SEND_IMAGE_MAX_SIDE / maxSide;
+        width = Math.max(1, Math.floor(width * scale));
+        height = Math.max(1, Math.floor(height * scale));
+      }
+      pixelMap = await source.createPixelMap({ desiredSize: { width: width, height: height } });
+      packer = image.createImagePacker();
+      let quality: number = 80;
+      let buffer: ArrayBuffer = await packer.packing(pixelMap, { format: 'image/jpeg', quality: quality });
+      while (buffer.byteLength > SEND_IMAGE_TARGET_BYTES && quality > 30) {
+        quality -= 10;
+        buffer = await packer.packing(pixelMap, { format: 'image/jpeg', quality: quality });
+      }
+      const encoded: string = new util.Base64Helper().encodeToStringSync(new Uint8Array(buffer));
+      Logger.info('[SEND] image compressed ' + att.name + ' ' + width.toString() + 'x' + height.toString()
+        + ' q=' + quality.toString() + ' bytes=' + buffer.byteLength.toString());
+      const payload: ImagePayload = { mediaType: 'image/jpeg', data: encoded, name: att.name };
+      return payload as Object;
+    } catch (err) {
+      Logger.warn('[SEND] compress failed ' + att.name + ' '
+        + (err instanceof Error ? err.message : String(err)));
+      return undefined;
+    } finally {
+      if (packer !== undefined) {
+        try {
+          await packer.release();
+        } catch (ignored) {
+        }
+      }
+      if (pixelMap !== undefined) {
+        try {
+          await pixelMap.release();
+        } catch (ignored) {
+        }
+      }
+      if (source !== undefined) {
+        try {
+          await source.release();
+        } catch (ignored) {
+        }
+      }
+      if (file !== undefined) {
+        try {
+          fileIo.closeSync(file);
+        } catch (ignored) {
+        }
+      }
+    }
+  }
+
   private imagePayloadOf(att: PickedAttachment): Object | undefined {
     try {
       const raw: string = att.uri.startsWith('file://') ? att.uri.substring(7) : att.uri;
