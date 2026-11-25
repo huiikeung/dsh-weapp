@@ -3145,7 +3145,8 @@ export struct BotChatPage {
           .height(1)
           .opacity(0.01)
           .bindSheet($$this.filePreviewOpen, this.filePreviewSheet(), {
-            height: '78%',
+            // PDF 需要更大的阅读面积：弹窗拉高到 94%，其它类型维持 78%
+            height: this.filePreviewIsPdf ? '94%' : '78%',
             dragBar: true,
             showClose: false,
             preferType: SheetType.BOTTOM,

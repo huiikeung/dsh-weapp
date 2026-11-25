@@ -1,6 +1,7 @@
 import { abilityAccessCtrl, common, Want } from '@kit.AbilityKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { filePreview } from '@kit.PreviewKit';
+import { pdfViewManager, PdfView } from '@kit.PDFKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { image } from '@kit.ImageKit';
 import { util } from '@kit.ArkTS';
@@ -521,6 +522,12 @@ export struct ConversationPage {
   @State replySheetOpen: boolean = false;
   @State replySheetText: string = '';
   @State fileDiffTitle: string = '';
+  /** PDF 预览弹窗（PDFKit 的 PdfView 嵌在半模态里渲染，与 Bot 聊天页同一套） */
+  @State filePdfOpen: boolean = false;
+  @State filePdfName: string = '';
+  @State filePdfLoading: boolean = false;
+  @State filePdfError: string = '';
+  private pdfController: pdfViewManager.PdfController = new pdfViewManager.PdfController();
   @State fileDiffLines: string[] = [];
   @State fileDiffNote: string = '';
   /** 正文蓝色链接 → 文件内容预览（底部弹窗）：路径 / 标题 / 内容 / 加载态 */
@@ -1459,6 +1466,12 @@ export struct ConversationPage {
         this.previewImageOpen = true;
         return;
       }
+      const title: string = result.name.length > 0 ? result.name : name;
+      if (this.isPdfFile(title)) {
+        // PDF：应用内半模态用 PDFKit 渲染
+        this.openPdfPreview(result.localPath, title);
+        return;
+      }
       const safeMime: string = mime.length > 0 ? mime : 'application/octet-stream';
       if (await this.previewInApp(context, result.localPath, safeMime, result.name.length > 0 ? result.name : name)) {
         return;
@@ -1740,6 +1753,12 @@ export struct ConversationPage {
         this.previewImageOpen = true;
         return;
       }
+      const docTitle: string = result.name.length > 0 ? result.name : name;
+      if (this.isPdfFile(docTitle)) {
+        // PDF：应用内半模态用 PDFKit 渲染（与 Bot 聊天页同一套）
+        this.openPdfPreview(result.localPath, docTitle);
+        return;
+      }
       const isText: boolean = mime.startsWith('text/') || mime.indexOf('json') >= 0
         || /\.(md|markdown|txt|json|jsonl|csv|log|ya?ml|xml|html?|css|js|ts|tsx|py|sh|sql|go|rs|c|h|cpp|java|kt|swift|toml|ini|svg)$/.test(lower);
       if (isText && result.size <= 512 * 1024) {
@@ -1923,6 +1942,89 @@ export struct ConversationPage {
       return '当前网关未开启文件读取';
     }
     return raw.length > 0 ? raw : '文件读取失败';
+  }
+
+  /** 是否 PDF（按扩展名） */
+  private isPdfFile(name: string): boolean {
+    return name.toLowerCase().endsWith('.pdf');
+  }
+
+  /** 下载完的 PDF：在应用内半模态里用 PdfView 渲染（不跳系统预览） */
+  private openPdfPreview(localPath: string, title: string): void {
+    this.filePdfName = title;
+    this.filePdfError = '';
+    this.filePdfLoading = true;
+    this.filePdfOpen = true;
+    this.pdfController.loadDocument(localPath).then(() => {
+      this.filePdfLoading = false;
+    }).catch((err: Error) => {
+      this.filePdfLoading = false;
+      this.filePdfError = 'PDF 解析失败，请重试';
+      Logger.warn('[PDF] load failed ' + err.message);
+    });
+  }
+
+  /** PDF 预览弹窗：半模态 + 沉浸玻璃，内容交给 PDFKit 的 PdfView */
+  @Builder
+  filePdfSheet() {
+    Column() {
+      Row() {
+        Column()
+          .width(36)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.28)' : 'rgba(16,19,24,0.18)')
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.Center)
+      .padding({ top: 8, bottom: 2 })
+
+      Row() {
+        Text(this.filePdfName)
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.textColor())
+          .layoutWeight(1)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text('关闭')
+          .fontSize(14)
+          .fontColor('#2E6BE6')
+          .onClick(() => {
+            this.filePdfOpen = false;
+          })
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 12, bottom: 8 })
+
+      if (this.filePdfError.length > 0) {
+        Column() {
+          Text(this.filePdfError)
+            .fontSize(14)
+            .fontColor(this.subColor())
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+      } else if (this.filePdfLoading) {
+        Column() {
+          LoadingProgress()
+            .width(28)
+            .height(28)
+            .color(this.subColor())
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+      } else {
+        PdfView({ controller: this.pdfController })
+          .width('100%')
+          .layoutWeight(1)
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .padding({ left: 16, right: 16, top: 4, bottom: 16 })
   }
 
   /** 文件差异弹窗内容：原生沉浸玻璃半模态（与工作区文件/切换主机同款系统材质） */
@@ -6939,6 +7041,27 @@ export struct ConversationPage {
           systemMaterial: this.teamSheetMaterial()
         })
 
+      // PDF 预览弹窗：同款系统半模态，高度给到 94%（阅读面积优先）
+      Column()
+        .width(1)
+        .height(1)
+        .opacity(0.01)
+        .bindSheet($$this.filePdfOpen, this.filePdfSheet(), {
+          height: '94%',
+          dragBar: false,
+          showClose: false,
+          preferType: SheetType.BOTTOM,
+          backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
+          systemMaterial: this.teamSheetMaterial(),
+          onDisappear: () => {
+            try {
+              this.pdfController.releaseDocument();
+            } catch (ignored) {
+            }
+            this.filePdfError = '';
+          }
+        })
+
       // 长按回复正文的弹窗：可选中文字 / 复制全文（原生玻璃底，与文件差异弹窗一致）
       Column()
         .width(1)
@@ -11176,7 +11299,12 @@ export struct ConversationPage {
     }).then((result: DownloadResult) => {
       this.fileBusy = false;
       this.fileHint = '已保存：' + result.localPath;
-      // 下载完直接在应用内预览（docx/xlsx/pptx/pdf 等交给系统 PreviewKit；不支持的类型自动忽略）
+      // 下载完直接在应用内预览：PDF 用半模态 PdfView，其它文档交给系统 PreviewKit
+      if (this.isPdfFile(entry.name)) {
+        this.fileSheetOpen = false;
+        this.openPdfPreview(result.localPath, entry.name);
+        return;
+      }
       const mime: string = result.mediaType.length > 0 ? result.mediaType : '';
       this.previewInApp(context, result.localPath, mime, entry.name).then((opened: boolean) => {
         if (opened) {
