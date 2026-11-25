@@ -128,6 +128,12 @@ export struct BotChatPage {
   @State voiceCancelArmed: boolean = false;
   @State voiceStatus: string = '';
   @State voicePhase: string = 'idle';
+  /** 边说边转的实时文字（录音中持续刷新，松手后作为最终结果兜底） */
+  @State voiceLiveText: string = '';
+  private voiceLiveTimer: number = -1;
+  private voiceLiveBusy: boolean = false;
+  /** 在途的「边说边转」请求：最终转写前必须等它结束，否则网关会因为「request busy」拒掉最终结果 */
+  private voiceLiveInFlight: Promise<void> | null = null;
   private dictation: SpeechInput = new SpeechInput();
   private speechLimits: SpeechLimits | null = null;
   private voiceHoldToken: number = 0;
@@ -682,6 +688,7 @@ export struct BotChatPage {
   }
 
   private resetVoice(): void {
+    this.stopLiveTranscribe();
     this.speechLimits = null;
     this.voiceCancelArmed = false;
     this.setVoicePhase('idle');
@@ -747,6 +754,7 @@ export struct BotChatPage {
         return;
       }
       this.setVoicePhase('recording');
+      this.startLiveTranscribe();
       Logger.info('BOT_VOICE recording started');
     } catch (err) {
       Logger.warn('BOT_VOICE start failed: ' + (err instanceof Error ? err.message : String(err)));
@@ -786,14 +794,29 @@ export struct BotChatPage {
       this.voiceHoldConsumed = false;
       return;
     }
+    this.stopLiveTranscribe();
     this.setVoicePhase('transcribing');
     Logger.info('BOT_VOICE hold end, transcribing');
-    this.dictation.stopAndTranscribe(limits).then((text: string) => {
+    // 先等在途的中间转写结束，再发最终转写，避免 request busy 把最终结果吞掉
+    this.waitLiveIdle().then(() => {
+      return this.dictation.stopAndTranscribe(limits);
+    }).then((text: string) => {
       Logger.info('BOT_VOICE transcript len=' + text.length.toString() + ' text=' + text.substring(0, 60));
-      this.insertVoiceText(text);
+      // 最终结果为空时用「边说边转」的最后一次中间结果兜底，避免松手太快时丢字
+      const finalText: string = text.trim().length > 0 ? text : this.voiceLiveText;
+      this.voiceLiveText = '';
+      this.insertVoiceText(finalText);
       this.resetVoice();
     }).catch((err: Object) => {
       Logger.warn('BOT_VOICE transcribe failed: ' + (err instanceof Error ? err.message : String(err)));
+      // 最终转写失败时，只要边说边转已经拿到文字，就直接用它，不要丢掉用户说的话
+      if (this.voiceLiveText.trim().length > 0) {
+        const fallback: string = this.voiceLiveText;
+        this.voiceLiveText = '';
+        this.insertVoiceText(fallback);
+        this.resetVoice();
+        return;
+      }
       this.failVoice(err);
     });
   }
@@ -2223,10 +2246,14 @@ export struct BotChatPage {
   @Builder
   voiceHud() {
     Column({ space: 14 }) {
-      Text(this.voiceRecording ? (this.voiceCancelArmed ? '松手取消' : '正在聆听…') : '正在识别…')
-        .fontSize(20)
+      Text(this.voiceRecording ? (this.voiceCancelArmed ? '松手取消'
+        : (this.voiceLiveText.length > 0 ? this.voiceLiveText : '正在聆听…')) : '正在识别…')
+        .fontSize(this.voiceLiveText.length > 0 && this.voiceRecording ? 16 : 20)
         .fontWeight(FontWeight.Medium)
         .fontColor('#FFFFFF')
+        .maxLines(4)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .textAlign(TextAlign.Center)
       Row({ space: 4 }) {
         ForEach([0, 1, 2, 3, 4, 5, 6], (index: number) => {
           Column()
@@ -2249,6 +2276,61 @@ export struct BotChatPage {
     .border({ width: 0.8, color: 'rgba(255,255,255,0.18)' })
     .backdropBlur(24)
     .alignItems(HorizontalAlign.Center)
+  }
+
+  /** 启动「边说边转」：录音期间每 900ms 把已录音频发给网关转一次，中间结果实时显示 */
+  private startLiveTranscribe(): void {
+    this.stopLiveTranscribe();
+    this.voiceLiveText = '';
+    this.voiceLiveTimer = setInterval(() => {
+      const limits: SpeechLimits | null = this.speechLimits;
+      if (limits === null || this.voicePhase !== 'recording' || this.voiceLiveBusy) {
+        return;
+      }
+      this.voiceLiveBusy = true;
+      const task: Promise<void> = this.dictation.transcribePartial(limits).then((text: string) => {
+        this.voiceLiveBusy = false;
+        if (text.length > 0 && this.voicePhase === 'recording') {
+          this.voiceLiveText = text;
+        }
+      }).catch(() => {
+        this.voiceLiveBusy = false;
+      });
+      this.voiceLiveInFlight = task;
+      task.then(() => {
+        if (this.voiceLiveInFlight === task) {
+          this.voiceLiveInFlight = null;
+        }
+      });
+    }, 900);
+  }
+
+  private stopLiveTranscribe(): void {
+    if (this.voiceLiveTimer >= 0) {
+      clearInterval(this.voiceLiveTimer);
+      this.voiceLiveTimer = -1;
+    }
+  }
+
+  /**
+   * 等「边说边转」的在途请求结束（最多 2.5s）。
+   * 网关同一时刻只允许一个转写：不等它结束就发最终转写，会被回 request busy，
+   * 最终结果就丢了（表现出来就是「松手偶尔没字」）。
+   */
+  private async waitLiveIdle(): Promise<void> {
+    const pending: Promise<void> | null = this.voiceLiveInFlight;
+    if (pending === null) {
+      return;
+    }
+    await Promise.race([
+      pending.catch(() => {
+      }),
+      new Promise<void>((resolve: () => void) => {
+        setTimeout(() => resolve(), 2500);
+      })
+    ]);
+    this.voiceLiveBusy = false;
+    this.voiceLiveInFlight = null;
   }
 
   /** 中间浮层的音量条高度：读 dictation 的实时音量，5 档随机化让它看起来在跳动 */

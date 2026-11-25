@@ -262,6 +262,40 @@ export class SpeechInput {
     }
   }
 
+
+  /**
+   * 边说边转：把「当前已录到的整段 PCM」编码成 WAV 发给网关转写，返回中间结果。
+   * 不打断录音、不改内部状态（只读 chunks 快照），页面按固定间隔调用即可。
+   */
+  async transcribePartial(limits: SpeechLimits): Promise<string> {
+    const total: number = this.totalBytes;
+    if (total < 3200) {
+      return '';
+    }
+    const snapshot: Uint8Array[] = this.chunks.slice();
+    try {
+      const wav: Uint8Array = SpeechInput.pcmToWav(snapshot, total, limits.maxPcmBytes);
+      const helper = new util.Base64Helper();
+      const base64: string = helper.encodeToStringSync(wav);
+      const payload: Record<string, Object> = {
+        'requestId': 'voice-live-' + Date.now().toString(),
+        'audioBase64': base64,
+        'providerId': limits.providerId
+      };
+      if (limits.language.length > 0) {
+        payload['language'] = limits.language;
+      }
+      const frame: GatewayFrame = await GatewayClient.get().requestPlugin('speech-transcribe', payload, 20000);
+      const text: string = str(frame, 'text') ?? '';
+      Logger.info('speech partial bytes=' + total.toString() + ' len=' + text.length.toString());
+      return text.trim();
+    } catch (err) {
+      // 中间结果失败不打断录音，页面继续用上一次的文本
+      Logger.warn('speech partial failed: ' + (err instanceof Error ? err.message : String(err)));
+      return '';
+    }
+  }
+
   /** 结束录音并把音频发给网关转写；返回识别文本 */
   async stopAndTranscribe(limits: SpeechLimits): Promise<string> {
     this.recording = false;
