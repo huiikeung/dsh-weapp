@@ -10000,12 +10000,20 @@ export struct ConversationPage {
     }
     // 已知总轮次（会话统计投影）比已加载的多：先补「第 k 轮 · 加载中」占位行，
     // 弹层一打开就是全部轮次，正文随补拉逐条填上，而不是只看到 1 条。
-    const total: number = this.sessionTurnCount();
+    const statsTotal: number = this.sessionTurnCount();
+    const previous: number = this.turnNodes.length;
+    // 统计投影偶发被清空（返回 -1）时用上一帧行数兜底，绝不让弹层从 90 多行闪回 0 行
+    const total: number = statsTotal > 0 ? statsTotal : previous;
     const target: number = Math.min(Math.max(total, nodes.length), 400);
     for (let ordinal = nodes.length + 1; ordinal <= target; ordinal++) {
       nodes.push({ entryIndex: -1, ordinal: ordinal, label: '第 ' + ordinal + ' 轮 · 加载中…', placeholder: true });
     }
-    Logger.info('[TurnNavNodes] labels=' + labels.length.toString() + ' total=' + total.toString() + ' rows=' + nodes.length.toString());
+    Logger.info('[TurnNavNodes] labels=' + labels.length.toString() + ' stats=' + statsTotal.toString()
+      + ' previous=' + previous.toString() + ' rows=' + nodes.length.toString());
+    if (nodes.length === 0) {
+      // 空结果不覆盖已有节点：保留上一帧，等下一帧有数据再更新
+      return;
+    }
     this.turnNodes = nodes;
     if (keepSelection) {
       this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
