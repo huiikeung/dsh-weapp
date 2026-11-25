@@ -143,11 +143,6 @@ export class GatewayClient {
     if (this.usingTailnetRoute) {
       return;
     }
-    // 刚连接成功的前 6 秒不做端点升级：否则扫码/首连后立刻切隧道，
-    // 一旦隧道拨号慢，UI 会长时间停在「连接中」（橙点），看起来像连不上。
-    if (this.lastActivatedAt > 0 && Date.now() - this.lastActivatedAt < 6000) {
-      return;
-    }
     const profile: GatewayProfile | null = this.currentProfile;
     if (profile === null || !this.isLocalEndpoint(profile.wsUrl)) {
       return;
