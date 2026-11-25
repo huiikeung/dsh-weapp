@@ -10017,9 +10017,9 @@ export struct ConversationPage {
     if (nodes.length === 0) {
       return;
     }
-    this.turnNodes = this.padTurnNodes(nodes);
-    if (this.turnNodeIndex >= this.turnNodes.length) {
-      this.turnNodeIndex = this.turnNodes.length > 0 ? this.turnNodes.length - 1 : 0;
+    this.turnNodes = nodes;
+    if (this.turnNodeIndex >= nodes.length) {
+      this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
     }
   }
 
@@ -10080,9 +10080,9 @@ export struct ConversationPage {
     if (nodes.length === 0) {
       return;
     }
-    this.turnNodes = this.padTurnNodes(nodes);
-    if (keepSelection || this.turnNodeIndex >= this.turnNodes.length) {
-      this.turnNodeIndex = this.turnNodes.length > 0 ? this.turnNodes.length - 1 : 0;
+    this.turnNodes = nodes;
+    if (keepSelection || this.turnNodeIndex >= nodes.length) {
+      this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
     }
   }
 
