@@ -4057,6 +4057,8 @@ export struct ConversationPage {
         }
         fileAttachments.push(attachment);
       }
+      Logger.info('[SEND] media plan images=' + imagePayloads.length.toString()
+        + ' files=' + fileAttachments.length.toString() + ' picked=' + selected.length.toString());
       const uploaded: UploadResult[] = [];
       for (const attachment of fileAttachments) {
         if (client.generation() !== generation || sessionId !== SessionStore.get().currentSessionId()) {
@@ -4072,7 +4074,10 @@ export struct ConversationPage {
       }
       if (uploaded.length > 0 || imagePayloads.length > 0) {
         const receipts: UploadReceipt[] = uploaded.map((item: UploadResult): UploadReceipt => ({ receiptId: item.receiptId }));
+        Logger.info('[SEND] media send start images=' + imagePayloads.length.toString()
+          + ' receipts=' + receipts.length.toString() + ' textLen=' + text.length.toString());
         const ack = await client.sendUserMessageWithMedia(text, sessionId, imagePayloads, receipts);
+        Logger.info('[SEND] media send ack kind=' + ack.kind);
         if (ack.sessionId !== sessionId) {
           throw new Error('发送确认无效，草稿已保留');
         }
@@ -4132,7 +4137,9 @@ export struct ConversationPage {
         this.scroller.scrollEdge(Edge.Bottom);
       }, 30);
     } catch (error) {
-      this.attachmentHint = error instanceof Error ? error.message : '附件发送失败，已保留选择内容';
+      const message: string = error instanceof Error ? error.message : String(error);
+      Logger.warn('[SEND] media failed: ' + message);
+      this.attachmentHint = message;
     } finally {
       this.sending = false;
     }
@@ -7008,6 +7015,7 @@ export struct ConversationPage {
   @State turnNodes: TurnNode[] = [];
   /** 会话节点预热是否进行中（展开胶囊时就开始拉历史，避免开弹层才等） */
   @State private turnNavWarmupRunning: boolean = false;
+  @State private turnNavFetching: boolean = false;
   /** 预热的自愈重试定时器：首屏还没落地 / 某页偶发失败时，展开期间持续检查并续拉 */
   private warmupRetryTimer: number = -1;
   /** 当前预览/选中的节点下标 */
@@ -9827,6 +9835,33 @@ export struct ConversationPage {
     this.turnNavOpen = true;
     Logger.info('[CapsuleOpen] nodes=' + this.turnNodes.length.toString());
     this.scrollTurnListTo(this.turnNodeIndex);
+    this.startTurnTitleFetch();
+  }
+
+  /** 打开弹层后立刻在后台「只拉标题」补全全部轮次（不动时间线，不会卡死） */
+  private startTurnTitleFetch(): void {
+    if (this.turnNavFetching) {
+      return;
+    }
+    this.turnNavFetching = true;
+    const apply = (labels: string[]): void => {
+      if (!this.turnNavOpen || labels.length === 0) {
+        return;
+      }
+      const nodes: TurnNode[] = [];
+      for (let index = 0; index < labels.length; index++) {
+        nodes.push({ entryIndex: -1, ordinal: index + 1, label: labels[index] });
+      }
+      this.turnNodes = nodes;
+      this.turnNodeIndex = nodes.length - 1;
+    };
+    SessionStore.get().fetchAllTurnTitles(apply).then((labels: string[]) => {
+      this.turnNavFetching = false;
+      apply(labels);
+      this.scrollTurnListTo(this.turnNodeIndex);
+    }).catch(() => {
+      this.turnNavFetching = false;
+    });
   }
 
   /**
@@ -9986,6 +10021,8 @@ export struct ConversationPage {
     }
     Logger.info('[CapsuleClose] nodes=' + this.turnNodes.length.toString());
     this.turnNavOpen = false;
+    SessionStore.get().cancelTurnTitleFetch();
+    this.turnNavFetching = false;
     this.turnBarOffset = 0;
     this.rebuildEntries();
     this.refreshProgress();
@@ -10383,7 +10420,7 @@ export struct ConversationPage {
         .position({ x: 8, y: TURN_TRACK_HEIGHT / 2 + 8 })
       // 滑块：深色圆角条（内显 N/总数），上下拖动切换节点
       Column({ space: 0 }) {
-        Text((this.turnNodeIndex + 1).toString())
+        Text((this.turnNodes.length > 0 ? this.turnNodeIndex + 1 : 0).toString())
           .fontSize(15)
           .fontWeight(FontWeight.Bold)
           .fontColor('#FFFFFF')
@@ -10501,6 +10538,13 @@ export struct ConversationPage {
             .fontWeight(FontWeight.Medium)
             .fontColor(this.textColor())
           Blank()
+          if (this.turnNavFetching) {
+            LoadingProgress()
+              .width(14)
+              .height(14)
+              .color(this.subColor())
+              .margin({ right: 6 })
+          }
           Text('共 ' + this.turnNodes.length.toString())
             .fontSize(12)
             .fontColor(this.subColor())
@@ -10574,15 +10618,6 @@ export struct ConversationPage {
         Row() {
           Text('拨动预览，点击跳转').fontSize(11).fontColor(this.subColor())
           Blank()
-          if (this.hasMoreHistory) {
-            Text('加载更早轮次')
-              .fontSize(12)
-              .fontColor('#2E6BE6')
-              .margin({ right: 12 })
-              .onClick(() => {
-                this.loadMoreTurns();
-              })
-          }
           Text('回到底部 ↓')
             .fontSize(12)
             .fontColor('#2E6BE6')

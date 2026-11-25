@@ -761,6 +761,12 @@ export class SessionStore {
     if (frame.kind === 'history') {
       const responseSession: string = frame.sessionId !== undefined ? frame.sessionId : this.sessionId;
       if (this.sessionId.length > 0 && responseSession !== this.sessionId) return;
+      // 标题补全的响应：只抽用户轮次标题，不并入时间线状态（避免长会话重投影卡死）
+      if (this.titleFetchExpecting && responseSession === this.titleFetchSession
+        && frame.beforeSeq !== undefined && frame.beforeSeq === this.titleFetchCursor) {
+        this.consumeTitlePage(frame);
+        return;
+      }
       // 历史本身就是一次权威对齐：刷新活跃时刻，避免紧接着又触发补拉
       this.lastLiveEventAt = Date.now();
       const historyProjections: Record<string, Object> | undefined = asRec(field(frame, 'projections'));
@@ -2168,12 +2174,160 @@ export class SessionStore {
    * 批量补拉期间 store 不发布投影，页面拿不到新条目；这里给胶囊/弹层一个即时、可增长的节点来源。
    */
   previewUserTurnLabels(max: number = 600): string[] {
+    const labels: string[] = this.userTurnLabelsOf(this.rawEvents);
+    return labels.length > max ? labels.slice(0, max) : labels;
+  }
+
+  /** 是否还有更早历史可拉（页面预热循环用：拉完一页再看还有没有） */
+  hasOlderHistory(): boolean {
+    return this.hasMore && this.oldestSeq > 0 && this.sessionId.length > 0 && this.client !== null;
+  }
+
+  /** 上一页补拉请求是否还在等主机响应（页面预热要等它落地再发下一页） */
+  isOlderRequestPending(): boolean {
+    return this.olderRequestPending;
+  }
+
+  /** 补拉请求的超时兜底定时器：响应丢了也要把 pending 放掉，否则预热会一直卡住 */
+  private olderRequestTimer: number = -1;
+
+  // ==================== 会话节点标题补全（独立游标，不动时间线） ====================
+  private titleFetchActive: boolean = false;
+  private titleFetchExpecting: boolean = false;
+  private titleFetchSession: string = '';
+  private titleFetchLabels: string[] = [];
+  private titleFetchHasMore: boolean = false;
+  private titleFetchCursor: number = 0;
+  private titleFetchResolve: ((ok: boolean) => void) | null = null;
+  private titleFetchTimer: number = -1;
+
+  /**
+   * 只拉「用户轮次标题」：逐页请求历史，只提取 user/message 文案。
+   * 不合并 rawEvents、不重投影、不发布 —— 因此不会卡主线程/触发系统重启；
+   * 时间线状态完全不动，用户之后正常上滑时网关侧有页缓存，体验不变。
+   */
+  async fetchAllTurnTitles(onPage: (labels: string[]) => void): Promise<string[]> {
+    const client: GatewayClient | null = this.client;
+    if (this.titleFetchActive || client === null || this.sessionId.length === 0) {
+      return this.titleFetchLabels.slice();
+    }
+    this.titleFetchActive = true;
+    this.titleFetchSession = this.sessionId;
+    this.titleFetchLabels = this.userTurnLabelsOf(this.rawEvents).slice(0, 600);
+    this.titleFetchHasMore = this.hasMore;
+    this.titleFetchCursor = this.oldestSeq;
+    onPage(this.titleFetchLabels.slice());
+    let guard: number = 0;
+    try {
+      while (guard < 40 && this.titleFetchHasMore && this.titleFetchCursor > 0
+        && this.titleFetchSession === this.sessionId && this.titleFetchActive) {
+        const ok: boolean = await this.requestTitlePage(client);
+        if (!ok) {
+          break;
+        }
+        guard += 1;
+        onPage(this.titleFetchLabels.slice());
+      }
+    } finally {
+      this.titleFetchActive = false;
+      this.titleFetchExpecting = false;
+      this.titleFetchSession = '';
+      this.titleFetchResolve = null;
+      if (this.titleFetchTimer >= 0) {
+        clearTimeout(this.titleFetchTimer);
+        this.titleFetchTimer = -1;
+      }
+    }
+    Logger.info('[TitleFetch] done pages=' + guard.toString() + ' titles=' + this.titleFetchLabels.length.toString());
+    return this.titleFetchLabels.slice();
+  }
+
+  /** 取消标题补全（关弹层/换会话） */
+  cancelTurnTitleFetch(): void {
+    const resolve: ((ok: boolean) => void) | null = this.titleFetchResolve;
+    this.titleFetchActive = false;
+    this.titleFetchSession = '';
+    this.titleFetchExpecting = false;
+    this.titleFetchResolve = null;
+    if (this.titleFetchTimer >= 0) {
+      clearTimeout(this.titleFetchTimer);
+      this.titleFetchTimer = -1;
+    }
+    if (resolve !== null) {
+      resolve(false);
+    }
+  }
+
+  private requestTitlePage(client: GatewayClient): Promise<boolean> {
+    return new Promise<boolean>((resolve: (ok: boolean) => void) => {
+      this.titleFetchExpecting = true;
+      this.titleFetchResolve = resolve;
+      this.titleFetchTimer = setTimeout(() => {
+        this.titleFetchTimer = -1;
+        const pending: ((ok: boolean) => void) | null = this.titleFetchResolve;
+        this.titleFetchResolve = null;
+        this.titleFetchExpecting = false;
+        if (pending !== null) {
+          pending(false);
+        }
+      }, 10000);
+      const sent: boolean = client.requestOlderHistory(this.sessionId, this.titleFetchCursor,
+        this.historyFormatVersion, 300, 4194304);
+      if (!sent) {
+        const pending: ((ok: boolean) => void) | null = this.titleFetchResolve;
+        this.titleFetchResolve = null;
+        this.titleFetchExpecting = false;
+        if (this.titleFetchTimer >= 0) {
+          clearTimeout(this.titleFetchTimer);
+          this.titleFetchTimer = -1;
+        }
+        if (pending !== null) {
+          pending(false);
+        }
+      }
+    });
+  }
+
+  /** history 帧是标题补全响应：抽标题、推进独立游标，绝不改时间线状态 */
+  private consumeTitlePage(frame: GatewayFrame): void {
+    const resolve: ((ok: boolean) => void) | null = this.titleFetchResolve;
+    this.titleFetchResolve = null;
+    this.titleFetchExpecting = false;
+    if (this.titleFetchTimer >= 0) {
+      clearTimeout(this.titleFetchTimer);
+      this.titleFetchTimer = -1;
+    }
+    const events: RawSessionEvent[] = frame.events !== undefined ? frame.events : [];
+    const extra: string[] = this.userTurnLabelsOf(events);
+    for (const label of extra) {
+      this.titleFetchLabels.push(label);
+    }
+    this.titleFetchHasMore = frame.hasMore === true;
+    let minSeq: number = 0;
+    for (const raw of events) {
+      if (raw.seq > 0 && (minSeq === 0 || raw.seq < minSeq)) {
+        minSeq = raw.seq;
+      }
+    }
+    const next: number | undefined = frame.nextBeforeSeq;
+    this.titleFetchCursor = next !== undefined && next > 0 ? next : minSeq;
+    Logger.info('[TitleFetch] page events=' + events.length.toString() + ' extra=' + extra.length.toString()
+      + ' total=' + this.titleFetchLabels.length.toString() + ' cursor=' + this.titleFetchCursor.toString()
+      + ' hasMore=' + (this.titleFetchHasMore ? '1' : '0'));
+    if (resolve !== null) {
+      resolve(true);
+    }
+  }
+
+  /** 从原始事件提取用户轮次标题（projection 同款过滤规则） */
+  private userTurnLabelsOf(events: RawSessionEvent[]): string[] {
     const labels: string[] = [];
-    for (const raw of this.rawEvents) {
+    for (const raw of events) {
       if (raw.type !== 'user/message') {
         continue;
       }
-      const data: Record<string, Object> = (raw.data !== undefined && raw.data !== null) ? raw.data as Record<string, Object> : {} as Record<string, Object>;
+      const data: Record<string, Object> = (raw.data !== undefined && raw.data !== null)
+        ? raw.data as Record<string, Object> : {} as Record<string, Object>;
       const source: Object | undefined = data['source'];
       const images: Object[] | undefined = data['images'] as Object[] | undefined;
       const isUser: boolean = source === undefined || source === 'user' || source === 'ptc-mode'
@@ -2190,25 +2344,9 @@ export class SessionStore {
         continue;
       }
       labels.push(clean.length > 0 ? clean : '（图片）');
-      if (labels.length >= max) {
-        break;
-      }
     }
     return labels;
   }
-
-  /** 是否还有更早历史可拉（页面预热循环用：拉完一页再看还有没有） */
-  hasOlderHistory(): boolean {
-    return this.hasMore && this.oldestSeq > 0 && this.sessionId.length > 0 && this.client !== null;
-  }
-
-  /** 上一页补拉请求是否还在等主机响应（页面预热要等它落地再发下一页） */
-  isOlderRequestPending(): boolean {
-    return this.olderRequestPending;
-  }
-
-  /** 补拉请求的超时兜底定时器：响应丢了也要把 pending 放掉，否则预热会一直卡住 */
-  private olderRequestTimer: number = -1;
 
   /** 批量补拉深度：>0 时每页只合并原始事件，不重投影/不发布，结束后统一做一次 */
   private bulkOlderDepth: number = 0;
