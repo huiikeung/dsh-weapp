@@ -2200,6 +2200,8 @@ export class SessionStore {
   private titleFetchCursor: number = 0;
   private titleFetchResolve: ((ok: boolean) => void) | null = null;
   private titleFetchTimer: number = -1;
+  /** 标题去重（同一轮被网关重复投递/页间重叠时只留一条） */
+  private titleFetchSeen: Record<string, boolean> = {};
 
   /**
    * 只拉「用户轮次标题」：逐页请求历史，只提取 user/message 文案。
@@ -2213,7 +2215,12 @@ export class SessionStore {
     }
     this.titleFetchActive = true;
     this.titleFetchSession = this.sessionId;
-    this.titleFetchLabels = this.userTurnLabelsOf(this.rawEvents).slice(0, 600);
+    this.titleFetchSeen = {};
+    this.titleFetchLabels = [];
+    const seedLabels: string[] = this.userTurnLabelsOf(this.rawEvents);
+    for (const label of seedLabels) {
+      this.pushTitleLabel(label);
+    }
     this.titleFetchHasMore = this.hasMore;
     this.titleFetchCursor = this.oldestSeq;
     onPage(this.titleFetchLabels.slice());
@@ -2301,7 +2308,14 @@ export class SessionStore {
     const extra: string[] = this.userTurnLabelsOf(events);
     // 补拉页是从新到旧：把这一页插到最前面，最终顺序才是 旧→新
     if (extra.length > 0) {
-      this.titleFetchLabels = extra.concat(this.titleFetchLabels);
+      const merged: string[] = [];
+      for (const label of extra) {
+        if (this.titleFetchSeen[label] !== true) {
+          this.titleFetchSeen[label] = true;
+          merged.push(label);
+        }
+      }
+      this.titleFetchLabels = merged.concat(this.titleFetchLabels);
       if (this.titleFetchLabels.length > 600) {
         this.titleFetchLabels = this.titleFetchLabels.slice(0, 600);
       }
@@ -2321,6 +2335,15 @@ export class SessionStore {
     if (resolve !== null) {
       resolve(true);
     }
+  }
+
+  /** 追加一条标题（带去重） */
+  private pushTitleLabel(label: string): void {
+    if (this.titleFetchSeen[label] === true) {
+      return;
+    }
+    this.titleFetchSeen[label] = true;
+    this.titleFetchLabels.push(label);
   }
 
   /** 从原始事件提取用户轮次标题（兼容 content 块 / text / message 三种正文形态） */
@@ -2383,12 +2406,21 @@ export class SessionStore {
       if (!isUser) {
         continue;
       }
-      const clean: string = text.replace(/<path>[\s\S]*?<\/path>/g, '').replace(/\s+/g, ' ').trim();
+      const hasMarkupImage: boolean = text.indexOf('<type>image</type>') >= 0 || text.indexOf('<path>') >= 0;
+      if (hasMarkupImage) {
+        hasImage = true;
+      }
+      // 去掉图片/文件块等 XML 标记，只留正文
+      let clean: string = text.replace(/<path>[\s\S]*?<\/path>/g, ' ')
+        .replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
       if (clean.startsWith('[') || clean.indexOf('Plugin context') >= 0 || clean.indexOf('Time sampled') >= 0) {
         continue;
       }
       if (clean.length === 0 && !hasImage) {
         continue;
+      }
+      if (clean.length > 80) {
+        clean = clean.substring(0, 80);
       }
       labels.push(clean.length > 0 ? clean : '（图片）');
     }
