@@ -31,6 +31,7 @@ import { BotGroupAvatar, BotBubblePalette } from '../components/BotGroupAvatar';
 import { BotRoleSheet } from '../components/BotRoleSheet';
 import { immersiveSheetSupported, sheetFallbackColor, sheetSystemMaterial } from '../common/SheetMaterial';
 import { NavBackButton } from '../components/NavBackButton';
+import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
 import { HdsGlassSurface } from '../components/HdsGlassSurface';
 import { currentGlassMaterialLevel } from '../common/GlassMaterial';
 import { isWideWidth, wideSideInset } from '../common/Responsive';
@@ -753,11 +754,18 @@ export struct BotChatPage {
 
   private failVoice(err: Object): void {
     this.resetVoice();
+    // 失败后退出语音态，回到键盘输入，避免用户「说完了但界面没反应」
+    this.voiceMode = false;
     const failure: SpeechFailure | null = err instanceof SpeechFailure ? err : null;
     const message: string = failure !== null
       ? failure.message
       : (err instanceof Error ? err.message : SpeechFailure.messageFor(''));
     this.showHint(message);
+    // 同时弹一次 toast：输入框上方的提示容易被忽略，语音失败必须让用户看到
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message, duration: 3000 });
+    } catch (ignored) {
+    }
   }
 
   private insertVoiceText(text: string): void {
@@ -765,8 +773,10 @@ export struct BotChatPage {
     if (trimmed.length === 0) {
       return;
     }
+    // 识别结果直接写进草稿并退出语音态（输入框重新显示，用户能立刻看到文字）
     this.draft = this.draft + trimmed;
     this.voiceMode = false;
+    this.composerFocused = true;
   }
 
   private toggleVoiceMode(): void {
@@ -2015,41 +2025,9 @@ export struct BotChatPage {
             }
             this.focusComposer();
           })
-          // 右侧：运行中/有草稿 → 发送；否则语音态显示麦克风/键盘切换（与工作模式同三态）
-          if (this.canSend()) {
-            Stack() {
-              Image($r('app.media.arrow_up_white'))
-                .width(18)
-                .height(18)
-                .objectFit(ImageFit.Contain)
-                .draggable(false)
-            }
-            .width(SEND_SIZE)
-            .height(SEND_SIZE)
-            .borderRadius(SEND_SIZE / 2)
-            .backgroundColor('#2E6BE6')
-            .accessibilityText('发送消息')
-            .onClick(() => {
-              this.onSend();
-            })
-          } else if (this.voiceInputEnabled) {
-            Stack() {
-              Image(this.voiceMode ? $r('app.media.voice_keyboard') : $r('app.media.voice_wave'))
-                .width(18)
-                .height(18)
-                .objectFit(ImageFit.Contain)
-                .draggable(false)
-                .syncLoad(true)
-            }
-            .width(34)
-            .height(34)
-            .borderRadius(17)
-            .backgroundColor('#2E6BE6')
-            .accessibilityText(this.voiceMode ? '切换到文字输入' : '切换到语音输入')
-            .onClick(() => {
-              this.toggleVoiceMode();
-            })
-          }
+          // 右侧主圆钮：与工作模式同一套三态（发送箭头 / 麦克风键盘切换），
+          // 收起与展开时都固定在同一个蓝色圆钮位置。
+          this.composerPrimaryButton()
     }
     .width('100%')
     .height(CAPSULE_HEIGHT)
@@ -2070,6 +2048,24 @@ export struct BotChatPage {
       if (this.pickedAttachments.length > 0) {
         this.attachmentRow()
       }
+      // 语音模式：展开卡原地切成「按住说话」（与工作模式一致：不再显示键盘输入，改为长按录音面）
+      if (this.voiceMode && this.voiceInputEnabled) {
+        Stack({ alignContent: Alignment.Start }) {
+          Text(this.voiceRecording ? this.voiceStatus : '按住说话')
+            .fontSize(this.voiceRecording ? 14 : 16)
+            .fontColor(this.voiceCancelArmed ? '#D9413A' : this.subColor())
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+          Column()
+            .width('100%')
+            .height('100%')
+            .backgroundColor('#00000000')
+            .onTouch((event: TouchEvent) => this.onVoiceTouch(event))
+        }
+        .width('100%')
+        .height(38)
+      } else {
       TextArea({ text: this.draft, placeholder: this.placeholderText() })
         .id('bot-chat-draft')
         .fontSize(16)
@@ -2092,49 +2088,15 @@ export struct BotChatPage {
             this.composerFocused = keepExpanded;
           });
         })
+      }
 
-      // 展开态底部 chip 行：左「+」（27 圆）+ Blank + 语音切换（可选）+ 发送（36 圆），与工作模式同尺寸
+      // 展开态底部 chip 行：左「+」（27 圆）+ Blank + 主圆钮（36 圆，与工作模式同一位置同一尺寸）
+      // 主圆钮三态与工作模式 primaryButton 一致：有草稿/附件 → 发送箭头；
+      // 否则开了语音 → 麦克风/键盘切换（始终占据这个蓝色圆钮的位置，不会左右跳）。
       Row({ space: 0 }) {
         this.plusButton(27)
         Blank()
-        if (this.voiceInputEnabled) {
-          Stack() {
-            Image(this.voiceMode ? $r('app.media.voice_keyboard') : $r('app.media.voice_wave'))
-              .width(18)
-              .height(18)
-              .objectFit(ImageFit.Contain)
-              .draggable(false)
-              .syncLoad(true)
-          }
-          .width(SEND_EXPANDED_SIZE)
-          .height(SEND_EXPANDED_SIZE)
-          .borderRadius(SEND_EXPANDED_SIZE / 2)
-          .backgroundColor(this.voiceMode
-            ? (this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16,19,24,0.08)')
-            : Color.Transparent)
-          .margin({ right: 8 })
-          .accessibilityText(this.voiceMode ? '切换到文字输入' : '切换到语音输入')
-          .onClick(() => {
-            this.toggleVoiceMode();
-          })
-        }
-        Stack() {
-          Image($r('app.media.arrow_up_white'))
-            .width(18)
-            .height(18)
-            .objectFit(ImageFit.Contain)
-            .draggable(false)
-        }
-        .width(SEND_EXPANDED_SIZE)
-        .height(SEND_EXPANDED_SIZE)
-        .borderRadius(SEND_EXPANDED_SIZE / 2)
-        .backgroundColor('#2E6BE6')
-        .opacity(this.sending ? 0.66 : (this.canSend() ? 1 : 0.48))
-        .enabled(!this.sending && this.canSend())
-        .accessibilityText('发送消息')
-        .onClick(() => {
-          this.onSend();
-        })
+        this.composerPrimaryButton()
       }
       .width('100%')
       .height(34)
@@ -2152,6 +2114,57 @@ export struct BotChatPage {
     .border({ width: 1, color: '#66FFFFFF' })
     .clip(true)
     .alignItems(HorizontalAlign.Start)
+  }
+
+  /**
+   * 输入条主圆钮（与工作模式 primaryButton 同一套位置/尺寸/三态）：
+   *   可发送 → 发送箭头；否则开了语音 → 麦克风/键盘切换；都没开 → 置灰箭头。
+   * 语音图标始终在这个蓝色圆钮里，不会因为展开/收起换位置。
+   */
+  @Builder
+  composerPrimaryButton() {
+    Stack() {
+      if (this.canSend()) {
+        Image($r('app.media.arrow_up_white'))
+          .width(18)
+          .height(18)
+          .objectFit(ImageFit.Contain)
+          .draggable(false)
+      } else if (this.voiceInputEnabled) {
+        Image(this.voiceMode ? $r('app.media.voice_keyboard') : $r('app.media.voice_wave'))
+          .width(18)
+          .height(18)
+          .objectFit(ImageFit.Contain)
+          .draggable(false)
+          .syncLoad(true)
+      } else {
+        Image($r('app.media.arrow_up_white'))
+          .width(18)
+          .height(18)
+          .objectFit(ImageFit.Contain)
+          .draggable(false)
+      }
+    }
+    .width(SEND_EXPANDED_SIZE)
+    .height(SEND_EXPANDED_SIZE)
+    .borderRadius(SEND_EXPANDED_SIZE / 2)
+    .backgroundColor('#2E6BE6')
+    .opacity(this.sending ? 0.66 : (this.canSend() || this.voiceInputEnabled ? 1 : 0.48))
+    .enabled(!this.sending)
+    .accessibilityText(this.canSend() ? '发送消息'
+      : (this.voiceMode ? '切换到文字输入' : '切换到语音输入'))
+    .onClick(() => {
+      if (this.sending) {
+        return;
+      }
+      if (this.canSend()) {
+        this.onSend();
+        return;
+      }
+      if (this.voiceInputEnabled) {
+        this.toggleVoiceMode();
+      }
+    })
   }
 
   @Builder
@@ -2340,6 +2353,18 @@ export struct BotChatPage {
         .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
         if (this.state.supported) {
+          // 长按语音全屏特效（与工作模式同一套 VoiceRipplePanel：画布光晕 + 粒子波形 + 状态文案）。
+          // 盖在对话与输入条之上但不拦触摸，手指仍压在下面输入条上。
+          VoiceRipplePanel({
+            visible: this.voiceRecording,
+            cancelArmed: this.voiceCancelArmed,
+            isDark: this.isDark,
+            status: this.voiceStatus,
+            readLevel: (): number => this.dictation.level()
+          })
+            .width('100%')
+            .height('100%')
+            .hitTestBehavior(HitTestMode.None)
           // 不再叠任何底部遮罩/渐变层：工作模式对话页的底边是「时间线直接裁到输入框底边」，
           // 正文从玻璃后面滚过、到输入框底部消失，没有额外的渐隐遮罩（ConversationPage.bottomFadeOverlay
           // 只定义了但并未渲染）。之前这里加过一层 44vp 渐变，看起来就是「输入框底部有一层灰罩」。
