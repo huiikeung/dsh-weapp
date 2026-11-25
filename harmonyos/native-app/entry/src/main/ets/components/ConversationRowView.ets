@@ -851,49 +851,15 @@ export struct ConversationRowView {
   }
 
   /**
-   * 文档图标：「彩色圆角方块 + 白色类型字」（Word 蓝 W、Excel 绿 X、PPT 橙 P、PDF 红 PDF）。
-   * 非 Office 类型仍用 Untitled UI 全彩图标。
+   * 文档图标：直接用现成的 Untitled UI 文件图标（ficon_*.svg，带页面折角的那套），
+   * 和「已编辑文件」卡片行里用的是同一批图，不再自己画方块 + 字母。
    */
   @Builder
   fileKindBadge(kind: string, size: number = 34) {
-    if (kind === 'doc' || kind === 'docx') {
-      this.officeBadge(size, '#2B579A', 'W')
-    } else if (kind === 'xls' || kind === 'xlsx' || kind === 'csv') {
-      this.officeBadge(size, '#217346', 'X')
-    } else if (kind === 'ppt' || kind === 'pptx') {
-      this.officeBadge(size, '#D24726', 'P')
-    } else if (kind === 'pdf') {
-      this.officeBadge(size, '#D93025', 'PDF')
-    } else {
-      Image(fileKindIcon(kind))
-        .width(size)
-        .height(size)
-        .objectFit(ImageFit.Contain)
-    }
-  }
-
-  /**
-   * 彩色圆角方块 + 白色字母 + 右上折角（对齐 dsh 电脑端 PDF/Word 文件图标：
-   * 纯色方块、白色粗体类型字、右上角一块白色折角）。
-   */
-  @Builder
-  officeBadge(size: number, color: string, letter: string) {
-    Stack({ alignContent: Alignment.Center }) {
-      Column()
-        .width(size)
-        .height(size)
-        .borderRadius(size * 0.2)
-        .backgroundColor(color)
-
-      Text(letter)
-        .fontSize(letter.length > 1 ? size * 0.32 : size * 0.5)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#FFFFFF')
-        .width('100%')
-        .textAlign(TextAlign.Center)
-    }
-    .width(size)
-    .height(size)
+    Image(fileKindIcon(kind))
+      .width(size)
+      .height(size)
+      .objectFit(ImageFit.Contain)
   }
 
   /**
