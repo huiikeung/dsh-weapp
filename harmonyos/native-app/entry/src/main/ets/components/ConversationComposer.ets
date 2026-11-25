@@ -348,7 +348,8 @@ export struct ConversationComposer {
   private expanded(): boolean {
     // 有草稿或有附件时保持展开卡片：收键盘 / 点输入框以外区域只收焦点，输入条不塌回单栏
     // （内容还在输入框里，塌下去再点开很折腾）；草稿为空才自动折叠回胶囊
-    return this.focused || this.hasDraft() || this.attachmentCount > 0;
+    return this.focused || this.hasDraft() || this.attachmentCount > 0
+      || this.modelRootShown || this.modelListShown || this.permissionOpen;
   }
 
   private hasDraft(): boolean {
@@ -1533,10 +1534,8 @@ export struct ConversationComposer {
   @Builder
   modelRootMenu() {
     Menu() {
-      MenuItem({ content: '模型', labelInfo: this.modelLabel() + '  ›' })
+      MenuItem(this.modelEntryRow())
         .id('model-entry')
-        .contentFont({ size: 14, weight: FontWeight.Normal })
-        .labelFont({ size: 13, weight: FontWeight.Normal })
         .onClick(() => {
           this.openModelList('model');
         })
@@ -1550,6 +1549,33 @@ export struct ConversationComposer {
       MenuItem(this.teamToggleRow())
         .id('team-entry')
     }
+  }
+
+  /** 模型行：模型名过长时省略，菜单保持默认宽度（与团队协作行同宽 246） */
+  @Builder
+  modelEntryRow() {
+    Row() {
+      Text('模型')
+        .fontSize(14)
+        .fontColor(this.menuLabelColor())
+        .maxLines(1)
+      Blank()
+      Text(this.modelLabel())
+        .fontSize(13)
+        .fontColor(this.mutedText())
+        .maxLines(1)
+        .textAlign(TextAlign.End)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .constraintSize({ maxWidth: 150 })
+      Text('›')
+        .fontSize(14)
+        .fontColor(this.mutedText())
+        .margin({ left: 6 })
+    }
+    .width(246)
+    .height(44)
+    .padding({ left: 12, right: 12 })
+    .alignItems(VerticalAlign.Center)
   }
 
   /** 第一层菜单里的团队协作开关行 */

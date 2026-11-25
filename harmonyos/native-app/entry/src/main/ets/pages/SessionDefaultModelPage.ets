@@ -1,4 +1,5 @@
 import { asRec, GatewayClient, GatewayFrame, GatewayRequestFactory, Logger, PreferencesStore, SessionStore } from 'nativecore';
+import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { TopToast, TopToastView } from '../components/TopToast';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
@@ -102,11 +103,6 @@ export struct SessionDefaultModelPage {
   /** 卡片边框 = 返回按钮同款 */
   private cardEdge(): string {
     return this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)';
-  }
-
-  @Builder
-  topToastLayer() {
-    TopToastView()
   }
 
   private toast(message: string): void {
@@ -418,48 +414,9 @@ export struct SessionDefaultModelPage {
     return this.currentProvider() === row.provider;
   }
 
-  /** 页面顶部摘要：当前默认模型 + 档位 */
-  private currentSummary(): string {
-    for (const row of this.rows) {
-      if (!this.isCurrentModel(row)) {
-        continue;
-      }
-      const effort: string = this.currentEffortOf(row);
-      return effort.length > 0 ? row.label + ' · ' + effortName(effort) : row.label;
-    }
-    return '未设置';
-  }
-
-  /** 顶部说明卡：当前默认摘要 + 说明 */
-  @Builder
-  introCard() {
-    Column({ space: 6 }) {
-      Row({ space: 8 }) {
-        Text('当前默认')
-          .fontSize(12.4)
-          .fontColor(this.subColor())
-        Text(this.currentSummary())
-          .fontSize(12.4)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#2E6BE6')
-          .layoutWeight(1)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-      }
-      .width('100%')
-      Text('为之后新建的会话设置默认模型与思考等级，运行中的会话保持启动时的配置；修改会同步 WebUI。')
-        .fontSize(12.2)
-        .lineHeight(18.4)
-        .fontColor(this.subColor())
-        .width('100%')
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-    .borderRadius(14)
-    .backgroundColor(this.isDark ? 'rgba(46,107,230,0.15)' : 'rgba(46,107,230,0.07)')
-    .margin({ bottom: 2 })
-  }
+  /** 页头副标题（对齐 Agent 预设二级页：标题在导航栏，正文只有一行说明） */
+  private readonly pageSubtitle: string =
+    '为之后新建的会话设置默认模型与思考等级，运行中的会话保持启动时的配置；修改会同步 WebUI。';
 
   /** 当前模型的选中档位（只有当前模型才显示选中态，对齐小程序） */
   private currentEffortOf(row: ModelRow): string {
@@ -594,46 +551,29 @@ export struct SessionDefaultModelPage {
     .border({ width: 1, color: this.cardEdge() })
   }
 
-  /** 模型卡片：选中态高亮 + 名称行（点击切换）+ 思考等级 chips */
+  /** 模型卡片：样式对齐 Agent 预设二级页（padding14 / radius14 / 右侧「已选择」/ 选中蓝 #6B87D7） */
   @Builder
   modelCard(row: ModelRow) {
     Column({ space: 0 }) {
-      Row({ space: 10 }) {
-        Column({ space: 4 }) {
-          Text(row.label)
-            .fontSize(16.5)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.textColor())
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-          if (this.isCurrentModel(row)) {
-            Text('当前使用')
-              .fontSize(11)
-              .fontWeight(FontWeight.Medium)
-              .fontColor('#2E6BE6')
-          }
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-
-        if (this.isCurrentModel(row)) {
-          Text('✓')
-            .fontSize(14)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#2E6BE6')
-            .width(24)
-            .height(24)
-            .textAlign(TextAlign.Center)
-            .borderRadius(12)
-            .backgroundColor(this.isDark ? 'rgba(46,107,230,0.24)' : 'rgba(46,107,230,0.12)')
-        }
+      Row() {
+        Text(row.label)
+          .fontSize(16.4)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.textColor())
+          .layoutWeight(1)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(this.isCurrentModel(row) ? '已选择' : '')
+          .fontSize(12.9)
+          .fontColor('#5676C8')
       }
       .width('100%')
 
       if (row.efforts.length > 0) {
         Column({ space: 6 }) {
           Text('思考等级')
-            .fontSize(11.6)
+            .fontSize(12.9)
+            .lineHeight(20.6)
             .fontColor(this.subColor())
             .width('100%')
           Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Start }) {
@@ -645,21 +585,21 @@ export struct SessionDefaultModelPage {
         }
         .width('100%')
         .alignItems(HorizontalAlign.Start)
-        .margin({ top: 14 })
+        .margin({ top: 13, bottom: 2 })
       }
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding({ left: 16, right: 16, top: 15, bottom: 15 })
-    .margin({ bottom: 10 })
-    .borderRadius(16)
+    .padding(14)
+    .margin({ bottom: 9.4 })
+    .borderRadius(14)
     .border({
-      width: this.isCurrentModel(row) ? 1.2 : 1,
-      color: this.isCurrentModel(row) ? '#2E6BE6' : this.cardEdge()
+      width: 1,
+      color: this.isCurrentModel(row) ? '#6B87D7' : this.dividerColor()
     })
     .backgroundColor(this.isCurrentModel(row)
-      ? (this.isDark ? 'rgba(46,107,230,0.14)' : 'rgba(46,107,230,0.055)')
-      : this.cardBg())
+      ? 'rgba(83,112,198,0.06)'
+      : (this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(16,19,24,0.03)'))
     // 整张卡片（含内边距与空白区）都可点：点一下即切换为该模型
     .onClick(() => {
       this.pickModel(row);
@@ -675,7 +615,12 @@ export struct SessionDefaultModelPage {
           Column() {
             // 首屏让出原生标题栏（统一标准：安全区 + 56 + 4，与对话状态条页一致）
             Column().width('100%').height((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 56 + 4)
-            this.introCard()
+            // 说明（对齐 Agent 预设二级页）：标题已上移到导航栏居中显示
+            Text(this.pageSubtitle)
+              .fontSize(14)
+              .fontColor(this.subColor())
+              .width('100%')
+              .padding({ bottom: 14 })
 
             if (this.connection !== 'connected') {
               this.stateCard('未连接网关', '连接网关后自动读取模型目录与思考等级。', true)
@@ -701,12 +646,10 @@ export struct SessionDefaultModelPage {
                 .width('100%')
               }, (group: ModelGroupVm) => group.title)
 
-              Text('保存在网关 · 自动同步 WebUI')
-                .fontSize(12.2)
-                .fontColor(this.isDark ? 'rgba(241,244,250,0.34)' : 'rgba(16,19,24,0.34)')
+              // 底部留白（对齐 pref-picker：所有设置二级页不再带「保存在…」脚注）
+              Column()
                 .width('100%')
-                .textAlign(TextAlign.Center)
-                .padding({ top: 14, bottom: 30 })
+                .height(18)
             }
           }
           .width('100%')
@@ -725,7 +668,10 @@ export struct SessionDefaultModelPage {
       .width('100%')
       .height('100%')
       .backgroundColor(this.pageBg())
-      .overlay(this.topToastLayer(), { align: Alignment.Top })
+      // TopToast 用普通子节点挂在末尾（对齐会话设置页）。不要用 .overlay：
+      // overlay 的包装节点会参与命中测试，整页被透明层挡住（点、滑都失效，见对话页同款教训）。
+      // （EBUSY 重试后确认：CompileArkTS 需要真正重跑一次才能进包）
+      TopToastView()
     }
     .titleBar({
       avoidLayoutSafeArea: true,
@@ -737,7 +683,7 @@ export struct SessionDefaultModelPage {
         },
         systemMaterialEffect: {
           materialType: hdsMaterial.MaterialType.IMMERSIVE,
-          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+          materialLevel: currentGlassMaterialLevel()
         },
         originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
         scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }

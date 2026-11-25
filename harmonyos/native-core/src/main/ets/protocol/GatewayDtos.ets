@@ -481,6 +481,8 @@ export interface GatewayFrame {
   at?: number;
   sessionId?: string;
   title?: string;
+  /** 置顶会话 id 列表（会话列表帧下发；HomePage 置顶排序与 SessionStore 读取） */
+  pinnedSessionIds?: string[];
   seq?: number;
   time?: number;
   event?: GatewayEvent;

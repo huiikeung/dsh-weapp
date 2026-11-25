@@ -1,11 +1,13 @@
 import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { display, KeyboardAvoidMode, LengthMetrics, uiMaterial } from '@kit.ArkUI';
+import { Chip, display, KeyboardAvoidMode, LengthMetrics, uiMaterial } from '@kit.ArkUI';
 import { HOME_MAX_WIDTH, isWideWidth } from '../common/Responsive';
 import { drawing } from '@kit.ArkGraphics2D';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
+import { hdsEffect } from '@kit.UIDesignKit';
 import { TailscaleMarkView } from '../components/TailscaleMarkView';
 import { FluKeCoin } from '../components/FluKeCoin';
+import { HdsGlassSurface } from '../components/HdsGlassSurface';
 import { Haptics } from '../services/Haptics';
 import { StatusBarStyle, STATUS_BAR_HOME_ROUTE } from '../services/StatusBarStyle';
 import { openSessionRoute } from '../common/SessionRoute';
@@ -40,6 +42,8 @@ export struct HomePage {
   @StorageLink('tailscaleStage') tailscaleStage: string = 'disabled';
   @StorageLink('transportTailnet') transportTailnet: boolean = false;
   @StorageLink('sessions') sessions: SessionSummary[] = [];
+  /** 置顶会话集合（网关 session-pins 帧的完整集合，最近置顶在前） */
+  @StorageLink('pinnedSessionIds') pinnedSessionIds: string[] = [];
   @StorageLink('gatewayName') gatewayName: string = '';
   @State creating: boolean = false;
   @State createHint: string = '';
@@ -117,6 +121,15 @@ export struct HomePage {
   @State editAlias: string = '';
   @State editKind: string = 'desktop';
   @State pairMenuOpen: boolean = false;
+  /** 配对钮按压光效（hdsEffect 点光源 + 按压阴影） */
+  @State private pairLight: hdsEffect.PointLightSourceType = hdsEffect.PointLightSourceType.NONE;
+  @State private pairShadow: hdsEffect.PressShadowType = hdsEffect.PressShadowType.NONE;
+  /** 会话设置钮按压光效 */
+  @State private setLight: hdsEffect.PointLightSourceType = hdsEffect.PointLightSourceType.NONE;
+  @State private setShadow: hdsEffect.PressShadowType = hdsEffect.PressShadowType.NONE;
+
+
+
   @State kindMenuOpen: boolean = false;
   @State wsFilter: string = 'all';
   @State wsMenuOpen: boolean = false;
@@ -418,8 +431,8 @@ export struct HomePage {
 
   /**
    * 菜单锚点：只做**水平居中**（纵向跟随长按位置，不上下居中）。
-   * 实测系统菜单约 173×83vp；锚点 x 取"屏幕中心 - 菜单半宽"，
-   * 纵向由 bindMenu 从锚点向下展开，实测菜单顶边 ≈ 锚点 y - 140。
+   * 实测系统菜单宽约 173vp（4 项时高度约 150vp）；锚点 x 取"屏幕中心 - 菜单半宽"，
+   * 纵向由 bindMenu 从锚点展开，实测菜单顶边 ≈ 锚点 y - 140；贴边时由系统自己翻转/夹取。
    */
   private menuAnchorX(): number {
     return Math.max(0, this.screenWidthVp() / 2 - 78);
@@ -445,10 +458,60 @@ export struct HomePage {
     if (item === undefined) {
       return;
     }
-    if (action === 'rename') {
+    if (action === 'copy-id') {
+      this.copySessionId(item.id);
+    } else if (action === 'pin') {
+      this.togglePin(item);
+    } else if (action === 'rename') {
       this.beginRenameSession(item);
     } else if (action === 'archive') {
       this.beginArchiveSession(item);
+    }
+  }
+
+  /**
+   * 置顶 / 取消置顶（对齐 iOS：写 Host 的 workspace 控制器，经网关 session-pin）。
+   * 列表顺序与「已置顶」以网关随后广播的 session-pins 为准，本地不做乐观改写。
+   */
+  private togglePin(item: SessionSummary): void {
+    const pinned: boolean = this.isPinned(item.id);
+    try {
+      const sent: boolean = GatewayClient.get().pinSession(item.id, !pinned);
+      if (!sent) {
+        this.showToast('置顶失败：未连接到网关');
+        return;
+      }
+      this.showToast(pinned ? '已取消置顶' : '已置顶');
+    } catch (err) {
+      this.showToast('置顶失败：' + String(err));
+    }
+  }
+
+  /**
+   * 复制会话 ID（对齐 iOS 首页长按菜单的「复制对话 ID」：把会话 ID 原样写进剪贴板）。
+   * 复制的是网关会话 ID（SessionSummary.id = sessions 帧的 sessionId），与桌面端/App 里看到的对话 ID 一致。
+   */
+  private copySessionId(id: string): void {
+    if (id.length === 0) {
+      this.showToast('复制失败：会话 ID 为空');
+      return;
+    }
+    try {
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, id);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        this.showToast('已复制对话 ID');
+      }).catch((err: Error) => {
+        this.showToast('复制失败：' + err.message);
+      });
+    } catch (err) {
+      this.showToast('复制失败：' + String(err));
+    }
+  }
+
+  private showToast(message: string): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message, duration: 2000 });
+    } catch (ignored) {
     }
   }
 
@@ -516,10 +579,68 @@ export struct HomePage {
     return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
   }
 
+  /** 置顶会话 → 顺序（最近置顶在前，对齐网关 pinnedSessionIds 与 iOS pin rank） */
+  private pinRanks(): Map<string, number> {
+    const ranks: Map<string, number> = new Map<string, number>();
+    for (let i = 0; i < this.pinnedSessionIds.length; i++) {
+      const id: string = this.pinnedSessionIds[i];
+      if (!ranks.has(id)) {
+        ranks.set(id, i);
+      }
+    }
+    return ranks;
+  }
+
+  /** 置顶集合签名：拼进 ForEach key，置顶变化时整表按新顺序重建 */
+  private pinsSignature(): string {
+    return this.pinnedSessionIds.join(',');
+  }
+
+  private isPinned(id: string): boolean {
+    return id.length > 0 && this.pinnedSessionIds.indexOf(id) >= 0;
+  }
+
+  private pinnedIn(rows: SessionSummary[]): number {
+    let n: number = 0;
+    for (const one of rows) {
+      if (this.isPinned(one.id)) {
+        n += 1;
+      }
+    }
+    return n;
+  }
+
+  /** 区内排序：置顶（按置顶顺序）→ 运行中优先 → 最近更新 → sessionId 升序 */
   private sortSessions(input: SessionSummary[]): SessionSummary[] {
+    const ranks: Map<string, number> = this.pinRanks();
     const out: SessionSummary[] = input.slice();
-    out.sort((a: SessionSummary, b: SessionSummary) => this.compareRecency(a, b));
+    out.sort((a: SessionSummary, b: SessionSummary) => {
+      const hasA: boolean = ranks.has(a.id);
+      const hasB: boolean = ranks.has(b.id);
+      if (hasA !== hasB) {
+        return hasA ? -1 : 1;
+      }
+      if (hasA && hasB) {
+        const ra: number = ranks.get(a.id) as number;
+        const rb: number = ranks.get(b.id) as number;
+        if (ra !== rb) {
+          return ra - rb;
+        }
+      }
+      return this.compareRecency(a, b);
+    });
     return out;
+  }
+
+  /** 分区排序用的代表行：按「运行中优先 → 最近更新」取，置顶不改变分区顺序（对齐 iOS） */
+  private bestRecencyRow(rows: SessionSummary[]): SessionSummary {
+    let best: SessionSummary = rows[0];
+    for (const one of rows) {
+      if (this.compareRecency(one, best) < 0) {
+        best = one;
+      }
+    }
+    return best;
   }
 
   /** 分区标题：优先工作区标题，其次路径最后一段（对齐小程序 workspaceSectionTitle） */
@@ -588,15 +709,18 @@ export struct HomePage {
       }
       const left: SessionSummary[] = groups.get(a) as SessionSummary[];
       const right: SessionSummary[] = groups.get(b) as SessionSummary[];
-      return this.compareRecency(left[0], right[0]);
+      // 置顶只改区内顺序，分区仍按最近活动排：这里取非置顶代表行的优先级
+      return this.compareRecency(this.bestRecencyRow(left), this.bestRecencyRow(right));
     });
     const out: SessionSection[] = [];
     for (let i = 0; i < ids.length; i++) {
       const sid: string = ids[i];
       const rows: SessionSummary[] = groups.get(sid) as SessionSummary[];
       const expanded: boolean = this.sectionExpanded(sid);
-      const shown: SessionSummary[] = expanded ? rows : rows.slice(0, SESSION_SECTION_LIMIT);
-      const remaining: number = rows.length - SESSION_SECTION_LIMIT;
+      // 置顶行永远露出（对齐 iOS：collapsedLimit = max(limit, pinned.count)）
+      const collapsedLimit: number = Math.max(SESSION_SECTION_LIMIT, this.pinnedIn(rows));
+      const shown: SessionSummary[] = expanded ? rows : rows.slice(0, collapsedLimit);
+      const remaining: number = rows.length - shown.length;
       out.push({
         id: sid,
         title: titles.has(sid) ? (titles.get(sid) as string) : '未分组',
@@ -611,9 +735,14 @@ export struct HomePage {
   }
 
   /** 最近会话 / 单个工作区：默认 12 条（对齐小程序 RECENT_SESSION_LIMIT） */
+  /** 最近会话的折叠上限：置顶行永远露出（对齐 iOS：max(limit, pinned.count)） */
+  private recentLimit(): number {
+    return Math.max(SESSION_RECENT_LIMIT, this.pinnedIn(this.filtered()));
+  }
+
   private recentRows(): SessionSummary[] {
     const sorted: SessionSummary[] = this.sortSessions(this.filtered());
-    return this.recentExpanded ? sorted : sorted.slice(0, SESSION_RECENT_LIMIT);
+    return this.recentExpanded ? sorted : sorted.slice(0, this.recentLimit());
   }
 
 
@@ -1730,9 +1859,9 @@ export struct HomePage {
         .padding({ left: this.rpx(24), bottom: this.rpx(32) })
 
         // Bot 模式（对齐 dsh-mobile：抽屉首项进入 DS-Bot）
-        this.drawerItem($r('app.media.bot_drawer_mark'), $r('app.media.bot_drawer_mark'), '切换到 Bot 模式', 'bot-home')
+        this.drawerItem($r('app.media.bot_drawer_mark'), $r('app.media.bot_drawer_mark_white'), '切换到 Bot 模式', 'bot-home')
         // 插件
-        this.drawerItem($r('app.media.pinwheel_ink'), $r('app.media.pinwheel_ink'), '插件', 'plugins')
+        this.drawerItem($r('app.media.pinwheel_ink'), $r('app.media.pinwheel_white'), '插件', 'plugins')
         // 自动化任务
         this.drawerItem($r('app.media.automation_ink'), $r('app.media.automation_white'), '自动化任务', 'schedule')
         // 连接器（对齐 iOS：在自动化任务下面）
@@ -1870,7 +1999,7 @@ export struct HomePage {
       }
     }
     return sec.id + '|' + sec.rows.length.toString() + '|' + runCount.toString() + '|'
-      + stamp.toString() + '|' + sec.toggleLabel;
+      + stamp.toString() + '|' + sec.toggleLabel + '|' + this.pinsSignature();
   }
 
   /**
@@ -1879,7 +2008,8 @@ export struct HomePage {
    * 于是「运行中 / 时间」这类内容变了界面也不动——这正是手机端状态更新不及时的直接原因。
    */
   private sessionKey(item: SessionSummary): string {
-    return item.id + '|' + (item.running ? '1' : '0') + '|' + item.updatedAt.toString() + '|' + item.title;
+    return item.id + '|' + (item.running ? '1' : '0') + '|' + item.updatedAt.toString() + '|' + item.title
+      + '|' + (this.isPinned(item.id) ? 'p' : '') + '|' + this.pinsSignature();
   }
 
   /** 会话行（对齐小程序 .session-row）：圆点 / 标题 + 等宽 id / 右侧时间 */
@@ -1902,13 +2032,25 @@ export struct HomePage {
         .height(14)
         .justifyContent(FlexAlign.Center)
         Column({ space: 1 }) {
-          Text(this.sessionTitle(item))
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .fontColor('#FFFFFF')
-            .width('100%')
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Row({ space: 5 }) {
+            // 已置顶：标题前一个小图钉（对齐 iOS pin.fill），只随标题行居中，副标题不动
+            if (this.isPinned(item.id)) {
+              Image($r('app.media.session_pin'))
+                .width(11)
+                .height(11)
+                .objectFit(ImageFit.Contain)
+                .draggable(false)
+            }
+            Text(this.sessionTitle(item))
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#FFFFFF')
+              .layoutWeight(1)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
           Text(this.sessionMeta(item))
             .fontSize(10)
             .fontFamily('monospace')
@@ -1957,24 +2099,55 @@ export struct HomePage {
 
   /**
    * 会话长按菜单：系统 Menu 弹窗（与对话页右上角「⋯」同款）。
-   * 图标走 startIcon（系统固定槽位），用带内边距的图标资源让字形视觉约 18vp，避免图标显得过大。
+   * 顺序对齐 iOS 长按菜单（dsh-mobile WorkspaceView.sessionRow）：复制对话 ID → 置顶/取消置顶 → 重命名 → 删除（归档）。
+   * 字号比系统默认（16fp）小一档；图标资源用带内边距的 SVG，字形视觉约 15vp。
    */
   @Builder
   sessionActionMenu() {
     Menu() {
       MenuItem({
+        // 复制对话 ID：对话气泡 copy_gray 的同款形状，按菜单图标规格随主题换色、留白缩小
+        content: '复制对话 ID',
+        startIcon: this.isDark ? $r('app.media.session_menu_copy_white') : $r('app.media.session_menu_copy_dark')
+      })
+        .contentFont({ size: 14 })
+        .id('session-menu-copy-id').onClick(() => {
+          this.onSessionMenuAction('copy-id');
+        })
+      MenuItem({
+        content: this.isPinned(this.sessionMenuId) ? '取消置顶' : '置顶',
+        startIcon: this.pinMenuIcon()
+      })
+        .contentFont({ size: 14 })
+        .id('session-menu-pin').onClick(() => {
+          this.onSessionMenuAction('pin');
+        })
+      MenuItem({
         content: '重命名',
         startIcon: this.isDark ? $r('app.media.session_menu_rename_white') : $r('app.media.session_menu_rename_dark')
-      }).id('session-menu-rename').onClick(() => {
-        this.onSessionMenuAction('rename');
       })
+        .contentFont({ size: 14 })
+        .id('session-menu-rename').onClick(() => {
+          this.onSessionMenuAction('rename');
+        })
       MenuItem({
         content: '归档会话',
-        startIcon: $r('app.media.session_menu_archive')
-      }).id('session-menu-archive').onClick(() => {
-        this.onSessionMenuAction('archive');
+        startIcon: this.isDark ? $r('app.media.session_menu_archive_red_dark') : $r('app.media.session_menu_archive_red')
       })
+        .contentFont({ size: 14 })
+        .contentFontColor(this.destructiveColor())
+        .id('session-menu-archive').onClick(() => {
+          this.onSessionMenuAction('archive');
+        })
     }
+  }
+
+  /** 长按菜单的置顶图标：已置顶时显示带斜杠的「取消置顶」样式 */
+  private pinMenuIcon(): Resource {
+    if (this.isPinned(this.sessionMenuId)) {
+      return this.isDark ? $r('app.media.session_menu_pin_off_white') : $r('app.media.session_menu_pin_off_dark');
+    }
+    return this.isDark ? $r('app.media.session_menu_pin_white') : $r('app.media.session_menu_pin_dark');
   }
 
   /** 重命名会话弹窗（对齐小程序 showModal editable）：系统弹窗圆角 + 分隔线 */
@@ -3583,10 +3756,10 @@ export struct HomePage {
           } else {
             // 最近会话 / 单个工作区：默认只显示 12 条
             ForEach(this.recentRows(), (item: SessionSummary, index: number) => {
-              this.sessionRow(item, this.filtered().length <= SESSION_RECENT_LIMIT && index === this.recentRows().length - 1)
+              this.sessionRow(item, this.filtered().length <= this.recentLimit() && index === this.recentRows().length - 1)
             }, (item: SessionSummary) => this.sessionKey(item))
-            if (this.filtered().length > SESSION_RECENT_LIMIT) {
-              this.sessionToggle(this.recentExpanded ? '收起' : ('展开其余 ' + (this.filtered().length - SESSION_RECENT_LIMIT) + ' 个会话'), this.recentExpanded, '')
+            if (this.filtered().length > this.recentLimit()) {
+              this.sessionToggle(this.recentExpanded ? '收起' : ('展开其余 ' + (this.filtered().length - this.recentLimit()) + ' 个会话'), this.recentExpanded, '')
             }
           }
     }
@@ -3705,34 +3878,29 @@ export struct HomePage {
             Stack({ alignContent: Alignment.TopEnd }) {
               Row() {
                 Image($r('app.media.person_key_white'))
-                  .height(28)
+                  .height(23)
                   .objectFit(ImageFit.Contain)
               }
               .width(49)
               .height(49)
               .borderRadius(24.5)
               .justifyContent(FlexAlign.Center)
+              .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
+              .backgroundColor('rgba(255,255,255,0.08)')
+              .border({ width: 1, color: 'rgba(255,255,255,0.24)' })
               .onAreaChange((oldArea: Area, newArea: Area) => {
                 const gx: number = Number(newArea.globalPosition.x);
                 if (isFinite(gx) && gx > 0) {
                   this.pairBtnX = gx;
                 }
               })
-              .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
-              .backgroundColor('rgba(255,255,255,0.08)')
-              .border({ width: 1, color: 'rgba(255,255,255,0.24)' })
               .onClick(() => {
                 this.pairMenuOpen = !this.pairMenuOpen;
               })
-              // 系统菜单：打开时按钮隐藏（保留布局做锚点），关闭后恢复
               .bindMenu(this.pairMenuOpen, this.pairMenuBuilder(), {
                 outlineColor: this.separatorColor(),
                 outlineWidth: 1,
-                // 菜单水平居中：左右留白相等；y 保持在按钮下方
-                anchorPosition: {
-                  x: this.pairMenuAnchorX(),
-                  y: 56
-                },
+                anchorPosition: { x: this.pairMenuAnchorX(), y: 56 },
                 onWillDisappear: () => {
                   this.pairMenuOpen = false;
                 },

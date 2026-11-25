@@ -488,6 +488,10 @@ export class SessionStore {
       }
       return;
     }
+    if (frame.kind === 'session-pins') {
+      this.consumePinnedSessions(frame);
+      return;
+    }
     if (frame.kind === 'sessions') {
       this.consumeSessions(frame);
       return;
@@ -1981,9 +1985,43 @@ export class SessionStore {
           Logger.info('catalog cache restored workspaces=' + rows.length);
         }
       }
+      const pinsJson: string = prefs.getString('cachePinsV1', '');
+      if (pinsJson.length > 0) {
+        const items: Object[] = JSON.parse(pinsJson) as Object[];
+        const pins: string[] = [];
+        for (const one of items) {
+          if (typeof one === 'string' && one.length > 0) {
+            pins.push(one as string);
+          }
+        }
+        if (pins.length > 0) {
+          AppStorage.setOrCreate<string[]>('pinnedSessionIds', pins);
+          Logger.info('catalog cache restored pins=' + pins.length.toString());
+        }
+      }
     } catch (err) {
       Logger.warn('catalog cache restore failed');
     }
+  }
+
+  /**
+   * 会话置顶集合（对齐网关 session-pins / iOS pinnedWorkspaceSessionIDs）：
+   * 收到的是完整集合，最近置顶的排在前面，整体替换本地顺序；顺带落盘供冷启动先画出来。
+   */
+  private consumePinnedSessions(frame: GatewayFrame): void {
+    const raw: Object[] | undefined = frame.pinnedSessionIds;
+    if (raw === undefined) {
+      return;
+    }
+    const list: string[] = [];
+    for (const one of raw) {
+      if (typeof one === 'string' && one.length > 0 && list.indexOf(one) < 0) {
+        list.push(one);
+      }
+    }
+    AppStorage.setOrCreate<string[]>('pinnedSessionIds', list);
+    this.saveCatalogCache('cachePinsV1', JSON.stringify(list));
+    Logger.info('session pins updated n=' + list.length.toString());
   }
 
   /** 会话列表：解析后写入 AppStorage；首次拿到列表时自动打开最近一个会话。 */

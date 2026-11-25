@@ -82,7 +82,8 @@ export struct TopToastView {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Center)
-    .padding({ top: (this.safeTop > 0 ? this.safeTop : 38.9) + 8 })
+    // 下移到状态栏+标题栏下沿（对齐对话页 topSafe+68）：+8 时会压住页头/状态栏区域
+    .padding({ left: 16, right: 16, top: (this.safeTop > 0 ? this.safeTop : 38.9) + 68 })
     .hitTestBehavior(HitTestMode.None)
   }
 }

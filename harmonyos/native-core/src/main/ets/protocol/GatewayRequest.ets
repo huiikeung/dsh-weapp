@@ -136,6 +136,11 @@ export class GatewayRequestFactory {
   static archiveSession(sessionId: string): GatewayRequest {
     return GatewayRequestFactory.make('session-archive', 'session-archived', { 'sessionId': sessionId }, sessionId);
   }
+  /** 会话置顶 / 取消置顶（需网关 session-pin-v1，回执 kind 为 session-pin-set）。 */
+  static pinSession(sessionId: string, pinned: boolean): GatewayRequest {
+    return GatewayRequestFactory.make('session-pin', 'session-pin-set',
+      { 'sessionId': sessionId, 'pinned': pinned }, sessionId);
+  }
   static renameSession(sessionId: string, title: string): GatewayRequest {
     return GatewayRequestFactory.make('session-rename', 'session-renamed', { 'sessionId': sessionId, 'title': title.trim() }, sessionId);
   }

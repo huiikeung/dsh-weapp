@@ -1922,6 +1922,11 @@ export class GatewayClient {
     return this.sendRequest(GatewayRequestFactory.archiveSession(sessionId));
   }
 
+  /** 置顶 / 取消置顶：权威集合由网关的 session-pins 帧广播，这里只发写入请求。 */
+  pinSession(sessionId: string, pinned: boolean): boolean {
+    return this.sendRequest(GatewayRequestFactory.pinSession(sessionId, pinned));
+  }
+
   /**
    * 按 attachmentId 拉取附件内容（图片回显用）：
    * 请求 { type: 'attachment', sessionId, attachmentId }，响应帧带 data(base64) + attachment。
