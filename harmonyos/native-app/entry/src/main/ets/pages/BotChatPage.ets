@@ -86,6 +86,8 @@ interface BotImagePayload {
 
 @Component
 export struct BotChatPage {
+  /** 正文字号档位：与工作模式对话页共用「设置 → 字号大小」 */
+  @StorageProp('contentFontSize') contentFontSize: string = '标准';
   @Consume('pageStack') pageStack: NavPathStack;
   @StorageLink('isDark') isDark: boolean = false;
   @StorageLink('safeTopVp') safeTop: number = 0;
@@ -321,6 +323,21 @@ export struct BotChatPage {
   }
 
   // ==================== 消息判定 ====================
+
+  /** 会话正文字号（vp）：与工作模式 ConversationRowView.contentSize 完全一致 */
+  private contentSize(): number {
+    const mode: string = this.contentFontSize;
+    if (mode === '小') {
+      return 13;
+    }
+    if (mode === '大') {
+      return 16;
+    }
+    if (mode === '特大') {
+      return 17;
+    }
+    return 14;
+  }
 
   private isMine(message: BotChatMessage): boolean {
     return message.kind === 'user';
@@ -1739,8 +1756,8 @@ export struct BotChatPage {
           Column({ space: 6 }) {
             if (this.isMine(message)) {
               Text(message.text)
-                .fontSize(17)
-                .lineHeight(24)
+                .fontSize(this.contentSize())
+                .lineHeight(this.contentSize() * 1.45)
                 .fontColor(this.ink())
                 .padding({ left: BUBBLE_PAD_H, right: BUBBLE_PAD_H, top: BUBBLE_PAD_V, bottom: BUBBLE_PAD_V })
                 .backgroundColor(this.userBubble())
@@ -1750,8 +1767,8 @@ export struct BotChatPage {
             } else if (message.text.length > 0 && this.isPlainText(message.text)) {
               // 纯文本按内容收缩（§4.3：短消息按内容收缩），换行由最大宽控制
               Text(message.text)
-                .fontSize(17)
-                .lineHeight(24)
+                .fontSize(this.contentSize())
+                .lineHeight(this.contentSize() * 1.45)
                 .fontColor(this.ink())
                 .padding({ left: BUBBLE_PAD_H, right: BUBBLE_PAD_H, top: BUBBLE_PAD_V, bottom: BUBBLE_PAD_V })
                 .backgroundColor(this.palette.rgb(message.botId, this.isDark))
@@ -1762,7 +1779,7 @@ export struct BotChatPage {
               // Markdown 正文：内部各块是 width 100%，必须给容器一个确定宽度，
               // 否则百分比会按最大约束先算再被外层裁剪（文字左右被切掉）
               Column() {
-                MarkdownBodyView({ text: message.text, fontSize: 17 })
+                MarkdownBodyView({ text: message.text, fontSize: this.contentSize() })
               }
               .width(this.bubbleMaxWidth())
               .padding({ left: BUBBLE_PAD_H, right: BUBBLE_PAD_H, top: BUBBLE_PAD_V, bottom: BUBBLE_PAD_V })
