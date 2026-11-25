@@ -1073,7 +1073,7 @@ export struct BotChatPage {
       if (this.fileImagePath(file).length > 0) {
         Image(this.fileUri(this.fileImagePath(file)))
           .width('100%')
-          .constraintSize({ maxHeight: 320 })
+          .height(single ? 220 : 140)
           .objectFit(ImageFit.Cover)
           .borderRadius(12)
       } else {
@@ -2390,15 +2390,23 @@ export struct BotChatPage {
               }
             }
             if (message.files.length > 0) {
-              // 交付文件统一用「彩色扩展名徽标 + 文件名 + 说明」的文件卡（对齐 dsh-mobile 安卓端样式）；
-              // 图片类交付物同样走文件卡，点开后再按文件处理。
-              Column({ space: 8 }) {
+              // 图片类交付物直接显示成图片（缩略图，点开是大图）；其余文件仍用文件卡。
+              Flex({ wrap: FlexWrap.Wrap }) {
                 ForEach(message.files, (file: BotPresentedFile) => {
-                  this.fileCard(file)
-                }, (file: BotPresentedFile) => file.path + ':' + (file.description ?? ''))
+                  if (this.isImageFile(this.fileNameOf(file))) {
+                    this.fileImageCard(file, message.files.length === 1)
+                  } else {
+                    Column() {
+                      this.fileCard(file)
+                    }
+                    .width('100%')
+                    .alignItems(HorizontalAlign.Start)
+                    .margin({ bottom: 8 })
+                  }
+                }, (file: BotPresentedFile) => file.path
+                  + (this.isImageFile(this.fileNameOf(file)) ? ':img' : ':file'))
               }
               .width(this.bubbleMaxWidth())
-              .alignItems(HorizontalAlign.Start)
             }
             // 页脚（对齐工作模式）：助手回复 = 复制 / 引用 / 时间；用户气泡 = 时间 / 复制（复制在时间右边）。
             if (!this.isStreaming(message)
