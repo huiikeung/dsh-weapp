@@ -364,6 +364,11 @@ export struct ConversationPage {
   @State voiceOverlayVisible: boolean = false;
   /** 特效里的状态文案（正在获取麦克风权限 / 松手转文字 · 上滑取消 / 松手取消） */
   @State voiceStatus: string = '';
+  /** 边说边转的实时文字（录音中持续刷新） */
+  @State voiceLiveText: string = '';
+  private voiceLiveTimer: number = -1;
+  private voiceLiveBusy: boolean = false;
+  private voiceLiveInFlight: Promise<void> | null = null;
   private dictation: SpeechInput = new SpeechInput();
   /** 本次录音的网关限制（catalog 结果） */
   private speechLimits: SpeechLimits | null = null;
@@ -4202,6 +4207,7 @@ export struct ConversationPage {
         return;
       }
       this.setVoicePhase('recording');
+      this.startLiveTranscribe();
     } catch (err) {
       this.failVoice(err);
     }
@@ -4243,10 +4249,112 @@ export struct ConversationPage {
     }
   }
 
+
+  /**
+   * 语音输入中间浮层（与 Bot 对话页同一套样式）：
+   *   录音中 —— 实时转写文字（边说边出）+ 音量条 + 「松手转文字 · 上滑取消」；
+   *   转写中 —— 「正在识别…」。
+   */
+  @Builder
+  voiceHud() {
+    Column({ space: 14 }) {
+      Text(this.voiceRecording ? (this.voiceCancelArmed ? '松手取消'
+        : (this.voiceLiveText.length > 0 ? this.voiceLiveText : '正在聆听…')) : '正在识别…')
+        .fontSize(this.voiceLiveText.length > 0 && this.voiceRecording ? 16 : 20)
+        .fontWeight(FontWeight.Medium)
+        .fontColor('#FFFFFF')
+        .maxLines(4)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .textAlign(TextAlign.Center)
+      Row({ space: 4 }) {
+        ForEach([0, 1, 2, 3, 4, 5, 6], (index: number) => {
+          Column()
+            .width(4)
+            .height(this.voiceLevelBar(index))
+            .borderRadius(2)
+            .backgroundColor('rgba(255,255,255,0.85)')
+        }, (index: number) => index.toString())
+      }
+      .height(36)
+      .alignItems(VerticalAlign.Bottom)
+      Text(this.voiceRecording ? '松手转文字 · 上滑取消' : '马上就好')
+        .fontSize(13)
+        .fontColor('rgba(255,255,255,0.72)')
+    }
+    .width(220)
+    .padding({ left: 24, right: 24, top: 22, bottom: 22 })
+    .borderRadius(24)
+    .backgroundColor('rgba(20,20,24,0.72)')
+    .border({ width: 0.8, color: 'rgba(255,255,255,0.18)' })
+    .backdropBlur(24)
+    .alignItems(HorizontalAlign.Center)
+  }
+
+  private voiceLevelBar(index: number): number {
+    const level: number = this.voiceRecording ? this.dictation.level() : 0.12;
+    const seed: number = (index * 37) % 11;
+    const scale: number = 0.35 + (seed / 11) * 0.9;
+    const height: number = 6 + level * 26 * scale;
+    return height < 4 ? 4 : height;
+  }
+
+  /** 录音期间每 900ms 转一次已录音频，中间结果实时显示 */
+  private startLiveTranscribe(): void {
+    this.stopLiveTranscribe();
+    this.voiceLiveText = '';
+    this.voiceLiveTimer = setInterval(() => {
+      const limits: SpeechLimits | null = this.speechLimits;
+      if (limits === null || this.voicePhase !== 'recording' || this.voiceLiveBusy) {
+        return;
+      }
+      this.voiceLiveBusy = true;
+      const task: Promise<void> = this.dictation.transcribePartial(limits).then((text: string) => {
+        this.voiceLiveBusy = false;
+        if (text.length > 0 && this.voicePhase === 'recording') {
+          this.voiceLiveText = text;
+        }
+      }).catch(() => {
+        this.voiceLiveBusy = false;
+      });
+      this.voiceLiveInFlight = task;
+      task.then(() => {
+        if (this.voiceLiveInFlight === task) {
+          this.voiceLiveInFlight = null;
+        }
+      });
+    }, 900);
+  }
+
+  private stopLiveTranscribe(): void {
+    if (this.voiceLiveTimer >= 0) {
+      clearInterval(this.voiceLiveTimer);
+      this.voiceLiveTimer = -1;
+    }
+  }
+
+  /** 等「边说边转」在途请求结束再发最终转写，避免网关 request busy 丢结果 */
+  private async waitLiveIdle(): Promise<void> {
+    const pending: Promise<void> | null = this.voiceLiveInFlight;
+    if (pending === null) {
+      return;
+    }
+    await Promise.race([
+      pending.catch(() => {
+      }),
+      new Promise<void>((resolve: () => void) => {
+        setTimeout(() => resolve(), 2500);
+      })
+    ]);
+    this.voiceLiveBusy = false;
+    this.voiceLiveInFlight = null;
+  }
+
   private resetVoice(): void {
+    this.stopLiveTranscribe();
     this.speechLimits = null;
     this.voiceCancelArmed = false;
     this.setVoicePhase('idle');
+    this.voiceLiveText = '';
   }
 
   private onVoiceHoldMove(cancel: boolean): void {
@@ -4277,11 +4385,21 @@ export struct ConversationPage {
       return;
     }
     // 松手：结束采集 → 转 WAV → 网关转写（特效收起，输入条回来显示「正在转文字…」）
+    this.stopLiveTranscribe();
     this.setVoicePhase('transcribing');
-    this.dictation.stopAndTranscribe(limits).then((text: string) => {
-      this.insertVoiceText(text);
+    const liveFallback: string = this.voiceLiveText;
+    this.waitLiveIdle().then(() => {
+      return this.dictation.stopAndTranscribe(limits);
+    }).then((text: string) => {
+      // 最终结果为空时用中间结果兜底，避免松手太快丢字
+      this.insertVoiceText(text.trim().length > 0 ? text : liveFallback);
       this.resetVoice();
     }).catch((err: Object) => {
+      if (liveFallback.trim().length > 0) {
+        this.insertVoiceText(liveFallback);
+        this.resetVoice();
+        return;
+      }
       this.failVoice(err);
     });
   }
@@ -6708,19 +6826,24 @@ export struct ConversationPage {
       .hitTestBehavior(HitTestMode.Transparent)
 
       // 长按语音的全屏特效：盖在对话与输入条之上，但不拦触摸（手指还压在下面的输入条上）
-      VoiceRipplePanel({
-        visible: this.voiceOverlayVisible,
-        cancelArmed: this.voiceCancelArmed,
-        isDark: this.isDark,
-        status: this.voiceStatus,
-        readLevel: (): number => this.dictation.level()
-      })
+      // 中间浮层显示实时转写文字（与 Bot 对话页同一套 HUD 样式）
+      if (this.voiceOverlayVisible || this.voicePhase === 'transcribing') {
+        Stack({ alignContent: Alignment.Center }) {
+          VoiceRipplePanel({
+            visible: this.voiceOverlayVisible,
+            cancelArmed: this.voiceCancelArmed,
+            isDark: this.isDark,
+            status: this.voiceStatus,
+            readLevel: (): number => this.dictation.level()
+          })
+            .width('100%')
+            .height('100%')
+          this.voiceHud()
+        }
         .width('100%')
         .height('100%')
-        // 组件内部的 hitTestBehavior(None) 只作用到组件根节点，外层这个 %100 的包装节点
-        // 仍然会参与命中测试 → 整页被这层透明特效挡住（点、滑都失效）。这里一并关掉。
         .hitTestBehavior(HitTestMode.None)
-
+      }
       // 顶部轻提示：状态栏下方、标题栏下沿淡入的玻璃小卡（不挡触摸）
       Column() {
         this.topToast()
