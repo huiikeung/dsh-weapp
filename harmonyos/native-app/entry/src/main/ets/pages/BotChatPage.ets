@@ -132,6 +132,9 @@ export struct BotChatPage {
   /** 交付文件里的图片：path → 本地缓存路径（imageRevision 变化时重绘） */
   private fileImagePaths: Map<string, string> = new Map<string, string>();
   private fileImageBusy: string[] = [];
+  private fileImageFailures: string[] = [];
+  /** 最近一条消息带的会话 id：Bot 聊天里 chat.sessionId 可能为空，交付文件下载需要它 */
+  private fileSessionHint: string = '';
   /** 语音输入开关（设置页「语音输入」）与当前是否处于语音模式 */
   @StorageLink('voiceInputEnabled') voiceInputEnabled: boolean = true;
   @State voiceMode: boolean = false;
@@ -203,6 +206,15 @@ export struct BotChatPage {
   onStateChanged(): void {
     // 消息变化时重建「附件 id → 会话 id」索引，正文里的 /__bot_image__/ 才能解析
     this.rebuildImageIndex();
+    // 记下最近一条消息的会话 id：Bot 聊天的 chat.sessionId 常为空，
+    // 而交付文件的 file-resolve / file-download 必须带会话 id
+    for (let i = this.state.messages.length - 1; i >= 0; i--) {
+      const sid: string = this.state.messages[i].sessionId;
+      if (sid.length > 0) {
+        this.fileSessionHint = sid;
+        break;
+      }
+    }
     const chatId: string = this.state.selectedChatId ?? '';
     for (const interaction of this.state.interactions) {
       if (interaction.chatId === chatId && interaction.kind === 'question' && interaction.id !== this.pickedFor) {
@@ -1027,18 +1039,53 @@ export struct BotChatPage {
       || ext === 'webp' || ext === 'bmp' || ext === 'heic';
   }
 
-  private fileImagePath(file: BotPresentedFile): string {
+  /** 交付图片是否已尝试过且失败（用于显示「点击重试」，避免一直转圈） */
+  private fileImageFailed(file: BotPresentedFile): boolean {
+    return this.fileImageFailures.indexOf(file.path) >= 0;
+  }
+
+  /** 会话 id 兜底顺序：消息自带 → 页面缓存 → 当前会话 */
+  private sessionIdForFiles(hint: string): string {
+    if (hint.length > 0) {
+      return hint;
+    }
+    if (this.fileSessionHint.length > 0) {
+      return this.fileSessionHint;
+    }
+    const chat: BotChat | null = this.chat();
+    return chat !== null && chat.sessionId !== undefined ? chat.sessionId : '';
+  }
+
+  private retryFileImage(file: BotPresentedFile): void {
+    const at: number = this.fileImageFailures.indexOf(file.path);
+    if (at >= 0) {
+      this.fileImageFailures.splice(at, 1);
+    }
+    const busyAt: number = this.fileImageBusy.indexOf(file.path);
+    if (busyAt >= 0) {
+      this.fileImageBusy.splice(busyAt, 1);
+    }
+    this.imageRevision += 1;
+  }
+
+  /**
+   * 交付图片的本地路径。sessionId 优先用消息自带的（Bot 聊天里 chat.sessionId 可能为空，
+   * 之前就是因为取不到会话 id 直接 return，图片永远停在「加载中」）。
+   */
+  private fileImagePath(file: BotPresentedFile, sessionIdHint: string): string {
     const key: string = file.path;
     const cached: string = this.fileImagePaths.get(key) ?? '';
     if (cached.length > 0) {
       return cached;
     }
-    if (this.fileImageBusy.indexOf(key) >= 0) {
+    if (this.fileImageBusy.indexOf(key) >= 0 || this.fileImageFailures.indexOf(key) >= 0) {
       return '';
     }
-    const chat: BotChat | null = this.chat();
-    const sessionId: string = chat !== null && chat.sessionId !== undefined ? chat.sessionId : '';
+    const sessionId: string = this.sessionIdForFiles(sessionIdHint);
     if (sessionId.length === 0) {
+      this.fileImageFailures.push(key);
+      this.imageRevision += 1;
+      Logger.warn('BOT_FILE no sessionId for ' + file.path);
       return '';
     }
     const context = getContext(this) as common.UIAbilityContext;
@@ -1062,20 +1109,37 @@ export struct BotChatPage {
       this.imageRevision += 1;
     }).catch((error: Error) => {
       Logger.warn('BOT_FILE failed: ' + (error instanceof Error ? error.message : String(error)));
+      this.fileImageFailures.push(key);
+      this.imageRevision += 1;
     });
     return '';
   }
 
   /** 交付图片的展示尺寸：单图铺满气泡宽、多图两列（与附件图片同一套） */
   @Builder
-  fileImageCard(file: BotPresentedFile, single: boolean) {
+  fileImageCard(file: BotPresentedFile, single: boolean, sessionIdHint: string) {
     Stack({ alignContent: Alignment.Center }) {
-      if (this.fileImagePath(file).length > 0) {
-        Image(this.fileUri(this.fileImagePath(file)))
+      if (this.fileImagePath(file, sessionIdHint).length > 0) {
+        Image(this.fileUri(this.fileImagePath(file, sessionIdHint)))
           .width('100%')
           .height(single ? 220 : 140)
           .objectFit(ImageFit.Cover)
           .borderRadius(12)
+      } else if (this.fileImageFailed(file)) {
+        // 失败不再一直转圈：给明确状态，点一下重试
+        Column({ space: 6 }) {
+          Text('图片加载失败')
+            .fontSize(13)
+            .fontColor(this.subColor())
+          Text('点击重试')
+            .fontSize(13)
+            .fontColor(this.botBlue())
+        }
+        .width('100%')
+        .height(single ? 180 : 120)
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)')
+        .borderRadius(12)
       } else {
         Row({ space: 8 }) {
           LoadingProgress()
@@ -1096,10 +1160,17 @@ export struct BotChatPage {
     .width(single ? '100%' : '48%')
     .margin({ bottom: 8 })
     .onClick(() => {
-      const ready: string = this.fileImagePath(file);
+      const ready: string = this.fileImagePath(file, sessionIdHint);
       if (ready.length > 0) {
+        // 点击打开底部玻璃弹窗大图预览
         this.openImagePreview(this.fileUri(ready));
+        return;
       }
+      if (this.fileImageFailed(file)) {
+        this.retryFileImage(file);
+        return;
+      }
+      this.showHint('图片还在加载，请稍候');
     })
   }
 
@@ -1340,8 +1411,7 @@ export struct BotChatPage {
    * 真正不支持时才回退到底部玻璃弹窗里的文件信息卡。
    */
   private onOpenFile(file: BotPresentedFile): void {
-    const chat: BotChat | null = this.chat();
-    const sessionId: string = chat !== null && chat.sessionId !== undefined ? chat.sessionId : '';
+    const sessionId: string = this.sessionIdForFiles('');
     if (sessionId.length === 0) {
       this.showHint('会话未就绪，稍后再试');
       return;
@@ -2394,7 +2464,7 @@ export struct BotChatPage {
               Flex({ wrap: FlexWrap.Wrap }) {
                 ForEach(message.files, (file: BotPresentedFile) => {
                   if (this.isImageFile(this.fileNameOf(file))) {
-                    this.fileImageCard(file, message.files.length === 1)
+                    this.fileImageCard(file, message.files.length === 1, message.sessionId)
                   } else {
                     Column() {
                       this.fileCard(file)
