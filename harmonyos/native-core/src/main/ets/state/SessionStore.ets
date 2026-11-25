@@ -2299,8 +2299,12 @@ export class SessionStore {
     }
     const events: RawSessionEvent[] = frame.events !== undefined ? frame.events : [];
     const extra: string[] = this.userTurnLabelsOf(events);
-    for (const label of extra) {
-      this.titleFetchLabels.push(label);
+    // 补拉页是从新到旧：把这一页插到最前面，最终顺序才是 旧→新
+    if (extra.length > 0) {
+      this.titleFetchLabels = extra.concat(this.titleFetchLabels);
+      if (this.titleFetchLabels.length > 600) {
+        this.titleFetchLabels = this.titleFetchLabels.slice(0, 600);
+      }
     }
     this.titleFetchHasMore = frame.hasMore === true;
     let minSeq: number = 0;
@@ -2319,7 +2323,7 @@ export class SessionStore {
     }
   }
 
-  /** 从原始事件提取用户轮次标题（projection 同款过滤规则） */
+  /** 从原始事件提取用户轮次标题（兼容 content 块 / text / message 三种正文形态） */
   private userTurnLabelsOf(events: RawSessionEvent[]): string[] {
     const labels: string[] = [];
     for (const raw of events) {
@@ -2328,19 +2332,62 @@ export class SessionStore {
       }
       const data: Record<string, Object> = (raw.data !== undefined && raw.data !== null)
         ? raw.data as Record<string, Object> : {} as Record<string, Object>;
-      const source: Object | undefined = data['source'];
-      const images: Object[] | undefined = data['images'] as Object[] | undefined;
-      const isUser: boolean = source === undefined || source === 'user' || source === 'ptc-mode'
-        || ((images !== undefined ? images.length : 0) > 0);
+      let sourceKind: string = '';
+      const sourceRaw: Object | undefined = data['source'];
+      if (typeof sourceRaw === 'string') {
+        sourceKind = sourceRaw as string;
+      } else if (sourceRaw !== undefined && sourceRaw !== null) {
+        sourceKind = str(asRec(sourceRaw), 'kind') ?? '';
+      }
+      let text: string = '';
+      let hasImage: boolean = false;
+      const content: Object | undefined = data['content'];
+      if (Array.isArray(content)) {
+        const blocks: Object[] = content as Object[];
+        for (const block of blocks) {
+          const rec: Record<string, Object> | undefined = asRec(block);
+          if (rec === undefined) {
+            continue;
+          }
+          const blockType: string = str(rec, 'type') ?? '';
+          if (blockType === 'text') {
+            text += str(rec, 'text') ?? '';
+          } else if (blockType === 'image') {
+            hasImage = true;
+          }
+        }
+      }
+      if (text.length === 0) {
+        text = str(data, 'text') ?? '';
+      }
+      if (text.length === 0) {
+        const message: Object | undefined = data['message'];
+        if (typeof message === 'string') {
+          text = message as string;
+        } else if (Array.isArray(message)) {
+          const blocks: Object[] = message as Object[];
+          for (const block of blocks) {
+            const rec: Record<string, Object> | undefined = asRec(block);
+            if (rec === undefined) {
+              continue;
+            }
+            text += str(rec, 'text') ?? '';
+          }
+        }
+      }
+      const imagesTop: Object | undefined = data['images'];
+      if (Array.isArray(imagesTop) && (imagesTop as Object[]).length > 0) {
+        hasImage = true;
+      }
+      const isUser: boolean = sourceKind.length === 0 || sourceKind === 'user' || sourceKind === 'ptc-mode' || hasImage;
       if (!isUser) {
         continue;
       }
-      const text: string = typeof data['text'] === 'string' ? data['text'] as string : '';
       const clean: string = text.replace(/<path>[\s\S]*?<\/path>/g, '').replace(/\s+/g, ' ').trim();
       if (clean.startsWith('[') || clean.indexOf('Plugin context') >= 0 || clean.indexOf('Time sampled') >= 0) {
         continue;
       }
-      if (clean.length === 0 && (images === undefined || images.length === 0)) {
+      if (clean.length === 0 && !hasImage) {
         continue;
       }
       labels.push(clean.length > 0 ? clean : '（图片）');
