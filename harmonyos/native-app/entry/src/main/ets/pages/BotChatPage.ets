@@ -16,7 +16,7 @@ import {
   BOT_BG_DEFAULT, BotPalette, botPalette,
   BotAnswerChoice, BotChat, BotChatImage, BotChatMessage, BotInteraction,
   BotPresentedFile, BotQuestionAnswer, BotSnapshot, BotStore, emptyBotSnapshot,
-  GatewayClient, Logger, pickDocuments, pickImages, uploadAttachment, SpeechFailure, SpeechInput
+  BotImageCache, GatewayClient, Logger, pickDocuments, pickImages, uploadAttachment, SpeechFailure, SpeechInput
 } from 'nativecore';
 import type { PickedAttachment, SpeechLimits, UploadResult } from 'nativecore';
 import { common } from '@kit.AbilityKit';
@@ -121,6 +121,8 @@ export struct BotChatPage {
   @State attachMenuOpen: boolean = false;
   /** 输入框上方的轻提示（附件失败等） */
   @State hint: string = '';
+  /** 正文图片/附件图片缓存代次：拉取完成后 +1 触发 Markdown 与图片块重绘 */
+  @State imageRevision: number = 0;
   /** 语音输入开关（设置页「语音输入」）与当前是否处于语音模式 */
   @StorageLink('voiceInputEnabled') voiceInputEnabled: boolean = true;
   @State voiceMode: boolean = false;
@@ -164,6 +166,7 @@ export struct BotChatPage {
   private palette: BotBubblePalette = new BotBubblePalette([], '');
 
   aboutToAppear(): void {
+    this.rebuildImageIndex();
     BotStore.get().setForeground(true);
     this.rebuildPalette();
     this.liveClock = Date.now();
@@ -176,6 +179,8 @@ export struct BotChatPage {
   }
 
   onStateChanged(): void {
+    // 消息变化时重建「附件 id → 会话 id」索引，正文里的 /__bot_image__/ 才能解析
+    this.rebuildImageIndex();
     const chatId: string = this.state.selectedChatId ?? '';
     for (const interaction of this.state.interactions) {
       if (interaction.chatId === chatId && interaction.kind === 'question' && interaction.id !== this.pickedFor) {
@@ -913,6 +918,70 @@ export struct BotChatPage {
     if (preview.length > 0) {
       this.showHint('已引用：' + preview);
     }
+  }
+
+  /** attachmentId → sessionId（Markdown 正文里 /__bot_image__/<id> 需要它才能拉图） */
+  private botImageIndex: Map<string, string> = new Map<string, string>();
+
+  private rebuildImageIndex(): void {
+    this.botImageIndex.clear();
+    for (const message of this.state.messages) {
+      for (const image of message.images) {
+        this.botImageIndex.set(image.attachmentId, image.sessionId);
+      }
+    }
+  }
+
+  /**
+   * 正文里 ![](/__bot_image__/<attachmentId>) / ![](/__bot_image__/<id>/<name>) 的图片：
+   * 解析成 BotImageCache 的本地路径；尚未缓存时后台拉取，拉完用 imageRevision 触发重绘。
+   * 这样助手回复正文里的图片会**直接显示成图片预览**（可点开大图），而不是留一行裸路径。
+   */
+  private resolveBotImage(src: string): string {
+    const marker: string = '/__bot_image__/';
+    const at: number = src.indexOf(marker);
+    if (at < 0) {
+      return '';
+    }
+    let rest: string = src.substring(at + marker.length);
+    const cut: number = rest.indexOf('/');
+    if (cut >= 0) {
+      rest = rest.substring(0, cut);
+    }
+    const attachmentId: string = rest.trim();
+    if (attachmentId.length === 0) {
+      return '';
+    }
+    const sessionId: string = this.botImageIndex.get(attachmentId) ?? '';
+    if (sessionId.length === 0) {
+      return '';
+    }
+    const key: string = sessionId + ':' + attachmentId;
+    const cached: string = BotImageCache.get().cachedPath(key);
+    if (cached.length > 0) {
+      return cached;
+    }
+    BotImageCache.get().load(key, this.state.selectedChatId ?? '', sessionId, attachmentId, 'image/png',
+      (ready: string) => {
+        this.imageRevision += 1;
+      });
+    return '';
+  }
+
+  /** 单图/多图的自适应尺寸：按图片宽高比给接近 iOS 的预览大小 */
+  private imageBoxWidth(image: BotChatImage, single: boolean): number {
+    const maxWidth: number = Math.min(this.bubbleMaxWidth(), 292);
+    if (!single) {
+      return Math.round((maxWidth - 6) / 2);
+    }
+    return maxWidth;
+  }
+
+  private imageBoxHeight(image: BotChatImage, single: boolean): number {
+    const width: number = this.imageBoxWidth(image, single);
+    const ratio: number = image.width > 0 && image.height > 0 ? image.height / image.width : 0.75;
+    const height: number = Math.round(width * ratio);
+    return Math.max(80, Math.min(height, 360));
   }
 
   private openImagePreview(path: string): void {
@@ -1866,7 +1935,18 @@ export struct BotChatPage {
               // Markdown 正文：内部各块是 width 100%，必须给容器一个确定宽度，
               // 否则百分比会按最大约束先算再被外层裁剪（文字左右被切掉）
               Column() {
-                MarkdownBodyView({ text: message.text, fontSize: this.contentSize() })
+                // 正文里的 ![](/__bot_image__/...) 直接渲染成图片并支持点开大图（与工作模式一致）
+                MarkdownBodyView({
+                  text: message.text,
+                  fontSize: this.contentSize(),
+                  resolveImage: (src: string): string => this.resolveBotImage(src),
+                  imageRevision: this.imageRevision,
+                  onImageTap: (src: string) => {
+                    if (src.length > 0) {
+                      this.openImagePreview(src);
+                    }
+                  }
+                })
               }
               .width(this.bubbleMaxWidth())
               .padding({ left: BUBBLE_PAD_H, right: BUBBLE_PAD_H, top: BUBBLE_PAD_V, bottom: BUBBLE_PAD_V })
@@ -1875,6 +1955,7 @@ export struct BotChatPage {
               .clip(true)
             }
             if (message.images.length > 0) {
+              // 图片区：单图铺满气泡宽（按宽高比自适应高度），多图两列 —— 更接近 iOS 的图片预览
               Flex({ wrap: FlexWrap.Wrap }) {
                 ForEach(message.images, (image: BotChatImage) => {
                   BotMessageImage({
@@ -1882,11 +1963,13 @@ export struct BotChatPage {
                     attachmentId: image.attachmentId,
                     sessionId: image.sessionId,
                     mediaType: image.mediaType,
+                    boxWidth: this.imageBoxWidth(image, message.images.length === 1),
+                    boxHeight: this.imageBoxHeight(image, message.images.length === 1),
                     onOpen: (ready: string) => {
                       this.openImagePreview(ready);
                     }
                   })
-                    .margin({ right: 6, bottom: 6 })
+                    .margin({ right: message.images.length === 1 ? 0 : 6, bottom: 6 })
                 }, (image: BotChatImage) => image.sessionId + ':' + image.attachmentId)
               }
             }
