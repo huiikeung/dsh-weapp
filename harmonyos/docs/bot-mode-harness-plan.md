@@ -62,6 +62,14 @@
 - iOS BotFace（BotModeView.swift:908）只有三档：有主机下发图 → 渲染图；主 Bot 无图 → WhalenessOrcaIcon（鲸鱼，size×0.58，BotInk 着色）；其余 → 名字首字（size×0.42 semibold、BotBlue、BotLavenderSoft 底、圆角 size/3）。所以「文字头像」本身是 iOS 规格内的兜底（普通 Bot 没有自定义形象时）。
 - 本地已对齐：首页/我的 Bot/聊天页三处走同一规则（有图→图；主 Bot 无图→ dsh_whale；其余→首字 BotBlue）；聊天页头像去掉多余底板；「新建群聊」成员行不再用自造彩色哈希圆。
 
+## 发送失败修复（2026-11-25）
+
+- 根因：`BotStore.sendPayload` 之前发的是 `botId`/`roomId`，而 dsh-mobile 共享层（SharedBotStore.send）与 iOS BotModeView.send 发的是 `sessionId`：
+  - 普通发送 → `{ sessionId: chatId, text }`
+  - 带附件 → `{ sessionId: 官方会话, chatId, text, images[], receipts[] }`
+  主机拿不到 sessionId 就认不出会话，回错误或不回包；乐观气泡于是从 `sending` 落到 `unknown`，界面显示「发送状态待确认，请同步聊天后核对」，看起来就是「发不出去，还提示要同步」。
+- 已按协议修正 sendPayload；`docs/bot-mode-ios-spec.md` §4.5/§9.3 也是这个形状。
+
 ## 待做（P1/P2）
 
 1. 文件附件上传（bot-attachments receipts 链路；需要网关 upload 协议，iOS 走 FileUploadController）

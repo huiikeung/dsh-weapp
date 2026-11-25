@@ -1646,20 +1646,28 @@ export class BotStore {
     return true;
   }
 
+  /**
+   * 发送载荷（对齐 dsh-mobile 共享层 SharedBotStore.send 与 iOS BotModeView.send）：
+   *   普通发送 → { sessionId: chatId, text }
+   *   带附件 → { sessionId: 官方会话 sessionId, chatId, text, images[], receipts[] }
+   * 之前这里错发成 botId/roomId，主机会认不出会话、回错误或干脆不回包，
+   * 界面就表现为「发不出去 / 发送状态待确认，请同步聊天后核对」。
+   */
   private sendPayload(chatId: string, message: string, images: Object[], receipts: string[]): Record<string, Object> {
     const chat: BotChat | null = this.chatOf(chatId);
     const payload: Record<string, Object> = {};
-    payload[chat !== null && chat.room ? 'roomId' : 'botId'] = chatId;
-    payload.text = message;
-    payload.images = images;
-    payload.receipts = receipts;
-    // 带附件时官方协议要 sessionId(官方会话) + chatId；主机只认 botId/roomId 的老版本忽略多余字段即可。
-    if (images.length > 0 || receipts.length > 0) {
+    const withAttachments: boolean = images.length > 0 || receipts.length > 0;
+    if (withAttachments) {
+      const official: string = chat !== null && chat.sessionId !== undefined && chat.sessionId.length > 0
+        ? chat.sessionId : chatId;
+      payload.sessionId = official;
       payload.chatId = chatId;
-      if (chat !== null && chat.sessionId !== undefined && chat.sessionId.length > 0) {
-        payload.sessionId = chat.sessionId;
-      }
+      payload.images = images;
+      payload.receipts = receipts;
+    } else {
+      payload.sessionId = chatId;
     }
+    payload.text = message;
     return payload;
   }
 
