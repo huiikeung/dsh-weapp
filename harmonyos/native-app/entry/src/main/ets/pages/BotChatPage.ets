@@ -25,6 +25,7 @@ import { abilityAccessCtrl } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { filePreview } from '@kit.PreviewKit';
+import { pdfViewManager, PdfView } from '@kit.PDFKit';
 import { util } from '@kit.ArkTS';
 import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
@@ -168,6 +169,9 @@ export struct BotChatPage {
   @State filePreviewLoading: boolean = false;
   @State filePreviewError: string = '';
   @State filePreviewIsImage: boolean = false;
+  /** PDF 直接在底部弹窗里用 PDFKit 的 PdfView 渲染（可以嵌进任意容器，不必跳系统预览） */
+  @State filePreviewIsPdf: boolean = false;
+  private pdfController: pdfViewManager.PdfController = new pdfViewManager.PdfController();
   private filePreviewSource: BotPresentedFile | null = null;
   @State previewPath: string = '';
   @State previewZoom: number = 1;
@@ -1340,11 +1344,16 @@ export struct BotChatPage {
     this.filePreviewError = '';
     this.filePreviewSize = '';
     this.filePreviewIsImage = this.isImageFile(this.filePreviewName);
+    this.filePreviewIsPdf = this.isPdfFile(this.filePreviewName);
+    const isText: boolean = this.isTextFile(this.filePreviewName);
+    // 图片 / 文本 / PDF 走自家底部弹窗；其它文档（docx / xlsx / pptx …）不弹弹窗，
+    // 下载完直接交给系统 PreviewKit 全屏预览（它没法嵌进我们的弹窗）
+    const systemPreviewOnly: boolean = !this.filePreviewIsImage && !this.filePreviewIsPdf && !isText;
     this.filePreviewLoading = true;
-    this.filePreviewOpen = true;
+    this.filePreviewOpen = !systemPreviewOnly;
     const context = getContext(this) as common.UIAbilityContext;
     const client: GatewayClient = GatewayClient.get();
-    Logger.info('BOT_FILE preview ' + file.path);
+    Logger.info('BOT_FILE preview ' + file.path + ' system=' + (systemPreviewOnly ? '1' : '0'));
     client.resolveFile(sessionId, file.path).then((resolved) => {
       const rel: string = resolved.path !== undefined ? String(resolved.path) : '';
       if (rel.length === 0) {
@@ -1365,17 +1374,25 @@ export struct BotChatPage {
           this.filePreviewLoading = false;
         });
       }
-      // Office / PDF：先试系统 PreviewKit（应用内全屏预览），成功就把弹窗关掉
+      if (this.filePreviewIsPdf) {
+        // PDF：不走系统预览，直接用 PDFKit 的 PdfView 嵌在底部弹窗里渲染
+        return this.loadPdfPreview(result.localPath);
+      }
+      // 其它文档：系统 PreviewKit 全屏预览（弹窗根本没打开，失败给提示）
       return this.previewInApp(context, result.localPath, this.filePreviewName).then((opened: boolean) => {
         this.filePreviewLoading = false;
-        if (opened) {
-          this.filePreviewOpen = false;
+        if (!opened) {
+          this.showHint('该格式暂不支持在应用内预览');
         }
       });
     }).catch((error: Error) => {
       Logger.warn('BOT_FILE preview failed: ' + error.message);
       this.filePreviewLoading = false;
-      this.filePreviewError = '文件下载失败，请确认主机在线后重试';
+      if (systemPreviewOnly) {
+        this.showHint('文件下载失败，请确认主机在线后重试');
+      } else {
+        this.filePreviewError = '文件下载失败，请确认主机在线后重试';
+      }
     });
   }
 
@@ -1391,6 +1408,21 @@ export struct BotChatPage {
       return (bytes / 1024).toFixed(1) + ' KB';
     }
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  private isPdfFile(name: string): boolean {
+    return this.fileExtension(name) === 'pdf';
+  }
+
+  /** 把 PDF 载入 PdfView；失败时在弹窗里给错误文案 */
+  private loadPdfPreview(localPath: string): Promise<void> {
+    return this.pdfController.loadDocument(localPath).then(() => {
+      this.filePreviewLoading = false;
+    }).catch((error: Error) => {
+      Logger.warn('BOT_FILE pdf load failed: ' + error.message);
+      this.filePreviewLoading = false;
+      this.filePreviewError = 'PDF 解析失败，请重试';
+    });
   }
 
   private isTextFile(name: string): boolean {
@@ -1472,6 +1504,11 @@ export struct BotChatPage {
             .fontSize(14)
             .fontColor(this.subColor())
             .padding(24)
+        } else if (this.filePreviewIsPdf && this.filePreviewLocalPath.length > 0) {
+          // PDF 用 PDFKit 的 PdfView 在弹窗里渲染（可滚动、可缩放，由组件自己处理）
+          PdfView({ controller: this.pdfController })
+            .width('100%')
+            .layoutWeight(1)
         } else if (this.filePreviewIsImage && this.filePreviewLocalPath.length > 0) {
           this.zoomablePreviewImage(this.fileUri(this.filePreviewLocalPath))
         } else if (this.filePreviewText.length > 0) {
@@ -3112,6 +3149,13 @@ export struct BotChatPage {
               this.filePreviewLocalPath = '';
               this.filePreviewText = '';
               this.filePreviewError = '';
+              if (this.filePreviewIsPdf) {
+                try {
+                  this.pdfController.releaseDocument();
+                } catch (ignored) {
+                }
+                this.filePreviewIsPdf = false;
+              }
             }
           })
       }
