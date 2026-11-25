@@ -9862,7 +9862,10 @@ export struct ConversationPage {
     }
     this.turnNavFetching = true;
     const sessionId: string = SessionStore.get().currentSessionId();
-    if (this.turnTitleCacheSession === sessionId && this.turnTitleCache.length > 0) {
+    const cached: string[] = SessionStore.get().cachedTurnTitles(sessionId);
+    if (cached.length > 0 && (this.turnTitleCacheSession === sessionId || this.turnNodes.length < cached.length)) {
+      this.turnTitleCache = cached;
+      this.turnTitleCacheSession = sessionId;
       // 命中缓存：立即铺满（后台仍会刷新一次，保证最新）
       this.turnNodes = this.turnTitleCache.map((label: string, index: number) => {
         const node: TurnNode = { entryIndex: -1, ordinal: index + 1, label: label };
@@ -9892,6 +9895,7 @@ export struct ConversationPage {
       if (labels.length > 0) {
         this.turnTitleCache = labels.slice();
         this.turnTitleCacheSession = SessionStore.get().currentSessionId();
+        SessionStore.get().rememberTurnTitles(this.turnTitleCacheSession, labels);
       }
       apply(labels);
       if (this.turnNavOpen) {

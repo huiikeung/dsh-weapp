@@ -2202,6 +2202,8 @@ export class SessionStore {
   private titleFetchTimer: number = -1;
   /** 标题去重（同一轮被网关重复投递/页间重叠时只留一条） */
   private titleFetchSeen: Record<string, boolean> = {};
+  /** 每会话轮次标题缓存：首次补全后，重开弹层/切页返回都直接命中 */
+  private turnTitleCache: Map<string, string[]> = new Map<string, string[]>();
 
   /**
    * 只拉「用户轮次标题」：逐页请求历史，只提取 user/message 文案。
@@ -2247,6 +2249,29 @@ export class SessionStore {
     }
     Logger.info('[TitleFetch] done pages=' + guard.toString() + ' titles=' + this.titleFetchLabels.length.toString());
     return this.titleFetchLabels.slice();
+  }
+
+  /** 读取某会话已补全的标题缓存（没有则空数组） */
+  cachedTurnTitles(sessionId: string): string[] {
+    const labels: string[] | undefined = this.turnTitleCache.get(sessionId);
+    return labels !== undefined ? labels.slice() : [];
+  }
+
+  /** 记住某会话补全后的标题（最多保留 6 个会话） */
+  rememberTurnTitles(sessionId: string, labels: string[]): void {
+    if (sessionId.length === 0 || labels.length === 0) {
+      return;
+    }
+    this.turnTitleCache.set(sessionId, labels.slice());
+    if (this.turnTitleCache.size > 6) {
+      const keys: string[] = [];
+      this.turnTitleCache.forEach((_value: string[], key: string) => {
+        keys.push(key);
+      });
+      for (let index = 0; index < keys.length - 6; index++) {
+        this.turnTitleCache.delete(keys[index]);
+      }
+    }
   }
 
   /** 取消标题补全（关弹层/换会话） */
