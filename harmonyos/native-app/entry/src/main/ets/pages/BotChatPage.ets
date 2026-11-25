@@ -23,7 +23,8 @@ import type { DownloadResult, PickedAttachment, SpeechLimits, UploadResult } fro
 import { common } from '@kit.AbilityKit';
 import { abilityAccessCtrl } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { fileIo } from '@kit.CoreFileKit';
+import { fileIo, fileUri } from '@kit.CoreFileKit';
+import { filePreview } from '@kit.PreviewKit';
 import { util } from '@kit.ArkTS';
 import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
@@ -1299,8 +1300,31 @@ export struct BotChatPage {
   }
 
   /**
-   * 点交付文件卡：下载到本机后打开底部原生玻璃弹窗预览。
-   * 图片直接看图、文本/代码显示内容、Office/PDF 显示文件信息（应用内暂不支持渲染）。
+   * 应用内文档预览：交给系统 PreviewKit（docx/xlsx/pptx/pdf 都能渲染）。
+   * 返回 false 表示这台设备/该类型不支持，调用方回退到原来的文件信息卡片。
+   */
+  private async previewInApp(context: common.UIAbilityContext, localPath: string, title: string): Promise<boolean> {
+    try {
+      const uri: string = fileUri.getUriFromPath(localPath);
+      const can: boolean = await filePreview.canPreview(context, uri);
+      if (!can) {
+        return false;
+      }
+      // mimeType 传空串：由系统按 URI 后缀推断（避免自己维护扩展名映射表）
+      const info: filePreview.PreviewInfo = { uri: uri, mimeType: '', title: title };
+      await filePreview.openPreview(context, info);
+      Logger.info('BOT_FILE previewInApp ok ' + title);
+      return true;
+    } catch (err) {
+      Logger.warn('BOT_FILE previewInApp failed ' + title + ' '
+        + (err instanceof Error ? err.message : String(err)));
+      return false;
+    }
+  }
+
+  /**
+   * 点交付文件卡：图片看大图、文本看内容；docx/xlsx/pptx/pdf 先交给系统 PreviewKit 在应用内预览，
+   * 真正不支持时才回退到底部玻璃弹窗里的文件信息卡。
    */
   private onOpenFile(file: BotPresentedFile): void {
     const chat: BotChat | null = this.chat();
@@ -1341,8 +1365,13 @@ export struct BotChatPage {
           this.filePreviewLoading = false;
         });
       }
-      this.filePreviewLoading = false;
-      return Promise.resolve();
+      // Office / PDF：先试系统 PreviewKit（应用内全屏预览），成功就把弹窗关掉
+      return this.previewInApp(context, result.localPath, this.filePreviewName).then((opened: boolean) => {
+        this.filePreviewLoading = false;
+        if (opened) {
+          this.filePreviewOpen = false;
+        }
+      });
     }).catch((error: Error) => {
       Logger.warn('BOT_FILE preview failed: ' + error.message);
       this.filePreviewLoading = false;
