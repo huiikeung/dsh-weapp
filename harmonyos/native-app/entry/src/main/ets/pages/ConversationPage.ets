@@ -8595,9 +8595,13 @@ export struct ConversationPage {
     return this.isDark ? 'rgba(0,0,0,0.26)' : 'rgba(242,242,244,0.28)';
   }
 
-  /** 顶栏按钮直径：内嵌原生标题栏时与系统返回键同尺寸（48vp），旧布局 36vp */
+  /**
+   * 顶栏按钮直径：要和系统返回键（标题栏里 45vp 的那个圆）看起来一样大。
+   * HdsGlassSurface 的 HdsTabs 背板有最小尺寸（nominal 48 → 实际渲染 54vp），
+   * 所以这里按 40 给，渲染出来约 45vp，和返回键同大。
+   */
   private headerBtnSize(embedded: boolean): number {
-    return embedded ? 48 : 36;
+    return embedded ? 40 : 36;
   }
 
   @Builder
