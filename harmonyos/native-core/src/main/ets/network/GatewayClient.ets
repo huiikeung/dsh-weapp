@@ -112,6 +112,11 @@ export class GatewayClient {
   // 每次「扫码配对」生成一个独立的主机档案 id（对齐 iOS：新配对=新 profile，绝不覆盖旧主机）
   private pendingPairHostId: string = '';
   private lastConnectAttemptAt: number = 0;
+  // 「连接中」超过 12 秒就自愈：重连成功后 UI 圆点才能从橙色变绿
+  private connectingSince: number = 0;
+  private lastWatchdogAt: number = 0;
+  private connectWatchdogTimer: number = 0;
+  private lastActivatedAt: number = 0;
   private altCredentialTried: string[] = [];
   private tailnetBlockedUntil: number = 0;
   private bearerPollTimer: number = 0;
@@ -136,6 +141,11 @@ export class GatewayClient {
       return;
     }
     if (this.usingTailnetRoute) {
+      return;
+    }
+    // 刚连接成功的前 6 秒不做端点升级：否则扫码/首连后立刻切隧道，
+    // 一旦隧道拨号慢，UI 会长时间停在「连接中」（橙点），看起来像连不上。
+    if (this.lastActivatedAt > 0 && Date.now() - this.lastActivatedAt < 6000) {
       return;
     }
     const profile: GatewayProfile | null = this.currentProfile;
@@ -475,8 +485,34 @@ export class GatewayClient {
     return locals.concat(result);
   }
 
+  /** 连接状态看门狗：长时间停在「连接中」时用已保存凭据自愈一次 */
+  private startConnectWatchdog(): void {
+    if (this.connectWatchdogTimer !== 0) {
+      return;
+    }
+    this.connectWatchdogTimer = setInterval(() => {
+      if (this.connectingSince === 0 || this.state !== ConnectionState.CONNECTING) {
+        return;
+      }
+      const stuckFor: number = Date.now() - this.connectingSince;
+      if (stuckFor < 12000 || Date.now() - this.lastWatchdogAt < 15000) {
+        return;
+      }
+      if (!this.reconnectEnabled && this.pendingPairHostId.length === 0) {
+        return;
+      }
+      this.lastWatchdogAt = Date.now();
+      Logger.warn('STATE_WATCHDOG stuck in connecting ' + stuckFor + 'ms, reconnect with saved credentials');
+      this.connectingSince = Date.now();
+      if (!this.autoConnect()) {
+        this.reconnectBest();
+      }
+    }, 2000);
+  }
+
   /** 注册网络类型监听（只注册一次） */
   private ensureNetworkMonitor(): void {
+    this.startConnectWatchdog();
     if (this.netListening) {
       return;
     }
@@ -3013,6 +3049,14 @@ export class GatewayClient {
   }
 
   private publish(state: ConnectionState): void {
+    if (state === ConnectionState.CONNECTING && this.state !== ConnectionState.CONNECTING) {
+      this.connectingSince = Date.now();
+    } else if (state === ConnectionState.CONNECTED) {
+      this.connectingSince = 0;
+      this.lastActivatedAt = Date.now();
+    } else if (state === ConnectionState.DISCONNECTED) {
+      this.connectingSince = 0;
+    }
     this.state = state;
     AppStorage.setOrCreate<string>(KEY_CONNECTION, state as string);
   }
