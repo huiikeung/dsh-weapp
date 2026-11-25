@@ -1,5 +1,6 @@
 import { abilityAccessCtrl, common, Want } from '@kit.AbilityKit';
-import { fileIo } from '@kit.CoreFileKit';
+import { fileIo, fileUri } from '@kit.CoreFileKit';
+import { filePreview } from '@kit.PreviewKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { image } from '@kit.ImageKit';
 import { util } from '@kit.ArkTS';
@@ -1458,7 +1459,11 @@ export struct ConversationPage {
         this.previewImageOpen = true;
         return;
       }
-      await AttachmentCache.openExternally(context, result.localPath, mime.length > 0 ? mime : 'application/octet-stream');
+      const safeMime: string = mime.length > 0 ? mime : 'application/octet-stream';
+      if (await this.previewInApp(context, result.localPath, safeMime, result.name.length > 0 ? result.name : name)) {
+        return;
+      }
+      await AttachmentCache.openExternally(context, result.localPath, safeMime);
     } catch (err) {
       this.showToast((err as Error).message, true);
     }
@@ -1694,7 +1699,30 @@ export struct ConversationPage {
     }
   }
 
-  /** 打开文件内容弹窗：文本文件读正文；其它类型交给系统查看器 */
+  /**
+   * 应用内文档预览：交给系统 PreviewKit（能渲染 docx/xlsx/pptx/pdf/图片/文本等）。
+   * 返回 false 表示这台设备/这个类型不支持，调用方再回退到「用其它应用打开」。
+   */
+  private async previewInApp(context: common.UIAbilityContext, path: string, mime: string,
+    title: string): Promise<boolean> {
+    try {
+      const uri: string = fileUri.getUriFromPath(path);
+      const can: boolean = await filePreview.canPreview(context, uri);
+      if (!can) {
+        return false;
+      }
+      const info: filePreview.PreviewInfo = { uri: uri, mimeType: mime, title: title };
+      await filePreview.openPreview(context, info);
+      Logger.info('[PREVIEW] openPreview ok ' + title);
+      return true;
+    } catch (err) {
+      Logger.warn('[PREVIEW] openPreview failed ' + title + ' '
+        + (err instanceof Error ? err.message : String(err)));
+      return false;
+    }
+  }
+
+  /** 打开文件内容弹窗：文本文件读正文；文档类先用系统 PreviewKit 在应用内预览；再不行才跳其它应用 */
   private async openFileContent(name: string, path: string, mediaType: string): Promise<void> {
     const sessionId: string = SessionStore.get().currentSessionId();
     if (path.length === 0 || sessionId.length === 0) {
@@ -1722,8 +1750,11 @@ export struct ConversationPage {
         this.fileDiffOpen = true;
         return;
       }
-      await AttachmentCache.openExternally(context, result.localPath,
-        mime.length > 0 ? mime : 'application/octet-stream');
+      const safeMime: string = mime.length > 0 ? mime : 'application/octet-stream';
+      if (await this.previewInApp(context, result.localPath, safeMime, result.name.length > 0 ? result.name : name)) {
+        return;
+      }
+      await AttachmentCache.openExternally(context, result.localPath, safeMime);
     } catch (err) {
       this.showToast((err as Error).message, true);
     }
@@ -11143,6 +11174,14 @@ export struct ConversationPage {
     }).then((result: DownloadResult) => {
       this.fileBusy = false;
       this.fileHint = '已保存：' + result.localPath;
+      // 下载完直接在应用内预览（docx/xlsx/pptx/pdf 等交给系统 PreviewKit；不支持的类型自动忽略）
+      const mime: string = result.mediaType.length > 0 ? result.mediaType : '';
+      this.previewInApp(context, result.localPath, mime, entry.name).then((opened: boolean) => {
+        if (opened) {
+          this.fileSheetOpen = false;
+        }
+      }).catch(() => {
+      });
     }).catch((error: Error) => {
       this.fileBusy = false;
       this.fileHint = error.message.length > 0 ? error.message : '下载失败，请重试';
