@@ -19,6 +19,7 @@ import { AttachmentImageCache, GatewayClient, Logger, SessionStore, downloadAtta
 import type { DownloadResult } from 'nativecore';
 import { common } from '@kit.AbilityKit';
 import type { GatewayImageAttachment } from 'nativecore';
+import { fileCardColor, fileCardSummary, fileKindIcon, fileKindOf, fileKindRgb } from '../common/FileKind';
 
 /** 用户多图网格的一格：path + 折叠时最后一格的「+N」数量（0 = 普通格） */
 interface UserImageTile {
@@ -388,31 +389,18 @@ export struct ConversationRowView {
     return index < parts.length ? parts[index] : '';
   }
 
-  /** 文件图标按扩展名分类（对齐小程序 file-deliverables.describe 的 icon） */
+  private filePathOf(chip: string): string {
+    return this.fileAt(chip, 0).length > 0 ? this.fileAt(chip, 0) : this.fileAt(chip, 2);
+  }
+
+  /** 文件类型（对齐 dsh 端 FileIconCatalog）：Word→docx、Excel→xlsx、PPT→pptx、PDF→pdf … */
+  private fileKind(chip: string): string {
+    return fileKindOf(this.filePathOf(chip));
+  }
+
+  /** 全彩文件图标（与 dsh 端同一套 Untitled UI 矢量图，不加 tint） */
   private fileIcon(chip: string): Resource {
-    const path: string = this.fileAt(chip, 0).length > 0 ? this.fileAt(chip, 0) : this.fileAt(chip, 2);
-    const base: string = path.replace(/\\/g, '/').split('/').pop() ?? '';
-    const dot: number = base.lastIndexOf('.');
-    const ext: string = dot > 0 ? base.substring(dot + 1).toLowerCase() : '';
-    if (/^(png|jpe?g|gif|webp|bmp)$/.test(ext)) {
-      return $r('app.media.deliverable_image');
-    }
-    if (ext === 'pdf') {
-      return $r('app.media.deliverable_pdf');
-    }
-    if (/^(docx?|md|markdown|txt)$/.test(ext)) {
-      return $r('app.media.deliverable_document');
-    }
-    if (/^(xlsx?|csv)$/.test(ext)) {
-      return $r('app.media.deliverable_table');
-    }
-    if (/^pptx?$/.test(ext)) {
-      return $r('app.media.deliverable_slides');
-    }
-    if (/^(md|markdown|txt|html?|css|wxss|wxml|wxs|vue|svelte|scss|less|js|jsx|mjs|cjs|ts|tsx|json|jsonl|csv|log|ya?ml|xml|svg|py|sh|sql|swift|kt|java|c|h|cpp|rs|go|toml|ini)$/.test(ext)) {
-      return $r('app.media.deliverable_code');
-    }
-    return $r('app.media.deliverable_file');
+    return fileKindIcon(this.fileKind(chip));
   }
 
   private surfaces(): string {
@@ -481,17 +469,27 @@ export struct ConversationRowView {
       Column() {
         Column() {
           Row({ space: this.rpx(18) }) {
-            Stack({ alignContent: Alignment.Center }) {
-              Image(this.fileCards.length === 1 ? this.fileIcon(this.fileCards[0]) : $r('app.media.deliverable_code'))
-                .width(this.rpx(40))
-                .height(this.rpx(46))
+            // 单文件：直接显示该类型的全彩图标（对齐 dsh FileReferenceCard 的 FileTypeIcon 48dp）；
+            // 多文件：沿用「多文件」标记块。
+            if (this.fileCards.length === 1) {
+              Image(this.fileIcon(this.fileCards[0]))
+                .width(this.rpx(88))
+                .height(this.rpx(88))
                 .objectFit(ImageFit.Contain)
+                .flexShrink(0)
+            } else {
+              Stack({ alignContent: Alignment.Center }) {
+                Image($r('app.media.deliverable_code'))
+                  .width(this.rpx(40))
+                  .height(this.rpx(46))
+                  .objectFit(ImageFit.Contain)
+              }
+              .width(this.rpx(64))
+              .height(this.rpx(68))
+              .borderRadius(this.rpx(16))
+              .backgroundColor('rgba(128,128,128,0.08)')
+              .border({ width: 1, color: this.dividerLineColor() })
             }
-            .width(this.rpx(64))
-            .height(this.rpx(68))
-            .borderRadius(this.rpx(16))
-            .backgroundColor('rgba(128,128,128,0.08)')
-            .border({ width: 1, color: this.dividerLineColor() })
 
             Column({ space: this.rpx(6) }) {
               Text(this.filesTitle())
@@ -539,9 +537,10 @@ export struct ConversationRowView {
               ForEach(this.fileCards.slice(0, this.filesExpanded ? this.fileCards.length : 4),
                 (chip: string, index: number) => {
                   Row({ space: this.rpx(16) }) {
+                    // 全彩类型图标（Word/Excel/PPT/PDF…），与 dsh 端一致
                     Image(this.fileIcon(chip))
-                      .width(this.rpx(30))
-                      .height(this.rpx(36))
+                      .width(this.rpx(52))
+                      .height(this.rpx(52))
                       .objectFit(ImageFit.Contain)
                       .flexShrink(0)
                     Column({ space: this.rpx(4) }) {
@@ -710,28 +709,43 @@ export struct ConversationRowView {
               // 附件是 attachmentId 形式（无工作区路径）时先拉缓存/下载，就绪后再开
               this.openImageGroup(chipIndex, chip);
             })
-          } else {          Row({ space: this.rpx(14) }) {
-            Image(chip.startsWith('directory')
-              ? $r('app.media.deliverable_document')
-              : (this.entry.kind === KIND_ASSISTANT ? $r('app.media.deliverable_code') : $r('app.media.deliverable_document')))
-              .width(this.rpx(34))
-              .height(this.rpx(34))
-              .objectFit(ImageFit.Contain)
-              .colorFilter(this.tintMatrix(this.primaryText()))
-            Text(this.attachmentName(chip))
-              .fontSize(this.rpx(26))
-              .fontColor(this.primaryText())
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .constraintSize({ maxWidth: this.rpx(440) })
-          }
-          .constraintSize({ minHeight: this.rpx(72) })
-          .padding({ left: this.rpx(30), right: this.rpx(30), top: this.rpx(12), bottom: this.rpx(12) })
-          .borderRadius(this.rpx(999))
-          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)')
-          .onClick(() => {
-            this.onAttachmentTap(this.attachmentName(chip), this.attachmentPath(chip), this.attachmentMediaType(chip));
-          })
+          } else {
+            // 文档类交付（Word / PPT / Excel / PDF …）：对齐 dsh 端 FileReferenceCard ——
+            // 全彩类型图标 48vp + 文件名 15 Medium + 类型说明 12，卡片底色按类型 8%/16% 混合，圆角 12。
+            Row({ space: 12 }) {
+              Image(fileKindIcon(this.attachmentFileKind(chip)))
+                .width(48)
+                .height(48)
+                .objectFit(ImageFit.Contain)
+                .flexShrink(0)
+              Column({ space: 4 }) {
+                Text(this.attachmentName(chip))
+                  .fontSize(15)
+                  .lineHeight(18)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(this.primaryText())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .width('100%')
+                Text(this.attachmentKindLabel(chip))
+                  .fontSize(12)
+                  .lineHeight(15)
+                  .fontColor(this.secondaryText())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .width('100%')
+              }
+              .alignItems(HorizontalAlign.Start)
+              .layoutWeight(1)
+            }
+            .padding(12)
+            .borderRadius(12)
+            .backgroundColor(fileCardColor(this.attachmentFileKind(chip), this.isDark))
+            .constraintSize({ maxWidth: 320, minHeight: 72 })
+            .margin({ top: 8 })
+            .onClick(() => {
+              this.onAttachmentTap(this.attachmentName(chip), this.attachmentPath(chip), this.attachmentMediaType(chip));
+            })
           }
         }, (chip: string) => chip)
       }
@@ -739,6 +753,56 @@ export struct ConversationRowView {
       .alignItems(alignEnd ? HorizontalAlign.End : HorizontalAlign.Start)
       .margin({ top: this.rpx(12) })
     }
+  }
+
+  /** 附件类型（走 dsh 端 FileIconCatalog 口径） */
+  private attachmentFileKind(chip: string): string {
+    return fileKindOf(this.attachmentName(chip), this.attachmentMediaType(chip));
+  }
+
+  /** 附件类型说明（Word 文档 / Excel 表格 / PDF …），作卡片副标题 */
+  private attachmentKindLabel(chip: string): string {
+    const kind: string = this.attachmentFileKind(chip);
+    if (kind === 'pdf') {
+      return 'PDF 文档';
+    }
+    if (kind === 'doc' || kind === 'docx') {
+      return 'Word 文档';
+    }
+    if (kind === 'xls' || kind === 'xlsx') {
+      return 'Excel 表格';
+    }
+    if (kind === 'csv') {
+      return 'CSV 表格';
+    }
+    if (kind === 'ppt' || kind === 'pptx') {
+      return 'PowerPoint 演示文稿';
+    }
+    if (kind === 'md') {
+      return 'Markdown 文档';
+    }
+    if (kind === 'txt') {
+      return '文本文件';
+    }
+    if (kind === 'code') {
+      return '代码文件';
+    }
+    if (kind === 'image') {
+      return '图片';
+    }
+    if (kind === 'audio') {
+      return '音频';
+    }
+    if (kind === 'video') {
+      return '视频';
+    }
+    if (kind === 'archive') {
+      return '压缩包';
+    }
+    if (kind === 'package') {
+      return '安装包';
+    }
+    return '文件';
   }
 
   /** 图片附件判定：mediaType 以 image/ 开头，或扩展名是图片 */
