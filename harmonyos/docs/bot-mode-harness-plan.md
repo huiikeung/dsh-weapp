@@ -76,6 +76,11 @@
 - 改法：`composerDock` 外层包 `HdsGlassSurface`（`radiusVp` 展开 28 / 收起 26，背板尺寸跟随内容实测值），`composerCapsule` / `composerCard` 自身底色与描边全部去掉（透明），只排内容；底部再补一条与工作模式一致的渐变过渡带（`dockHeight + 44`，让正文进玻璃前逐级淡出）。
 - 与工作模式 ConversationPage / ConversationComposer 同一套：玻璃由背板渲染、内容浮在上面，圆角与尺寸对齐。
 
+## 输入胶囊圆角对齐工作模式（2026-11-25）
+
+- 现象：Bot 聊天页收起态输入胶囊的左右下角比工作模式「尖」——因为背板 `HdsGlassSurface` 传的是固定 `radiusVp: 26`，而工作模式收起态是「半径 = 高度一半」的悬浮胶囊（`radiusRatio 0.5`）。带提示行/宽屏内缩时背板高度不等于 52，固定 26 就显得圆角不足。
+- 已改：收起态 `radiusVp: -1, radiusRatio: 0.5`（半径取高度一半，左下/右下都是正圆弧）；展开态仍用 `radiusVp: 28` 的玻璃卡。与 `ConversationPage.dockGlassRadius()/expandedGlassRadius()` 的规则一致。
+
 ## 待做（P1/P2）
 
 1. 文件附件上传（bot-attachments receipts 链路；需要网关 upload 协议，iOS 走 FileUploadController）
