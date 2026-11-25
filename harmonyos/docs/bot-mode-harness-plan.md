@@ -51,6 +51,12 @@
       `components/ModeWave.ets`（Index 根层常驻，圆形扩张 420ms + 淡出 200ms，颜色=目标模式底色）+ `common/ModeTransition.ets`（startModeWave）；
       抽屉首项点击时抽屉立即无动画归零（drawerInstant），430ms 后 `pushPathByName(..., false)` / `pop(false)` 无动画切页；冷启动进入 Bot 模式也不再用推屏动画
 
+## Bot 首页「与 X 聊聊」状态标记对齐 iOS（2026-11-25）
+
+- 核对 iOS `BotModeView.swift:531-547`：主按钮 trailing 就是 **BotChatStatusMark**——运行中绿点（8pt，20×20）优先；否则未读 **红色胶囊角标**（#D6263C、11pt semibold 白字、水平 5 垂直 2、min 20×20、「99+」截断），标记 trailing 内边距 16，且存在标记时按钮内容左右各让 64 避免压字。
+- 本地修正：statusMark 字重改 600（对齐 semibold）；「与 X 聊聊」按钮在有状态时左右内边距 22 → 64、标记行右侧补 16。
+- 结论：这个数字角标**是 iOS 规格内的未读提示**（不是 bug）；运行中时不显示数字只显示绿点。
+
 ## 待做（P1/P2）
 
 1. 文件附件上传（bot-attachments receipts 链路；需要网关 upload 协议，iOS 走 FileUploadController）

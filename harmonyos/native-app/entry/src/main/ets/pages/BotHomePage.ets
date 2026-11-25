@@ -895,7 +895,7 @@ export struct BotHomePage {
     } else if (this.unreadOf(chat.id) > 0) {
       Text(this.unreadLabel(this.unreadOf(chat.id)))
         .fontSize(11)
-        .fontWeight(FontWeight.Bold)
+        .fontWeight(600)
         .fontColor('#FFFFFF')
         .backgroundColor(this.unreadRed())
         .borderRadius(10)
@@ -1063,6 +1063,7 @@ export struct BotHomePage {
         .justifyContent(FlexAlign.Center)
         .width('100%')
 
+        // 对齐 iOS：状态标记 trailing 内边距 16（运行中绿点 / 未读红角标）
         Row() {
           if (this.chiefHasStatus()) {
             this.chiefStatusMark()
@@ -1070,10 +1071,17 @@ export struct BotHomePage {
         }
         .width('100%')
         .justifyContent(FlexAlign.End)
+        .padding({ right: 16 })
       }
       .width('100%')
       .constraintSize({ minHeight: 46 })
-      .padding({ left: 22, right: 22, top: 10.5, bottom: 10.5 })
+      // 有状态标记时左右让出 64，避免角标压住「与 X 聊聊」（对齐 iOS）
+      .padding({
+        left: this.chiefHasStatus() ? 64 : 22,
+        right: this.chiefHasStatus() ? 64 : 22,
+        top: 10.5,
+        bottom: 10.5
+      })
       .backgroundColor(Color.Transparent)
       .backdropBlur(10)
       .clip(true)
