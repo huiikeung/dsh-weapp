@@ -9831,14 +9831,36 @@ export struct ConversationPage {
 
   private openTurnNav(): void {
     this.turnBarOffset = 0;
-    // 先用原始事件里的全部用户轮次铺满（可能还在补拉历史），再继续增量补
-    this.refreshTurnNodesPreview(true);
+    this.refreshTurnNodes(true);
     this.turnNavOpen = true;
     Logger.info('[CapsuleOpen] nodes=' + this.turnNodes.length.toString());
     this.scrollTurnListTo(this.turnNodeIndex);
-    // 节点要显示全部轮次：弹层打开期间补拉更早历史；期间不刷新时间线，页面不会跳动
-    this.warmHistoryForTurnNav();
-    this.scheduleWarmupRetry();
+  }
+
+  /**
+   * 弹层内手动加载一页更早历史（一次一页）。
+   * 不做后台整段补拉：长会话一次整理几千条事件会卡死主线程、被系统重启；
+   * 手动一页一页来，每页落地后节点列表增量变长。
+   */
+  private loadMoreTurns(): void {
+    const store: SessionStore = SessionStore.get();
+    if (store.isOlderRequestPending() || !store.hasOlderHistory()) {
+      return;
+    }
+    store.loadOlder(true);
+    let waited: number = 0;
+    const timer: number = setInterval(() => {
+      waited += 120;
+      if (!store.isOlderRequestPending()) {
+        clearInterval(timer);
+        if (this.turnNavOpen) {
+          this.refreshTurnNodes(true);
+          this.scrollTurnListTo(this.turnNodeIndex);
+        }
+      } else if (waited > 12000) {
+        clearInterval(timer);
+      }
+    }, 120);
   }
 
   /**
@@ -9846,7 +9868,13 @@ export struct ConversationPage {
    * 覆盖两种情况：① 展开时首屏历史还没落地（oldestSeq/hasMore 未知，warmup 直接退出）；
    * ② 某一页偶发失败导致本轮中断。
    */
+  /** 自动预热开关：暂停（长会话后台补拉会卡死）；保留手动加载入口 */
+  private turnNavAutoWarm: boolean = false;
+
   private scheduleWarmupRetry(): void {
+    if (!this.turnNavAutoWarm) {
+      return;
+    }
     if (this.warmupRetryTimer >= 0) {
       return;
     }
@@ -10002,23 +10030,11 @@ export struct ConversationPage {
     for (let index = 0; index < labels.length; index++) {
       nodes.push({ entryIndex: -1, ordinal: index + 1, label: labels[index] });
     }
-    // 已知总轮次（会话统计投影）比已加载的多：先补「第 k 轮 · 加载中」占位行，
-    // 弹层一打开就是全部轮次，正文随补拉逐条填上，而不是只看到 1 条。
-    const statsTotal: number = this.sessionTurnCount();
-    const previous: number = this.turnNodes.length;
-    // 统计投影偶发被清空（返回 -1）时用上一帧行数兜底，绝不让弹层从 90 多行闪回 0 行
-    const total: number = statsTotal > 0 ? statsTotal : previous;
-    const target: number = Math.min(Math.max(total, nodes.length), 400);
-    for (let ordinal = nodes.length + 1; ordinal <= target; ordinal++) {
-      nodes.push({ entryIndex: -1, ordinal: ordinal, label: '第 ' + ordinal + ' 轮 · 加载中…', placeholder: true });
-    }
-    Logger.info('[TurnNavNodes] labels=' + labels.length.toString() + ' stats=' + statsTotal.toString()
-      + ' previous=' + previous.toString() + ' rows=' + nodes.length.toString());
+    Logger.info('[TurnNavNodes] labels=' + labels.length.toString());
     if (nodes.length === 0) {
-      // 空结果不覆盖已有节点：保留上一帧，等下一帧有数据再更新
       return;
     }
-    this.turnNodes = this.padTurnNodes(nodes);
+    this.turnNodes = nodes;
     if (keepSelection) {
       this.turnNodeIndex = this.turnNodes.length > 0 ? this.turnNodes.length - 1 : 0;
     } else if (this.turnNodeIndex >= this.turnNodes.length) {
@@ -10235,10 +10251,8 @@ export struct ConversationPage {
         this.capsuleExpanded = true;
       });
     }
-    // 一次点击直接弹出：预热（补拉更早历史）+ 立即用原始事件铺节点
+    // 一次点击直接弹出；不在后台自动补拉整段历史（长会话会卡死/触发系统重启）
     this.openTurnNav();
-    this.warmHistoryForTurnNav();
-    this.scheduleWarmupRetry();
   }
 
   /** 常显胶囊：展开=刻度卡带；折叠=细把手；横向拖动吸附折叠，点击展开/打开弹层 */
@@ -10494,14 +10508,7 @@ export struct ConversationPage {
             .fontWeight(FontWeight.Medium)
             .fontColor(this.textColor())
           Blank()
-          if (this.turnNavWarmupRunning || this.turnNodesLoading()) {
-            LoadingProgress()
-              .width(14)
-              .height(14)
-              .color(this.subColor())
-              .margin({ right: 6 })
-          }
-          Text('共 ' + this.turnNodes.length.toString() + (this.turnNavWarmupRunning || this.turnNodesLoading() ? ' · 加载中' : ''))
+          Text('共 ' + this.turnNodes.length.toString())
             .fontSize(12)
             .fontColor(this.subColor())
         }
@@ -10574,6 +10581,15 @@ export struct ConversationPage {
         Row() {
           Text('拨动预览，点击跳转').fontSize(11).fontColor(this.subColor())
           Blank()
+          if (this.hasMoreHistory) {
+            Text('加载更早轮次')
+              .fontSize(12)
+              .fontColor('#2E6BE6')
+              .margin({ right: 12 })
+              .onClick(() => {
+                this.loadMoreTurns();
+              })
+          }
           Text('回到底部 ↓')
             .fontSize(12)
             .fontColor('#2E6BE6')
@@ -11533,6 +11549,20 @@ export struct ConversationPage {
     return width < 300 ? width : 300;
   }
 
+  /**
+   * 侧栏系统材质背板尺寸：HdsGlassSurface 的 HdsTabs 背板会比内容外扩约 6vp
+   * （和顶栏圆钮 nominal 48 → 渲染 54 同理），所以背板内容按 -6 给，渲染出来正好等于面板尺寸。
+   */
+  private convSidebarGlassWidth(): number {
+    const width: number = this.convSidebarWidth() - 6;
+    return width > 40 ? width : 40;
+  }
+
+  private convSidebarGlassHeight(): number {
+    const height: number = this.convSidebarPanelHeight() - 6;
+    return height > 40 ? height : 40;
+  }
+
   /** 侧栏高度：屏高 − 顶部避让 − 底部输入条避让（对齐小程序按导航栏到输入框计算） */
   private convSidebarHeight(): number {
     let screen: number = 800;
@@ -11566,6 +11596,14 @@ export struct ConversationPage {
   /** 会话侧栏内容：交给 bindMenu 的系统菜单容器渲染（材质/圆角/描边/动画/点空白收起全部原生） */
   @Builder
   sidebarMenuPanel() {
+    Stack({ alignContent: Alignment.Center }) {
+      // 系统沉浸光感背板（与输入条胶囊、顶栏同一套 HDS 材质，跟随设置里的玻璃档位）
+      HdsGlassSurface({ radiusVp: APP_GLASS_RADIUS }) {
+        Row()
+          .width(this.convSidebarGlassWidth())
+          .height(this.convSidebarGlassHeight())
+          .backgroundColor(Color.Transparent)
+      }
         Column() {
         // 品牌行：首页左上角同款 3D 品牌币 + 字标 + HARNESS 徽章
         Row() {
@@ -11787,26 +11825,21 @@ export struct ConversationPage {
         .width('100%')
         .padding({ bottom: 4 })
         }
-        .id('conv-sidebar')
         .width(this.convSidebarWidth())
         .height(this.convSidebarPanelHeight())
         .alignItems(HorizontalAlign.Start)
         .padding({ top: 2, bottom: 2 })
-        // APP 玻璃标准（见 common/AppGlass.ets）：侧栏就是这个标准的基准实现
-        // 不透明度提高：深 0.46 → 0.74 / 浅 0.24 → 0.62（文字更易读，仍保留玻璃透感）
-        .backgroundColor(this.isDark ? 'rgba(44,44,48,0.74)' : 'rgba(255,255,255,0.62)')
-        .backdropBlur(14)
-        .borderRadius(APP_GLASS_RADIUS)
-        .clip(true)
-        .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
-        .shadow(appGlassShadow(this.isDark))
-        // 弹出动画对齐系统菜单（右上角「⋯」）：从锚点（右上角按钮）缩放 0.9 → 1 + 淡入
-        .opacity(this.sessionPickerAnim)
-        .scale({
-          x: 0.9 + 0.1 * this.sessionPickerAnim,
-          y: 0.9 + 0.1 * this.sessionPickerAnim,
-          centerX: '100%',
-          centerY: 0
-        })
+    }
+    .id('conv-sidebar')
+    .width(this.convSidebarWidth())
+    .height(this.convSidebarPanelHeight())
+    // 弹出动画对齐系统菜单（右上角「⋯」）：从锚点（右上角按钮）缩放 0.9 → 1 + 淡入
+    .opacity(this.sessionPickerAnim)
+    .scale({
+      x: 0.9 + 0.1 * this.sessionPickerAnim,
+      y: 0.9 + 0.1 * this.sessionPickerAnim,
+      centerX: '100%',
+      centerY: 0
+    })
   }
 }
