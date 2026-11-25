@@ -1803,18 +1803,9 @@ export struct BotChatPage {
         .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
         if (this.state.supported) {
-          // 底部渐变过渡带：正文进入玻璃前逐级淡出，避免内容与玻璃之间出现硬切边
-          // （与工作模式 ConversationPage.bottomFadeOverlay 同一套）
-          Column()
-            .width('100%')
-            .height(this.dockHeight + 44)
-            .linearGradient({
-              direction: GradientDirection.Bottom,
-              colors: this.isDark
-                ? [['rgba(0,0,0,0)', 0.0], ['rgba(0,0,0,0.18)', 0.45], ['rgba(0,0,0,0.45)', 0.75], ['rgba(0,0,0,0.72)', 1.0]]
-                : [['rgba(242,242,244,0)', 0.0], ['rgba(242,242,244,0.28)', 0.45], ['rgba(242,242,244,0.62)', 0.75], ['rgba(242,242,244,0.86)', 1.0]]
-            })
-            .hitTestBehavior(HitTestMode.None)
+          // 不再叠任何底部遮罩/渐变层：工作模式对话页的底边是「时间线直接裁到输入框底边」，
+          // 正文从玻璃后面滚过、到输入框底部消失，没有额外的渐隐遮罩（ConversationPage.bottomFadeOverlay
+          // 只定义了但并未渲染）。之前这里加过一层 44vp 渐变，看起来就是「输入框底部有一层灰罩」。
           this.composerDock()
         }
       }
