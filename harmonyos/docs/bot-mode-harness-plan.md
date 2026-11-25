@@ -92,6 +92,12 @@
 - 图片预览：`BotMessageImage` 增加 `onOpen(path)` 回调（普通成员，规避 @Prop 不能修饰函数），点已加载的图片 → `BotChatPage.openImagePreview()` → 底部玻璃 `bindSheet`（`sheetSystemMaterial`），内容与工作模式 `imagePreviewSheet/zoomablePreviewImage` 同构：自绘拖动条 + `Image(Contain)` + `PinchGesture` 1~4 倍缩放（切换时复位）。
 - 文件卡：换成 iOS `FileReferenceCard` 的样式——38 图标块（按类型主色 16% 透明底 + 折角文件线框）、文件名 15 Medium、路径 12 secondary、圆角 12、最大宽 320、背景 = 类型主色 8%（浅）/16%（深）与白/近黑混色；类型分组与 iOS `FileIconKind` 口径一致（pdf/document/sheet/slides/code/image/media/video/text/archive/package）。点卡片复制完整路径并提示（Bot 协议暂无跨端下载通道）。
 
+## Bot 聊天页输入条展开/收起对齐工作模式（2026-11-25）
+
+- 展开：点胶囊占位 → `focusComposer()` 用 `animateTo(250ms, EaseOut)` 切到展开卡（与工作模式 `onFocusChange` 同一时长/曲线，卡片与胶囊一起变，跟系统键盘同起同落），随后延迟 60/220ms 两次 `requestFocus('bot-chat-draft')` 保证一次点按即弹键盘。
+- 收起：新增 `collapseComposer()` —— 有草稿/附件时**只收键盘、保持展开**（草稿为空才真正折叠回胶囊），并 `clearFocus()`；列表 `.onScrollStart` 时自动收起（对齐工作模式「开始滚动收键盘」）。
+- `TextArea.onBlur` 也按同一判定走 `animateTo(250ms)`，避免失焦瞬间跳变。
+
 ## 待做（P1/P2）
 
 1. 文件附件上传（bot-attachments receipts 链路；需要网关 upload 协议，iOS 走 FileUploadController）

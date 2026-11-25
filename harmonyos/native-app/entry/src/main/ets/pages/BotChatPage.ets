@@ -897,7 +897,10 @@ export struct BotChatPage {
   }
 
   private focusComposer(): void {
-    this.composerFocused = true;
+    // 与工作模式同一套展开动画：250ms EaseOut（与系统键盘弹出同长，卡片和胶囊一起变）
+    this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
+      this.composerFocused = true;
+    });
     // 节点刚由 Visibility.None 转可见：延迟两次拉起键盘，保证真机一次点按即弹
     setTimeout(() => {
       try {
@@ -915,6 +918,21 @@ export struct BotChatPage {
 
   private composerExpanded(): boolean {
     return this.composerFocused || this.draft.trim().length > 0 || this.pickedAttachments.length > 0;
+  }
+
+  /**
+   * 收起输入条（对齐工作模式）：点聊天区/滚动时收键盘；有草稿或附件时只收键盘、保持展开，
+   * 草稿为空才真正折叠回胶囊。250ms 与键盘收起动画同长。
+   */
+  private collapseComposer(): void {
+    const keepExpanded: boolean = this.draft.trim().length > 0 || this.pickedAttachments.length > 0;
+    this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
+      this.composerFocused = keepExpanded;
+    });
+    try {
+      this.getUIContext().getFocusController().clearFocus();
+    } catch (ignored) {
+    }
   }
 
   /** 「+」圆钮：折叠态 36、展开态 27（与工作模式 composer 的加号同尺寸） */
@@ -1787,7 +1805,11 @@ export struct BotChatPage {
           this.composerFocused = true;
         })
         .onBlur(() => {
-          this.composerFocused = this.draft.trim().length > 0;
+          // 与工作模式一致：有草稿/附件时失焦只收键盘，输入条保持展开高度
+          const keepExpanded: boolean = this.draft.trim().length > 0 || this.pickedAttachments.length > 0;
+          this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
+            this.composerFocused = keepExpanded;
+          });
         })
 
       // 展开态底部 chip 行：左「+」（27 圆）+ Blank + 发送（36 圆），与工作模式 chip 行同尺寸
@@ -1986,6 +2008,12 @@ export struct BotChatPage {
             .height('100%')
             .scrollBar(BarState.Off)
             .edgeEffect(EdgeEffect.Spring)
+            // 与工作模式一致：开始滚动就收键盘（有草稿/附件时保持展开高度，只收键盘）
+            .onScrollStart(() => {
+              if (this.composerFocused) {
+                this.collapseComposer();
+              }
+            })
             .onReachStart(() => {
               if (this.state.hasEarlier && !this.state.historyLoading) {
                 BotStore.get().loadEarlier();
