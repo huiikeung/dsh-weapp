@@ -32,6 +32,10 @@ export const FILE_KIND_PPT: string = 'ppt';
 export const FILE_KIND_PPTX: string = 'pptx';
 export const FILE_KIND_CODE: string = 'code';
 export const FILE_KIND_IMAGE: string = 'image';
+export const FILE_KIND_SVG: string = 'svg';
+export const FILE_KIND_JPG: string = 'jpg';
+export const FILE_KIND_GIF: string = 'gif';
+export const FILE_KIND_WEBP: string = 'webp';
 export const FILE_KIND_AUDIO: string = 'audio';
 export const FILE_KIND_VIDEO: string = 'video';
 export const FILE_KIND_ARCHIVE: string = 'archive';
@@ -87,8 +91,19 @@ export function fileKindOf(name: string, mediaType: string = ''): string {
   if (ext === 'pptx' || ext === 'odp') {
     return FILE_KIND_PPTX;
   }
-  if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif' || ext === 'webp'
-    || ext === 'bmp' || ext === 'svg' || ext === 'heic') {
+  if (ext === 'svg') {
+    return FILE_KIND_SVG;
+  }
+  if (ext === 'jpg' || ext === 'jpeg' || ext === 'heic') {
+    return FILE_KIND_JPG;
+  }
+  if (ext === 'gif') {
+    return FILE_KIND_GIF;
+  }
+  if (ext === 'webp') {
+    return FILE_KIND_WEBP;
+  }
+  if (ext === 'png' || ext === 'bmp') {
     return FILE_KIND_IMAGE;
   }
   if (ext === 'mp3' || ext === 'wav' || ext === 'm4a' || ext === 'aac' || ext === 'flac') {
@@ -154,7 +169,8 @@ export function fileKindRgb(kind: string): number[] {
   if (kind === FILE_KIND_CODE || kind === FILE_KIND_PACKAGE) {
     return CODE_RGB;
   }
-  if (kind === FILE_KIND_IMAGE) {
+  if (kind === FILE_KIND_IMAGE || kind === FILE_KIND_SVG || kind === FILE_KIND_JPG
+    || kind === FILE_KIND_GIF || kind === FILE_KIND_WEBP) {
     return IMAGE_RGB;
   }
   if (kind === FILE_KIND_AUDIO) {
@@ -214,6 +230,18 @@ export function fileKindIcon(kind: string): Resource {
   }
   if (kind === FILE_KIND_IMAGE) {
     return $r('app.media.ficon_image');
+  }
+  if (kind === FILE_KIND_SVG) {
+    return $r('app.media.ficon_svg');
+  }
+  if (kind === FILE_KIND_JPG) {
+    return $r('app.media.ficon_jpg');
+  }
+  if (kind === FILE_KIND_GIF) {
+    return $r('app.media.ficon_gif');
+  }
+  if (kind === FILE_KIND_WEBP) {
+    return $r('app.media.ficon_webp');
   }
   if (kind === FILE_KIND_AUDIO) {
     return $r('app.media.ficon_audio');
