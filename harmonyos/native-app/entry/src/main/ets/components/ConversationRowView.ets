@@ -824,8 +824,11 @@ export struct ConversationRowView {
               // 附件是 attachmentId 形式（无工作区路径）时先拉缓存/下载，就绪后再开
               this.openImageGroup(chipIndex, chip);
             })
+          } else if (alignEnd) {
+            // 自己发出去的文档：dsh 电脑端「彩色方块 + 文件名 + PDF 7.3MB」样式
+            this.sentFileCard(chip)
           } else {
-            // 文档类交付（Word / PPT / Excel / PDF …）：对齐 dsh 电脑端样式
+            // 回复里交付的文档：保持原样式（图标底板 + 文件名 + 类型：说明）
             this.fileReferenceCard(chip)
           }
         }, (chip: string) => chip)
@@ -841,19 +844,19 @@ export struct ConversationRowView {
    * PowerPoint 橙 P、PDF 红 PDF）。非 Office 类型仍用 Untitled UI 全彩图标。
    */
   @Builder
-  fileKindBadge(kind: string) {
+  fileKindBadge(kind: string, size: number = 34) {
     if (kind === 'doc' || kind === 'docx') {
-      this.officeBadge(44, '#2B579A', 'W')
+      this.officeBadge(size, '#2B579A', 'W')
     } else if (kind === 'xls' || kind === 'xlsx' || kind === 'csv') {
-      this.officeBadge(44, '#217346', 'X')
+      this.officeBadge(size, '#217346', 'X')
     } else if (kind === 'ppt' || kind === 'pptx') {
-      this.officeBadge(44, '#D24726', 'P')
+      this.officeBadge(size, '#D24726', 'P')
     } else if (kind === 'pdf') {
-      this.officeBadge(44, '#D93025', 'PDF')
+      this.officeBadge(size, '#D93025', 'PDF')
     } else {
       Image(fileKindIcon(kind))
-        .width(44)
-        .height(44)
+        .width(size)
+        .height(size)
         .objectFit(ImageFit.Contain)
     }
   }
@@ -897,10 +900,60 @@ export struct ConversationRowView {
    * 中性卡片底 + 52 图标底板（内嵌彩色类型图标）+ 文件名 17 Medium + 「Word 文档：说明」14 次要色。
    */
   @Builder
+  sentFileCard(chip: string) {
+    Row({ space: 14 }) {
+      // 用户发送的文档：直接放在卡片上（不套底板），与 dsh 电脑端一致
+      this.fileKindBadge(this.attachmentFileKind(chip), 44)
+
+      Column({ space: 3 }) {
+        Text(this.attachmentName(chip))
+          .fontSize(17)
+          .lineHeight(22)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.primaryText())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+        Text(this.sentFileSubtitle(chip))
+          .fontSize(14)
+          .lineHeight(19)
+          .fontColor(this.secondaryText())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+    }
+    .width('100%')
+    .padding({ left: 10, right: 14, top: 10, bottom: 10 })
+    .borderRadius(14)
+    .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(16,19,24,0.03)')
+    .border({ width: 0.5, color: this.dividerLineColor() })
+    .margin({ top: 8 })
+    .onClick(() => {
+      this.onAttachmentTap(this.attachmentName(chip), this.attachmentPath(chip), this.attachmentMediaType(chip));
+    })
+  }
+
+  /**
+   * 回复里交付的文档卡片（保持 dsh 电脑端原样式）：图标底板 + 彩色类型徽标 +
+   * 文件名 17 + 「Word 文档：说明」。
+   */
+  @Builder
   fileReferenceCard(chip: string) {
     Row({ space: 14 }) {
-      // 图标直接放在卡片上（不套底板），与 dsh 电脑端一致
-      this.fileKindBadge(this.attachmentFileKind(chip))
+      Stack({ alignContent: Alignment.Center }) {
+        Column()
+          .width(52)
+          .height(52)
+          .borderRadius(13)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(16,19,24,0.04)')
+        this.fileKindBadge(this.attachmentFileKind(chip), 34)
+      }
+      .width(52)
+      .height(52)
+      .flexShrink(0)
 
       Column({ space: 3 }) {
         Text(this.attachmentName(chip))
@@ -933,15 +986,17 @@ export struct ConversationRowView {
     })
   }
 
-  /** 卡片副标题：「Word 文档：<说明>」，没有说明时只留类型名 */
+  /** 回复卡片副标题：「Word 文档：<说明>」，没有说明时只留类型名 */
   private fileReferenceSubtitle(chip: string): string {
     const label: string = this.attachmentKindLabel(chip);
     // dsh 端会去掉说明末尾括号里的展开清单（FileCardDescription.summary）
     const description: string = fileCardSummary(this.attachmentDescription(chip));
-    if (description.length > 0) {
-      return label + '：' + description;
-    }
-    // 没有说明时显示大小：「PDF 7.3MB」
+    return description.length > 0 ? label + '：' + description : label;
+  }
+
+  /** 发送出去的文档卡片副标题：「PDF 7.3MB」 */
+  private sentFileSubtitle(chip: string): string {
+    const label: string = this.attachmentKindLabel(chip);
     const size: string = this.attachmentSizeText(chip);
     return size.length > 0 ? label + ' ' + size : label;
   }
