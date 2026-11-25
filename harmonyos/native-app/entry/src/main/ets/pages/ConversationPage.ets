@@ -9834,6 +9834,7 @@ export struct ConversationPage {
     // 先用原始事件里的全部用户轮次铺满（可能还在补拉历史），再继续增量补
     this.refreshTurnNodesPreview(true);
     this.turnNavOpen = true;
+    Logger.info('[CapsuleOpen] nodes=' + this.turnNodes.length.toString());
     this.scrollTurnListTo(this.turnNodeIndex);
     // 节点要显示全部轮次：弹层打开期间补拉更早历史；期间不刷新时间线，页面不会跳动
     this.warmHistoryForTurnNav();
@@ -9962,6 +9963,7 @@ export struct ConversationPage {
     if (!this.turnNavOpen) {
       return;
     }
+    Logger.info('[CapsuleClose] nodes=' + this.turnNodes.length.toString());
     this.turnNavOpen = false;
     this.turnBarOffset = 0;
     this.rebuildEntries();
@@ -10183,30 +10185,23 @@ export struct ConversationPage {
     this.flushTimelineAfterWarmup();
   }
 
-  /** 点击胶囊：折叠态先展开（同时开始预热节点）；展开态打开会话节点弹层 */
+  /** 点击胶囊：一次点击就展开并打开会话节点弹层；弹层开着再点 = 关闭 */
   private tapCapsule(): void {
-    if (!this.capsuleExpanded) {
-      animateTo({ duration: 240, curve: Curve.EaseOut }, () => {
-        this.capsuleExpanded = true;
-      });
-      // 展开成卡带的瞬间就预热：先把当前节点刷新出来，再补拉更早历史；
-      // 同时挂上自愈重试，首屏还没落地 / 某页失败时也能自己续上
-      this.refreshTurnNodesPreview(this.turnNavOpen);
-      this.warmHistoryForTurnNav();
-      this.scheduleWarmupRetry();
-      return;
-    }
-    // 弹层开着再点胶囊 = 收起
-    if (this.turnNavMenuOpen) {
-      this.turnNavMenuOpen = false;
-      return;
-    }
+    Logger.info('[CapsuleTap] expanded=' + (this.capsuleExpanded ? '1' : '0') + ' navOpen=' + (this.turnNavOpen ? '1' : '0')
+      + ' nodes=' + this.turnNodes.length.toString());
     if (this.turnNavOpen) {
       this.closeTurnNav();
       return;
     }
-    // 普通点击：页面内自绘 overlay（系统菜单容器里节点列表动态增长会闪/卡，也不支持边拖边看）
+    if (!this.capsuleExpanded) {
+      animateTo({ duration: 200, curve: Curve.EaseOut }, () => {
+        this.capsuleExpanded = true;
+      });
+    }
+    // 一次点击直接弹出：预热（补拉更早历史）+ 立即用原始事件铺节点
     this.openTurnNav();
+    this.warmHistoryForTurnNav();
+    this.scheduleWarmupRetry();
   }
 
   /** 常显胶囊：展开=刻度卡带；折叠=细把手；横向拖动吸附折叠，点击展开/打开弹层 */
