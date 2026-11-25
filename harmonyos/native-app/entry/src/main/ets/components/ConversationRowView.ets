@@ -467,7 +467,18 @@ export struct ConversationRowView {
   @Builder
   deliverableCard(chip: string) {
     Row({ space: 14 }) {
-      this.fileKindBadge(this.fileKind(chip))
+      // 回复侧保持原样式：图标底板 + 彩色徽标（无折角）
+      Stack({ alignContent: Alignment.Center }) {
+        Column()
+          .width(52)
+          .height(52)
+          .borderRadius(13)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(16,19,24,0.04)')
+        this.fileKindBadge(this.fileKind(chip), 34, false)
+      }
+      .width(52)
+      .height(52)
+      .flexShrink(0)
 
       Column({ space: 3 }) {
         Text(this.fileAt(chip, 1).length > 0 ? this.fileAt(chip, 1) : this.filePathOf(chip))
@@ -840,19 +851,20 @@ export struct ConversationRowView {
   }
 
   /**
-   * 文档图标：dsh 电脑端那套「彩色圆角方块 + 白色字母 + 右上折角」（Word 蓝 W、Excel 绿 X、
-   * PowerPoint 橙 P、PDF 红 PDF）。非 Office 类型仍用 Untitled UI 全彩图标。
+   * 文档图标：「彩色圆角方块 + 白色类型字」（Word 蓝 W、Excel 绿 X、PPT 橙 P、PDF 红 PDF）。
+   * fold=true 时右上角再画一块白色折角 —— 只有「自己发送」的卡片用（对齐 dsh 电脑端），
+   * 回复里的卡片不带折角。非 Office 类型仍用 Untitled UI 全彩图标。
    */
   @Builder
-  fileKindBadge(kind: string, size: number = 34) {
+  fileKindBadge(kind: string, size: number = 34, fold: boolean = false) {
     if (kind === 'doc' || kind === 'docx') {
-      this.officeBadge(size, '#2B579A', 'W')
+      this.officeBadge(size, '#2B579A', 'W', fold)
     } else if (kind === 'xls' || kind === 'xlsx' || kind === 'csv') {
-      this.officeBadge(size, '#217346', 'X')
+      this.officeBadge(size, '#217346', 'X', fold)
     } else if (kind === 'ppt' || kind === 'pptx') {
-      this.officeBadge(size, '#D24726', 'P')
+      this.officeBadge(size, '#D24726', 'P', fold)
     } else if (kind === 'pdf') {
-      this.officeBadge(size, '#D93025', 'PDF')
+      this.officeBadge(size, '#D93025', 'PDF', fold)
     } else {
       Image(fileKindIcon(kind))
         .width(size)
@@ -866,7 +878,7 @@ export struct ConversationRowView {
    * 纯色方块、白色粗体类型字、右上角一块白色折角）。
    */
   @Builder
-  officeBadge(size: number, color: string, letter: string) {
+  officeBadge(size: number, color: string, letter: string, fold: boolean) {
     Stack({ alignContent: Alignment.BottomStart }) {
       Column()
         .width(size)
@@ -882,13 +894,15 @@ export struct ConversationRowView {
         .textAlign(TextAlign.Center)
         .margin({ bottom: size * 0.22 })
 
-      // 右上折角：白色三角（用两条边拼出斜切效果）
-      Column()
-        .width(size * 0.36)
-        .height(size * 0.36)
-        .backgroundColor('#FFFFFF')
-        .rotate({ angle: 45 })
-        .position({ x: size * 0.64, y: -size * 0.18 })
+      if (fold) {
+        // 右上折角：白色斜切（只有发送出去的卡片需要）
+        Column()
+          .width(size * 0.36)
+          .height(size * 0.36)
+          .backgroundColor('#FFFFFF')
+          .rotate({ angle: 45 })
+          .position({ x: size * 0.64, y: -size * 0.18 })
+      }
     }
     .width(size)
     .height(size)
@@ -902,8 +916,8 @@ export struct ConversationRowView {
   @Builder
   sentFileCard(chip: string) {
     Row({ space: 14 }) {
-      // 用户发送的文档：直接放在卡片上（不套底板），与 dsh 电脑端一致
-      this.fileKindBadge(this.attachmentFileKind(chip), 44)
+      // 用户发送的文档：直接放在卡片上（不套底板），带白色折角，与 dsh 电脑端一致
+      this.fileKindBadge(this.attachmentFileKind(chip), 44, true)
 
       Column({ space: 3 }) {
         Text(this.attachmentName(chip))
