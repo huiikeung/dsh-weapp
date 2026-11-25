@@ -57,6 +57,11 @@
 - 本地修正：statusMark 字重改 600（对齐 semibold）；「与 X 聊聊」按钮在有状态时左右内边距 22 → 64、标记行右侧补 16。
 - 结论：这个数字角标**是 iOS 规格内的未读提示**（不是 bug）；运行中时不显示数字只显示绿点。
 
+## Bot 头像规则对齐 iOS（2026-11-25）
+
+- iOS BotFace（BotModeView.swift:908）只有三档：有主机下发图 → 渲染图；主 Bot 无图 → WhalenessOrcaIcon（鲸鱼，size×0.58，BotInk 着色）；其余 → 名字首字（size×0.42 semibold、BotBlue、BotLavenderSoft 底、圆角 size/3）。所以「文字头像」本身是 iOS 规格内的兜底（普通 Bot 没有自定义形象时）。
+- 本地已对齐：首页/我的 Bot/聊天页三处走同一规则（有图→图；主 Bot 无图→ dsh_whale；其余→首字 BotBlue）；聊天页头像去掉多余底板；「新建群聊」成员行不再用自造彩色哈希圆。
+
 ## 待做（P1/P2）
 
 1. 文件附件上传（bot-attachments receipts 链路；需要网关 upload 协议，iOS 走 FileUploadController）

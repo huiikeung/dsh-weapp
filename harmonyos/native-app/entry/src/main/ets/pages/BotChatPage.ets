@@ -952,8 +952,7 @@ export struct BotChatPage {
     .width(size)
     .height(size)
     .borderRadius(size / 3)
-    // 头像底板：没有它就是「只剩一个字形」，深色纯黑底上看着像头像被切掉一半
-    .backgroundColor(this.isDark ? '#3A3750' : '#ECE7F7')
+    // 对齐 iOS BotFace：头像本体不铺底板（主 Bot 是鲸鱼、其余是首字，均为透明底）
     .clip(true)
     .flexShrink(0)
     // 对话里的头像也能点：打开与 Chief 卡相同的角色弹窗（群聊不响应）

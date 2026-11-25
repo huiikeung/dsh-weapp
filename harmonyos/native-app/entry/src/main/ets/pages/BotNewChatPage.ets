@@ -108,13 +108,20 @@ export struct BotNewChatPage {
       && conversation.memberIds.length >= 2 && this.state.writable;
   }
 
-  private avatarColor(id: string): string {
-    const palette: string[] = ['#7A5BFA', '#2FA98C', '#D97706', '#DB2777', '#0EA5E9'];
-    let hash: number = 0;
-    for (let i = 0; i < id.length; i++) {
-      hash = (hash * 31 + id.charCodeAt(i)) % 997;
+  /**
+   * 头像规则与 iOS BotFace / 首页 BotAvatar 完全一致（不再自造彩色哈希圆）：
+   * 有主机下发图 → 渲染图；主 Bot 无图 → 鲸鱼标记；其余 → 名字首字（BotBlue）。
+   */
+  private hasImage(chat: BotChat): boolean {
+    const image: string | undefined = chat.image;
+    return image !== undefined && image.length > 0;
+  }
+
+  private isMainBot(chat: BotChat): boolean {
+    if (chat.id === (this.state.mainBotId ?? '')) {
+      return true;
     }
-    return palette[hash % palette.length];
+    return this.state.mainBotIds.indexOf(chat.id) >= 0;
   }
 
   @Builder
@@ -154,15 +161,28 @@ export struct BotNewChatPage {
   memberRow(chat: BotChat) {
     Row({ space: 10 }) {
       Stack({ alignContent: Alignment.Center }) {
-        Circle({ width: 36, height: 36 })
-          .fill(this.avatarColor(chat.id))
-        Text(chat.name.length > 0 ? chat.name.substring(0, 1) : 'B')
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#FFFFFF')
+        if (this.hasImage(chat)) {
+          Image(chat.image)
+            .width(36)
+            .height(36)
+            .objectFit(ImageFit.Cover)
+            .draggable(false)
+        } else if (this.isMainBot(chat)) {
+          Image($r('app.media.dsh_whale'))
+            .width(36 * 0.82)
+            .height(36 * 0.82)
+            .objectFit(ImageFit.Contain)
+        } else {
+          Text(chat.name.length > 0 ? chat.name.substring(0, 1) : 'B')
+            .fontSize(36 * 0.56)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#2E6BE6')
+        }
       }
       .width(36)
       .height(36)
+      .borderRadius(12)
+      .clip(true)
 
       Column({ space: 2 }) {
         Row({ space: 6 }) {
