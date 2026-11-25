@@ -9757,7 +9757,9 @@ export struct ConversationPage {
                 this.openMessageAttachment(name, path, mediaType);
               },
               fileCards: this.inlineAssistantFiles.get(entry.id) ?? this.fileCardsOf(entry),
-              filesInline: this.inlineAssistantFiles.has(entry.id),
+              // 运行中的助手行先不内联「已编辑文件」卡片：否则卡片会夹在工具执行行和鲸尾行之间，
+              // 看起来像插进了半轮里；等这一轮结束（running/streaming 变 false）再显示。
+              filesInline: this.inlineAssistantFiles.has(entry.id) && !entry.running && !entry.streaming,
               reasonFollowPaused: this.reasonFollowPausedIds.has(entry.id),
               onToggleReasonFollow: () => {
                 if (this.reasonFollowPausedIds.has(entry.id)) {
