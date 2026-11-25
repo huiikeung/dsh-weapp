@@ -771,11 +771,16 @@ export class BotStore {
       }
       const workRec = rec(field(obj, 'work'));
       const approvals: Object[] = array(workRec, 'approvals');
+      Logger.info('[BotApprovals] work=' + (workRec !== undefined ? Object.keys(workRec).join(',') : 'none')
+        + ' raw=' + approvals.length.toString() + ' selected=' + (this.state.selectedChatId ?? ''));
       for (const value of approvals) {
         const approval = rec(value);
         if (approval === undefined) {
           continue;
         }
+        Logger.info('[BotApprovals] item id=' + text(approval, 'id') + ' answerable=' + (bool(approval, 'answerable') === false ? '0' : '1')
+          + ' botId=' + text(approval, 'botId') + ' roomId=' + text(approval, 'roomId')
+          + ' sessionId=' + text(approval, 'sessionId') + ' tool=' + text(approval, 'tool'));
         if (bool(approval, 'answerable') === false) {
           continue;
         }
@@ -794,6 +799,7 @@ export class BotStore {
         });
       }
       this.state.interactions = interactions;
+      Logger.info('[BotApprovals] total interactions=' + interactions.length.toString());
     } else if (work !== undefined) {
       for (const chat of this.state.chats) {
         const group = rec(field(work, chat.room ? 'rooms' : 'bots'));
