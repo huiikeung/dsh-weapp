@@ -30,6 +30,7 @@ import { util } from '@kit.ArkTS';
 import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { MarkdownBodyView } from '../components/MarkdownBodyView';
+import { fileKindIcon, fileKindOf as botFileKindOf } from '../common/FileKind';
 import { BotMessageImage } from '../components/BotMessageImage';
 import { BotGroupAvatar, BotBubblePalette } from '../components/BotGroupAvatar';
 import { BotRoleSheet } from '../components/BotRoleSheet';
@@ -1233,26 +1234,17 @@ export struct BotChatPage {
    * 文件卡左侧彩色图标（对齐 dsh-mobile 安卓端截图）：
    * 该类型主色填充的圆角方块 + 白色大写扩展名文字（DOCX / PNG / PDF …）。
    */
+  /**
+   * 文件图标：和工作模式共用现成的 Untitled UI 文件图标（ficon_*.svg，自带页面折角），
+   * 不再自绘「彩色方块 + 扩展名字」。
+   */
   @Builder
   fileGlyph(name: string) {
-    Stack({ alignContent: Alignment.Center }) {
-      Column()
-        .width(52)
-        .height(52)
-        .borderRadius(14)
-        .backgroundColor(this.fileTint(this.fileKindOf(name)))
-      Text(this.fileBadge(name))
-        .fontSize(this.fileBadge(name).length > 4 ? 10 : 12.5)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#FFFFFF')
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .constraintSize({ maxWidth: 44 })
-        .textAlign(TextAlign.Center)
-    }
-    .width(52)
-    .height(52)
-    .flexShrink(0)
+    Image(fileKindIcon(botFileKindOf(name)))
+      .width(48)
+      .height(48)
+      .objectFit(ImageFit.Contain)
+      .flexShrink(0)
   }
 
   /** 文件卡图标里的扩展名徽标（大写，最多 4~5 个字符） */
