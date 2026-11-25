@@ -7019,6 +7019,9 @@ export struct ConversationPage {
   @State private turnNavWarmupRunning: boolean = false;
   @State private turnNavFetching: boolean = false;
   @State private turnNavFetched: boolean = false;
+  /** 本会话已补全过的标题缓存：再次打开立即显示，不用再等补拉 */
+  private turnTitleCacheSession: string = '';
+  private turnTitleCache: string[] = [];
   /** 预热的自愈重试定时器：首屏还没落地 / 某页偶发失败时，展开期间持续检查并续拉 */
   private warmupRetryTimer: number = -1;
   /** 当前预览/选中的节点下标 */
@@ -9848,8 +9851,18 @@ export struct ConversationPage {
       return;
     }
     this.turnNavFetching = true;
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (this.turnTitleCacheSession === sessionId && this.turnTitleCache.length > 0) {
+      // 命中缓存：立即铺满（后台仍会刷新一次，保证最新）
+      this.turnNodes = this.turnTitleCache.map((label: string, index: number) => {
+        const node: TurnNode = { entryIndex: -1, ordinal: index + 1, label: label };
+        return node;
+      });
+      this.turnNodeIndex = this.turnNodes.length - 1;
+      this.turnNavFetched = true;
+    }
     const apply = (labels: string[]): void => {
-      if (!this.turnNavOpen || labels.length === 0) {
+      if (labels.length === 0) {
         return;
       }
       const nodes: TurnNode[] = [];
@@ -9862,8 +9875,14 @@ export struct ConversationPage {
     SessionStore.get().fetchAllTurnTitles(apply).then((labels: string[]) => {
       this.turnNavFetching = false;
       this.turnNavFetched = true;
+      if (labels.length > 0) {
+        this.turnTitleCache = labels.slice();
+        this.turnTitleCacheSession = SessionStore.get().currentSessionId();
+      }
       apply(labels);
-      this.scrollTurnListTo(this.turnNodeIndex);
+      if (this.turnNavOpen) {
+        this.scrollTurnListTo(this.turnNodeIndex);
+      }
     }).catch(() => {
       this.turnNavFetching = false;
     });
