@@ -7014,7 +7014,7 @@ export struct ConversationPage {
   @State turnNavMenuOpen: boolean = false;
   @State turnNodes: TurnNode[] = [];
   /** 会话节点预热是否进行中（展开胶囊时就开始拉历史，避免开弹层才等） */
-  private turnNavWarmupRunning: boolean = false;
+  @State private turnNavWarmupRunning: boolean = false;
   /** 预热的自愈重试定时器：首屏还没落地 / 某页偶发失败时，展开期间持续检查并续拉 */
   private warmupRetryTimer: number = -1;
   /** 当前预览/选中的节点下标 */
@@ -9829,11 +9829,13 @@ export struct ConversationPage {
 
   private openTurnNav(): void {
     this.turnBarOffset = 0;
-    this.refreshTurnNodes(true);
+    // 先用原始事件里的全部用户轮次铺满（可能还在补拉历史），再继续增量补
+    this.refreshTurnNodesPreview(true);
     this.turnNavOpen = true;
     this.scrollTurnListTo(this.turnNodeIndex);
     // 节点要显示全部轮次：弹层打开期间补拉更早历史；期间不刷新时间线，页面不会跳动
     this.warmHistoryForTurnNav();
+    this.scheduleWarmupRetry();
   }
 
   /**
@@ -9915,8 +9917,9 @@ export struct ConversationPage {
       }
       Logger.info('[TurnNavWarmup] page done guard=' + guard + ' pending=' + (store.isOlderRequestPending() ? '1' : '0') +
         ' hasOlder=' + (store.hasOlderHistory() ? '1' : '0') + ' nodes=' + this.turnNodes.length.toString());
-      // 每加载一页就刷新节点数：胶囊上的 N/总数、弹层列表都跟着更新
-      this.refreshTurnNodes(this.turnNavOpen);
+      // 每加载一页就刷新节点数（直接扫原始事件，批量补拉期间不依赖时间线重建）：胶囊上的 N/总数、弹层列表都跟着更新
+      this.refreshTurnNodesPreview(this.turnNavOpen);
+      Logger.info('[TurnNavWarmup] preview nodes=' + this.turnNodes.length.toString());
     }
     } catch (err) {
       Logger.warn('[TurnNavWarmup] loop failed: ' + String(err));
@@ -9926,8 +9929,14 @@ export struct ConversationPage {
     Logger.info('[TurnNavWarmup] end guard=' + guard + ' hasOlder=' + (store.hasOlderHistory() ? '1' : '0') +
       ' pending=' + (store.isOlderRequestPending() ? '1' : '0') + ' nodes=' + this.turnNodes.length.toString());
     if (this.turnNavOpen) {
-      this.refreshTurnNodes(true);
+      this.refreshTurnNodesPreview(true);
       this.scrollTurnListTo(this.turnNodeIndex);
+      // 投影已重算：稍后再用时间线行校正一遍 entryIndex（跳转更准）
+      setTimeout(() => {
+        if (this.turnNavOpen) {
+          this.refreshTurnNodes(true);
+        }
+      }, 120);
     }
     // 还有没拉完的（首屏晚到/失败自愈）：展开期间继续安排下一轮
     if (store.hasOlderHistory() && (this.turnNavOpen || this.turnNavMenuOpen || this.capsuleExpanded)) {
@@ -9974,6 +9983,19 @@ export struct ConversationPage {
     }
     this.turnNodes = nodes;
     if (this.turnNodeIndex >= nodes.length) {
+      this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
+    }
+  }
+
+  /** 预热期间用原始事件里的用户轮次刷新节点（entryIndex 先记 -1，跳转时再按序数映射） */
+  private refreshTurnNodesPreview(keepSelection: boolean): void {
+    const labels: string[] = SessionStore.get().previewUserTurnLabels(600);
+    const nodes: TurnNode[] = [];
+    for (let index = 0; index < labels.length; index++) {
+      nodes.push({ entryIndex: -1, ordinal: index + 1, label: labels[index] });
+    }
+    this.turnNodes = nodes;
+    if (keepSelection || this.turnNodeIndex >= nodes.length) {
       this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
     }
   }
@@ -10147,7 +10169,7 @@ export struct ConversationPage {
       });
       // 展开成卡带的瞬间就预热：先把当前节点刷新出来，再补拉更早历史；
       // 同时挂上自愈重试，首屏还没落地 / 某页失败时也能自己续上
-      this.refreshTurnNodes(this.turnNavOpen);
+      this.refreshTurnNodesPreview(this.turnNavOpen);
       this.warmHistoryForTurnNav();
       this.scheduleWarmupRetry();
       return;
@@ -10161,9 +10183,8 @@ export struct ConversationPage {
       this.closeTurnNav();
       return;
     }
-    // 普通点击：原生系统菜单（样式与「⋯」菜单一致）
-    this.refreshTurnNodes(true);
-    this.turnNavMenuOpen = true;
+    // 普通点击：页面内自绘 overlay（系统菜单容器里节点列表动态增长会闪/卡，也不支持边拖边看）
+    this.openTurnNav();
   }
 
   /** 常显胶囊：展开=刻度卡带；折叠=细把手；横向拖动吸附折叠，点击展开/打开弹层 */
@@ -10323,10 +10344,9 @@ export struct ConversationPage {
           GestureMode.Parallel,
           LongPressGesture({ repeat: false, duration: 260 })
             .onAction(() => {
-              // 与点击胶囊同一个原生系统菜单（材质/圆角/动画完全一致）
-              if (!this.turnNavMenuOpen) {
-                this.refreshTurnNodes(true);
-                this.turnNavMenuOpen = true;
+              // 长按滑块同样打开自绘节点弹层（与点胶囊一致）
+              if (!this.turnNavOpen) {
+                this.openTurnNav();
               }
             }),
           PanGesture()
@@ -10420,7 +10440,14 @@ export struct ConversationPage {
             .fontWeight(FontWeight.Medium)
             .fontColor(this.textColor())
           Blank()
-          Text('共 ' + this.turnNodes.length.toString())
+          if (this.turnNavWarmupRunning) {
+            LoadingProgress()
+              .width(14)
+              .height(14)
+              .color(this.subColor())
+              .margin({ right: 6 })
+          }
+          Text('共 ' + this.turnNodes.length.toString() + (this.turnNavWarmupRunning ? ' · 加载中' : ''))
             .fontSize(12)
             .fontColor(this.subColor())
         }

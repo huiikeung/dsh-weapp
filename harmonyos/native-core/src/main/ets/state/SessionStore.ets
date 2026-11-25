@@ -2144,6 +2144,40 @@ export class SessionStore {
     }
   }
 
+  /**
+   * 预热/会话节点弹层用：直接扫原始事件里的用户轮次标题（不重投影，O(事件数)）。
+   * 批量补拉期间 store 不发布投影，页面拿不到新条目；这里给胶囊/弹层一个即时、可增长的节点来源。
+   */
+  previewUserTurnLabels(max: number = 600): string[] {
+    const labels: string[] = [];
+    for (const raw of this.rawEvents) {
+      if (raw.type !== 'user/message') {
+        continue;
+      }
+      const data: Record<string, Object> = (raw.data !== undefined && raw.data !== null) ? raw.data as Record<string, Object> : {} as Record<string, Object>;
+      const source: Object | undefined = data['source'];
+      const images: Object[] | undefined = data['images'] as Object[] | undefined;
+      const isUser: boolean = source === undefined || source === 'user' || source === 'ptc-mode'
+        || ((images !== undefined ? images.length : 0) > 0);
+      if (!isUser) {
+        continue;
+      }
+      const text: string = typeof data['text'] === 'string' ? data['text'] as string : '';
+      const clean: string = text.replace(/<path>[\s\S]*?<\/path>/g, '').replace(/\s+/g, ' ').trim();
+      if (clean.startsWith('[') || clean.indexOf('Plugin context') >= 0 || clean.indexOf('Time sampled') >= 0) {
+        continue;
+      }
+      if (clean.length === 0 && (images === undefined || images.length === 0)) {
+        continue;
+      }
+      labels.push(clean.length > 0 ? clean : '（图片）');
+      if (labels.length >= max) {
+        break;
+      }
+    }
+    return labels;
+  }
+
   /** 是否还有更早历史可拉（页面预热循环用：拉完一页再看还有没有） */
   hasOlderHistory(): boolean {
     return this.hasMore && this.oldestSeq > 0 && this.sessionId.length > 0 && this.client !== null;
