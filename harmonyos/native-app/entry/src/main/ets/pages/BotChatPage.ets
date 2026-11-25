@@ -1519,9 +1519,8 @@ export struct BotChatPage {
   // ==================== 输入条（对齐工作模式会话页） ====================
 
   /**
-   * 收起态：与展开态同一套自绘材质的细胶囊（半透明底 + 1vp 细亮边 + 圆角 26）。
-   * 不再用 HdsGlassSurface 的系统材质：那层沉浸玻璃会额外发白/发糊（胶囊看着永远蒙一层雾），
-   * 还会在胶囊下方留下一条浅色底纹。
+   * 收起态细胶囊：底色/描边全部交给外层 HdsGlassSurface 的系统沉浸光感材质，
+   * 这里只排内容（与工作模式 ConversationComposer 收起态同一套做法：内容透明、玻璃由背板渲染）。
    */
   @Builder
   composerCapsule() {
@@ -1562,10 +1561,8 @@ export struct BotChatPage {
     .height(CAPSULE_HEIGHT)
     .padding({ left: 8, right: 8, top: 8, bottom: 8 })
     .alignItems(VerticalAlign.Center)
-    .borderRadius(CAPSULE_RADIUS)
-    // 与展开态同一套自绘材质：半透明底 + 1vp #66FFFFFF 细亮边（不加 backdropBlur，边缘保持清晰）
-    .backgroundColor(this.isDark ? 'rgba(30,30,32,0.55)' : 'rgba(255,255,255,0.62)')
-    .border({ width: 1, color: '#66FFFFFF' })
+    // 圆角与材质由外层 HdsGlassSurface 提供（与工作模式一致），内容自身透明
+    .backgroundColor(Color.Transparent)
   }
 
   /**
@@ -1627,10 +1624,8 @@ export struct BotChatPage {
     }
     .width('100%')
     .padding({ left: DOCK_SIDE, right: DOCK_SIDE, top: 12, bottom: 12 })
-    .borderRadius(DOCK_RADIUS)
-    .backdropBlur(22)
-    .backgroundColor(this.isDark ? 'rgba(30,30,32,0.72)' : 'rgba(255,255,255,0.72)')
-    .border({ width: 1, color: '#66FFFFFF' })
+    // 圆角与材质由外层 HdsGlassSurface 提供（与工作模式一致），内容自身透明
+    .backgroundColor(Color.Transparent)
     .alignItems(HorizontalAlign.Start)
   }
 
@@ -1651,10 +1646,19 @@ export struct BotChatPage {
           .width('100%')
           .padding({ left: 4, right: 4 })
       }
-      if (this.composerExpanded()) {
-        this.composerCard()
-      } else {
-        this.composerCapsule()
+      // 与工作模式对话页同一套：系统沉浸光感玻璃背板负责材质与圆角，
+      // 内容浮在背板之上单独渲染（背板尺寸跟随内容实测值，像素对齐）。
+      HdsGlassSurface({
+        radiusVp: this.composerExpanded() ? DOCK_RADIUS : CAPSULE_RADIUS
+      }) {
+        Column() {
+          if (this.composerExpanded()) {
+            this.composerCard()
+          } else {
+            this.composerCapsule()
+          }
+        }
+        .width('100%')
       }
     }
     .width('100%')
@@ -1799,6 +1803,18 @@ export struct BotChatPage {
         .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
         if (this.state.supported) {
+          // 底部渐变过渡带：正文进入玻璃前逐级淡出，避免内容与玻璃之间出现硬切边
+          // （与工作模式 ConversationPage.bottomFadeOverlay 同一套）
+          Column()
+            .width('100%')
+            .height(this.dockHeight + 44)
+            .linearGradient({
+              direction: GradientDirection.Bottom,
+              colors: this.isDark
+                ? [['rgba(0,0,0,0)', 0.0], ['rgba(0,0,0,0.18)', 0.45], ['rgba(0,0,0,0.45)', 0.75], ['rgba(0,0,0,0.72)', 1.0]]
+                : [['rgba(242,242,244,0)', 0.0], ['rgba(242,242,244,0.28)', 0.45], ['rgba(242,242,244,0.62)', 0.75], ['rgba(242,242,244,0.86)', 1.0]]
+            })
+            .hitTestBehavior(HitTestMode.None)
           this.composerDock()
         }
       }

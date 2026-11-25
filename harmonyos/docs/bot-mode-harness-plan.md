@@ -70,6 +70,12 @@
   主机拿不到 sessionId 就认不出会话，回错误或不回包；乐观气泡于是从 `sending` 落到 `unknown`，界面显示「发送状态待确认，请同步聊天后核对」，看起来就是「发不出去，还提示要同步」。
 - 已按协议修正 sendPayload；`docs/bot-mode-ios-spec.md` §4.5/§9.3 也是这个形状。
 
+## Bot 聊天页输入框改用系统沉浸光感玻璃（2026-11-25）
+
+- 问题：Bot 聊天页输入框原来是「自绘半透明白底 + backdropBlur(22) + 1px 细亮边」，工作模式对话页走的是真正的系统沉浸光感（`HdsGlassSurface` = HdsTabs 悬浮 TabBar + `systemMaterialEffect: IMMERSIVE`），两者观感不同（Bot 那边像蒙了一层白雾、缺系统玻璃的折射/高光）。
+- 改法：`composerDock` 外层包 `HdsGlassSurface`（`radiusVp` 展开 28 / 收起 26，背板尺寸跟随内容实测值），`composerCapsule` / `composerCard` 自身底色与描边全部去掉（透明），只排内容；底部再补一条与工作模式一致的渐变过渡带（`dockHeight + 44`，让正文进玻璃前逐级淡出）。
+- 与工作模式 ConversationPage / ConversationComposer 同一套：玻璃由背板渲染、内容浮在上面，圆角与尺寸对齐。
+
 ## 待做（P1/P2）
 
 1. 文件附件上传（bot-attachments receipts 链路；需要网关 upload 协议，iOS 走 FileUploadController）
