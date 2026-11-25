@@ -158,6 +158,16 @@ export struct BotChatPage {
   private composerExpandedAt: number = 0;
   /** 图片大图预览（与工作模式同一套：底部玻璃 sheet + 双指缩放） */
   @State previewOpen: boolean = false;
+  /** 交付文件预览弹窗（底部原生玻璃 sheet） */
+  @State filePreviewOpen: boolean = false;
+  @State filePreviewName: string = '';
+  @State filePreviewLocalPath: string = '';
+  @State filePreviewText: string = '';
+  @State filePreviewSize: string = '';
+  @State filePreviewLoading: boolean = false;
+  @State filePreviewError: string = '';
+  @State filePreviewIsImage: boolean = false;
+  private filePreviewSource: BotPresentedFile | null = null;
   @State previewPath: string = '';
   @State previewZoom: number = 1;
   private previewZoomBase: number = 1;
@@ -1251,7 +1261,9 @@ export struct BotChatPage {
       .layoutWeight(1)
     }
     .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-    .constraintSize({ maxWidth: 340, minHeight: 76 })
+    // 与回复气泡完全同宽（气泡正文统一用 bubbleMaxWidth）
+    .width(this.bubbleMaxWidth())
+    .constraintSize({ minHeight: 76 })
     .backgroundColor(this.fileCardBg(this.fileKindOf(this.fileNameOf(file))))
     .borderRadius(14)
     .onClick(() => {
@@ -1274,20 +1286,191 @@ export struct BotChatPage {
     return '文件';
   }
 
+  /**
+   * 点交付文件卡：下载到本机后打开底部原生玻璃弹窗预览。
+   * 图片直接看图、文本/代码显示内容、Office/PDF 显示文件信息（应用内暂不支持渲染）。
+   */
   private onOpenFile(file: BotPresentedFile): void {
-    // Bot 协议暂无跨端文件下载通道：点卡片把完整路径复制到剪贴板（并提示），方便到主机侧打开
-    try {
-      const path: string = file.path;
-      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, path);
-      pasteboard.getSystemPasteboard().setData(data).then(() => {
-        try {
-          this.getUIContext().getPromptAction().showToast({ message: '已复制文件路径' });
-        } catch (ignored) {
-        }
-      }).catch(() => {
-      });
-    } catch (error) {
+    const chat: BotChat | null = this.chat();
+    const sessionId: string = chat !== null && chat.sessionId !== undefined ? chat.sessionId : '';
+    if (sessionId.length === 0) {
+      this.showHint('会话未就绪，稍后再试');
+      return;
     }
+    this.filePreviewSource = file;
+    this.filePreviewName = this.fileNameOf(file);
+    this.filePreviewLocalPath = '';
+    this.filePreviewText = '';
+    this.filePreviewError = '';
+    this.filePreviewSize = '';
+    this.filePreviewIsImage = this.isImageFile(this.filePreviewName);
+    this.filePreviewLoading = true;
+    this.filePreviewOpen = true;
+    const context = getContext(this) as common.UIAbilityContext;
+    const client: GatewayClient = GatewayClient.get();
+    Logger.info('BOT_FILE preview ' + file.path);
+    client.resolveFile(sessionId, file.path).then((resolved) => {
+      const rel: string = resolved.path !== undefined ? String(resolved.path) : '';
+      if (rel.length === 0) {
+        throw new Error('empty resolved path');
+      }
+      return downloadAttachment(context, client, sessionId, rel);
+    }).then((result: DownloadResult): Promise<void> => {
+      this.filePreviewLocalPath = result.localPath;
+      this.filePreviewSize = this.formatFileSize(result.size);
+      if (this.filePreviewIsImage) {
+        this.filePreviewLoading = false;
+        this.imageRevision += 1;
+        return Promise.resolve();
+      }
+      if (this.isTextFile(this.filePreviewName)) {
+        return this.readTextFile(result.localPath).then((text: string) => {
+          this.filePreviewText = text;
+          this.filePreviewLoading = false;
+        });
+      }
+      this.filePreviewLoading = false;
+      return Promise.resolve();
+    }).catch((error: Error) => {
+      Logger.warn('BOT_FILE preview failed: ' + error.message);
+      this.filePreviewLoading = false;
+      this.filePreviewError = '文件下载失败，请确认主机在线后重试';
+    });
+  }
+
+  /** 本地文件大小的人话格式 */
+  private formatFileSize(bytes: number): string {
+    if (bytes <= 0) {
+      return '';
+    }
+    if (bytes < 1024) {
+      return bytes.toString() + ' B';
+    }
+    if (bytes < 1024 * 1024) {
+      return (bytes / 1024).toFixed(1) + ' KB';
+    }
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  private isTextFile(name: string): boolean {
+    const ext: string = this.fileExtension(name);
+    return ext === 'txt' || ext === 'md' || ext === 'json' || ext === 'csv' || ext === 'log'
+      || ext === 'xml' || ext === 'yml' || ext === 'yaml' || ext === 'html' || ext === 'css'
+      || ext === 'js' || ext === 'ts' || ext === 'ets' || ext === 'kt' || ext === 'java'
+      || ext === 'py' || ext === 'swift' || ext === 'sh';
+  }
+
+  private async readTextFile(localPath: string): Promise<string> {
+    try {
+      const content: string = fileIo.readTextSync(localPath);
+      // 太长就截断，避免一次渲染巨大文本卡住页面
+      return content.length > 40000 ? content.substring(0, 40000) + '\n\n…（内容过长，仅显示前 40000 字）' : content;
+    } catch (error) {
+      return '';
+    }
+  }
+
+  /** 交付文件预览弹窗（底部原生玻璃 sheet，与图片预览/角色弹窗同一套材质） */
+  @Builder
+  filePreviewSheet() {
+    Column() {
+      // 标题行：彩色徽标 + 文件名 + 大小
+      Row({ space: 12 }) {
+        this.fileGlyph(this.filePreviewName)
+        Column({ space: 3 }) {
+          Text(this.filePreviewName)
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.ink())
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+          if (this.filePreviewSize.length > 0) {
+            Text(this.filePreviewSize)
+              .fontSize(12)
+              .fontColor(this.subColor())
+          }
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        Row() {
+          SymbolGlyph($r('sys.symbol.xmark'))
+            .fontSize(16)
+            .fontColor([this.subColor()])
+        }
+        .width(30)
+        .height(30)
+        .borderRadius(15)
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
+        .onClick(() => {
+          this.filePreviewOpen = false;
+        })
+      }
+      .width('100%')
+      .padding({ top: 14, bottom: 12 })
+      .alignItems(VerticalAlign.Center)
+
+      // 内容区
+      Column() {
+        if (this.filePreviewLoading) {
+          Column({ space: 10 }) {
+            LoadingProgress()
+              .width(26)
+              .height(26)
+              .color(this.botBlue())
+            Text('正在从主机加载…')
+              .fontSize(13)
+              .fontColor(this.subColor())
+          }
+          .width('100%')
+          .height('100%')
+          .justifyContent(FlexAlign.Center)
+        } else if (this.filePreviewError.length > 0) {
+          Text(this.filePreviewError)
+            .fontSize(14)
+            .fontColor(this.subColor())
+            .padding(24)
+        } else if (this.filePreviewIsImage && this.filePreviewLocalPath.length > 0) {
+          this.zoomablePreviewImage(this.filePreviewLocalPath)
+        } else if (this.filePreviewText.length > 0) {
+          Scroll() {
+            Text(this.filePreviewText)
+              .fontSize(13)
+              .lineHeight(20)
+              .fontFamily('monospace')
+              .fontColor(this.ink())
+              .width('100%')
+              .textAlign(TextAlign.Start)
+              .padding({ left: 14, right: 14, top: 12, bottom: 20 })
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .scrollBar(BarState.Off)
+          .borderRadius(14)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(16,19,24,0.04)')
+        } else {
+          // 不支持内联预览的格式（docx / pdf / ppt …）：给文件信息 + 明确说明
+          Column({ space: 14 }) {
+            this.fileGlyph(this.filePreviewName)
+            Text('该格式暂不支持在应用内预览')
+              .fontSize(14)
+              .fontColor(this.subColor())
+            Text('文件已下载到本机，可在主机侧打开查看')
+              .fontSize(12)
+              .fontColor(this.subColor())
+          }
+          .width('100%')
+          .height('100%')
+          .justifyContent(FlexAlign.Center)
+        }
+      }
+      .width('100%')
+      .layoutWeight(1)
+    }
+    .width('100%')
+    .height('100%')
+    .padding({ left: 16, right: 16, top: 4, bottom: 16 })
   }
 
   // ==================== 「+」附件（对齐工作模式 composer 的加号菜单） ====================
@@ -2096,7 +2279,7 @@ export struct BotChatPage {
                   this.fileCard(file)
                 }, (file: BotPresentedFile) => file.path + ':' + (file.description ?? ''))
               }
-              .width('100%')
+              .width(this.bubbleMaxWidth())
               .alignItems(HorizontalAlign.Start)
             }
             // 页脚（对齐工作模式）：助手回复 = 复制 / 引用 / 时间；用户气泡 = 时间 / 复制（复制在时间右边）。
@@ -2870,6 +3053,26 @@ export struct BotChatPage {
           .height('100%')
           .hitTestBehavior(HitTestMode.None)
         }
+
+        // 交付文件预览：1×1 透明锚点，用系统半模态承载（原生玻璃材质，与图片预览同一套）。
+        // ArkUI 一个节点只能挂一个 bindSheet，所以单独放在这个节点上。
+        Column()
+          .width(1)
+          .height(1)
+          .opacity(0.01)
+          .bindSheet($$this.filePreviewOpen, this.filePreviewSheet(), {
+            height: '78%',
+            dragBar: true,
+            showClose: false,
+            preferType: SheetType.BOTTOM,
+            backgroundColor: immersiveSheetSupported() ? Color.Transparent : sheetFallbackColor(this.isDark),
+            systemMaterial: sheetSystemMaterial(this.isDark),
+            onDisappear: () => {
+              this.filePreviewLocalPath = '';
+              this.filePreviewText = '';
+              this.filePreviewError = '';
+            }
+          })
       }
       .width('100%')
       .height('100%')
