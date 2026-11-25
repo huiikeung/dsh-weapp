@@ -84,6 +84,8 @@ const TIMELINE_MIN_INTERVAL_MS: number = 120;
 /** 图片发送载荷（ArkTS 不允许未声明类型的对象字面量） */
 /** 图片超过这个大小就先压缩再 base64（相机原图几 MB，base64 后十几 MB 容易发不出去） */
 const SEND_IMAGE_COMPRESS_AT: number = 1.5 * 1024 * 1024;
+/** 单张图片处理（读文件/解码/转码）超时：超过就报错，不能把发送流程卡死 */
+const SEND_IMAGE_TIMEOUT_MS: number = 20000;
 /** 压缩目标：单张 ≤ 1.2MB（base64 后约 1.6MB） */
 const SEND_IMAGE_TARGET_BYTES: number = 1.2 * 1024 * 1024;
 /** 压缩后最长边（1600 足够看清，也控制体积） */
@@ -547,6 +549,8 @@ export struct ConversationPage {
   @State steerFailedIds: string[] = [];
   @State autoStick: boolean = true;
   @State sending: boolean = false;
+  /** 本次发送开始时间：发图转码若卡死会把 sending 永久卡在 true，后续发送全部被静默吞掉 */
+  private sendStartedAt: number = 0;
   @State pickedAttachments: PickedAttachment[] = [];
   @State attachmentHint: string = '';
   /**
@@ -4176,7 +4180,19 @@ export struct ConversationPage {
       refPrefix += chip.token + ' ';
     }
     const text: string = (refPrefix + typed).trim();
+    Logger.info('[SEND] enter sending=' + (this.sending ? '1' : '0') + ' textLen=' + text.length.toString()
+      + ' picked=' + this.pickedAttachments.length.toString());
+    // 上一次发送如果卡在发图转码（无超时）会一直占着 sending，导致此后每次点发送都静默返回、
+    // 表现就是「连续好几次没反应」。超过 60s 一律视为卡死，强制解锁并提示重试。
+    if (this.sending && this.sendStartedAt > 0 && Date.now() - this.sendStartedAt > 60000) {
+      Logger.warn('[SEND] stuck sending reset after ' + Math.round((Date.now() - this.sendStartedAt) / 1000).toString() + 's');
+      this.sending = false;
+      this.sendStartedAt = 0;
+      this.attachmentHint = '';
+    }
     if (this.sending || (text.length === 0 && this.pickedAttachments.length === 0)) {
+      Logger.info('[SEND] bail sending=' + (this.sending ? '1' : '0')
+        + ' empty=' + (text.length === 0 && this.pickedAttachments.length === 0 ? '1' : '0'));
       return;
     }
     const client: GatewayClient = GatewayClient.get();
@@ -4190,6 +4206,7 @@ export struct ConversationPage {
       return;
     }
     this.sending = true;
+    this.sendStartedAt = Date.now();
     // 运行中（含规划/思考阶段）：发送应进入队列，而不是直接插进会话。
     const sessionBusy: boolean = this.sessionBusyNow();
     const generation: number = client.generation();
@@ -4201,11 +4218,15 @@ export struct ConversationPage {
       for (const attachment of selected) {
         if (this.isImageAttachment(attachment.name)) {
           this.attachmentHint = '正在处理图片 ' + attachment.name;
-          const payload: Object | undefined = await this.imagePayloadForSend(attachment);
+          Logger.info('[SEND] processing image ' + attachment.name);
+          // 加超时：解码/转码某些图会卡住，卡住就等于这次发送永远不结束（后续发送被吞）
+          const payload: Object | undefined = await this.imagePayloadWithTimeout(attachment);
           if (payload !== undefined) {
             imagePayloads.push(payload);
             continue;
           }
+          // 图片没处理成功就必须明确报错：绝不能退化成"当文件上传"再静默失败
+          throw new Error('图片处理失败：' + attachment.name);
         }
         fileAttachments.push(attachment);
       }
@@ -4226,9 +4247,36 @@ export struct ConversationPage {
       }
       if (uploaded.length > 0 || imagePayloads.length > 0) {
         const receipts: UploadReceipt[] = uploaded.map((item: UploadResult): UploadReceipt => ({ receiptId: item.receiptId }));
+        let payloadBytes: number = 0;
+        for (const image of imagePayloads) {
+          const data: Object | undefined = (image as Record<string, Object>)['data'];
+          if (typeof data === 'string') {
+            payloadBytes += (data as string).length;
+          }
+        }
         Logger.info('[SEND] media send start images=' + imagePayloads.length.toString()
-          + ' receipts=' + receipts.length.toString() + ' textLen=' + text.length.toString());
-        const ack = await client.sendUserMessageWithMedia(text, sessionId, imagePayloads, receipts);
+          + ' receipts=' + receipts.length.toString() + ' textLen=' + text.length.toString()
+          + ' base64Len=' + payloadBytes.toString());
+        // lane 上还有别的发送在飞时网关层会立刻回 request busy（上一次大图发送卡住时尤其明显）：
+        // 这里自动退避重试，别让用户看到「点了没反应」。
+        let ack: GatewayFrame | undefined = undefined;
+        let lastError: string = '';
+        for (let attempt = 0; attempt < 4; attempt++) {
+          try {
+            ack = await client.sendUserMessageWithMedia(text, sessionId, imagePayloads, receipts);
+            break;
+          } catch (sendError) {
+            lastError = sendError instanceof Error ? sendError.message : String(sendError);
+            Logger.warn('[SEND] media attempt ' + (attempt + 1).toString() + ' failed: ' + lastError);
+            if (lastError.indexOf('request busy') < 0) {
+              throw sendError instanceof Error ? sendError : new Error(lastError);
+            }
+            await this.delayMs(900);
+          }
+        }
+        if (ack === undefined) {
+          throw new Error(lastError.length > 0 ? lastError : '发送超时');
+        }
         Logger.info('[SEND] media send ack kind=' + ack.kind);
         if (ack.sessionId !== sessionId) {
           throw new Error('发送确认无效，草稿已保留');
@@ -4284,6 +4332,18 @@ export struct ConversationPage {
         this.draftSaveTimer = -1;
       }
       DraftStore.get().clear(sessionId);
+      // 发完即收：清焦点 + 主动收键盘，输入条塌回单栏胶囊。
+      // 之前只清数据不清输入态：composerFocused 仍为 true，展开判定持续成立，
+      // 玻璃背板就停留在展开高度（尤其发图片后很明显）。
+      this.composerSheet = '';
+      this.permissionMenuOpen = false;
+      this.modelMenuOpen = false;
+      this.metricPopover = '';
+      this.getUIContext().getFocusController().clearFocus();
+      this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
+        this.composerFocused = false;
+        this.dockBarHeight = 52;
+      });
       this.autoStick = true;
       setTimeout(() => {
         this.scroller.scrollEdge(Edge.Bottom);
@@ -4299,7 +4359,48 @@ export struct ConversationPage {
       }
     } finally {
       this.sending = false;
+      this.sendStartedAt = 0;
     }
+  }
+
+  /** 简单延时（发送请求退避重试用） */
+  private delayMs(ms: number): Promise<void> {
+    return new Promise<void>((resolve: () => void) => {
+      setTimeout(() => {
+        resolve();
+      }, ms);
+    });
+  }
+
+  /** 图片载荷带超时：卡住的转码不能拖死整个发送流程 */
+  private imagePayloadWithTimeout(att: PickedAttachment): Promise<Object | undefined> {
+    return new Promise<Object | undefined>((resolve: (value: Object | undefined) => void) => {
+      let settled: boolean = false;
+      const timer: number = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        Logger.warn('[SEND] image payload timeout ' + att.name);
+        resolve(undefined);
+      }, SEND_IMAGE_TIMEOUT_MS);
+      this.imagePayloadForSend(att).then((payload: Object | undefined) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(payload);
+      }).catch((error: Error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        Logger.warn('[SEND] image payload failed ' + att.name + ': ' + error.message);
+        resolve(undefined);
+      });
+    });
   }
 
   private onStop(): void {

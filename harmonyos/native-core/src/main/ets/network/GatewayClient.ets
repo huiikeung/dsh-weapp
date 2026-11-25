@@ -1697,7 +1697,10 @@ export class GatewayClient {
     }
     this.ws.send(text, (err: BusinessError) => {
       if (err) {
+        // 帧太大 / 连接异常时 ws.send 会异步失败：必须立刻让等待中的请求失败，
+        // 否则要等 60s 超时，期间同 lane 的发送全被 request busy 拒掉（表现就是「点了没反应」）。
         Logger.error('send failed: ' + JSON.stringify(err));
+        this.rejectPending('发送失败：' + (err.message !== undefined ? err.message : '网络异常'));
       }
     });
     return true;

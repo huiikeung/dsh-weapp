@@ -16,10 +16,13 @@ import { Logger } from './Logger';
 
 /** 网关允许的图片 mediaType */
 const SUPPORTED_NAME_EXTENSIONS: string[] = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
-const FAST_PATH_MAX_BYTES: number = 1500 * 1024;
-const TARGET_BYTES: number = 1400 * 1024;
+// 关键：单帧必须远小于 WebSocket 上限。之前 target 1.4MB（base64 ≈1.9MB）+
+// 4 张图就是 ~8MB 单帧，ArkTS 的 ws.send 会异步失败而 Promise 还在等 60s，
+// 表现为「点了发送没反应」，之后同 lane 的请求还会被 request busy 直接拒掉。
+const FAST_PATH_MAX_BYTES: number = 600 * 1024;
+const TARGET_BYTES: number = 560 * 1024;
 const FALLBACK_RAW_MAX_BYTES: number = 8 * 1024 * 1024;
-const MAX_SIDE: number = 2048;
+const MAX_SIDE: number = 1600;
 
 export interface SendImagePayload {
   mediaType: string;
