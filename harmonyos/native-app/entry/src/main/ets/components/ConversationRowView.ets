@@ -453,6 +453,113 @@ export struct ConversationRowView {
     return sum;
   }
 
+  /** 这批文件是否带增删行数（有 = 代码改动卡片，无 = 明确交付的文件） */
+  private filesHaveCounts(): boolean {
+    for (const chip of this.fileCards) {
+      if (this.fileAt(chip, 5) === '1') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** 交付文件卡片（对齐 dsh 电脑端）：图标底板 + 彩色类型徽标 + 文件名 17 + 「Word 文档：说明」14 */
+  @Builder
+  deliverableCard(chip: string) {
+    Row({ space: 14 }) {
+      Stack({ alignContent: Alignment.Center }) {
+        Column()
+          .width(52)
+          .height(52)
+          .borderRadius(13)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(16,19,24,0.04)')
+        this.fileKindBadge(this.fileKind(chip))
+      }
+      .width(52)
+      .height(52)
+      .flexShrink(0)
+
+      Column({ space: 3 }) {
+        Text(this.fileAt(chip, 1).length > 0 ? this.fileAt(chip, 1) : this.filePathOf(chip))
+          .fontSize(17)
+          .lineHeight(22)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.primaryText())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+        Text(this.deliverableSubtitle(chip))
+          .fontSize(14)
+          .lineHeight(19)
+          .fontColor(this.secondaryText())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+    }
+    .width('100%')
+    .padding({ left: 10, right: 14, top: 10, bottom: 10 })
+    .borderRadius(14)
+    .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(16,19,24,0.03)')
+    .border({ width: 0.5, color: this.dividerLineColor() })
+    .margin({ top: 8 })
+    .onClick(() => {
+      this.onFileTap(this.fileAt(chip, 1), this.fileAt(chip, 0), 0, false);
+    })
+  }
+
+  /** 交付文件副标题：「Word 文档：说明」，没有说明只留类型 */
+  private deliverableSubtitle(chip: string): string {
+    const label: string = this.kindLabel(this.fileKind(chip));
+    const description: string = fileCardSummary(this.fileAt(chip, 6));
+    return description.length > 0 ? label + '：' + description : label;
+  }
+
+  /** 类型 → 中文名（Word 文档 / Excel 表格 / PDF 文档 …） */
+  private kindLabel(kind: string): string {
+    if (kind === 'pdf') {
+      return 'PDF 文档';
+    }
+    if (kind === 'doc' || kind === 'docx') {
+      return 'Word 文档';
+    }
+    if (kind === 'xls' || kind === 'xlsx') {
+      return 'Excel 表格';
+    }
+    if (kind === 'csv') {
+      return 'CSV 表格';
+    }
+    if (kind === 'ppt' || kind === 'pptx') {
+      return 'PowerPoint 演示文稿';
+    }
+    if (kind === 'md') {
+      return 'Markdown 文档';
+    }
+    if (kind === 'txt') {
+      return '文本文件';
+    }
+    if (kind === 'code') {
+      return '代码文件';
+    }
+    if (kind === 'image') {
+      return '图片';
+    }
+    if (kind === 'audio') {
+      return '音频';
+    }
+    if (kind === 'video') {
+      return '视频';
+    }
+    if (kind === 'archive') {
+      return '压缩包';
+    }
+    if (kind === 'package') {
+      return '安装包';
+    }
+    return '文件';
+  }
   /**
    * 已编辑 / 交付文件卡片，逐项对齐小程序：
    * .file-card-wrap > .changed-files（1rpx 描边 / 24rpx 圆角 / var(--surface)）
@@ -466,17 +573,34 @@ export struct ConversationRowView {
   @Builder
   filesCard() {
     if (this.fileCards.length > 0) {
+      if (!this.filesHaveCounts()) {
+        // 明确交付的文件（没有增删行数）：用 dsh 电脑端的文件卡样式，不再套「已编辑 N 个文件」
+        Column({ space: 8 }) {
+          ForEach(this.fileCards, (chip: string) => {
+            this.deliverableCard(chip)
+          }, (chip: string) => chip)
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
+      } else {
       Column() {
         Column() {
           Row({ space: this.rpx(18) }) {
             // 单文件：直接显示该类型的全彩图标（对齐 dsh FileReferenceCard 的 FileTypeIcon 48dp）；
             // 多文件：沿用「多文件」标记块。
             if (this.fileCards.length === 1) {
-              Image(this.fileIcon(this.fileCards[0]))
-                .width(this.rpx(88))
-                .height(this.rpx(88))
-                .objectFit(ImageFit.Contain)
-                .flexShrink(0)
+              // 与交付文件卡片同一套图标：52 底板 + 彩色类型徽标
+              Stack({ alignContent: Alignment.Center }) {
+                Column()
+                  .width(this.rpx(100))
+                  .height(this.rpx(100))
+                  .borderRadius(this.rpx(24))
+                  .backgroundColor(this.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(16,19,24,0.04)')
+                this.fileKindBadge(this.fileKind(this.fileCards[0]))
+              }
+              .width(this.rpx(100))
+              .height(this.rpx(100))
+              .flexShrink(0)
             } else {
               Stack({ alignContent: Alignment.Center }) {
                 Image($r('app.media.deliverable_code'))
@@ -611,6 +735,7 @@ export struct ConversationRowView {
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
+      }
     }
   }
 
@@ -710,42 +835,8 @@ export struct ConversationRowView {
               this.openImageGroup(chipIndex, chip);
             })
           } else {
-            // 文档类交付（Word / PPT / Excel / PDF …）：对齐 dsh 端 FileReferenceCard ——
-            // 全彩类型图标 48vp + 文件名 15 Medium + 类型说明 12，卡片底色按类型 8%/16% 混合，圆角 12。
-            Row({ space: 12 }) {
-              Image(fileKindIcon(this.attachmentFileKind(chip)))
-                .width(48)
-                .height(48)
-                .objectFit(ImageFit.Contain)
-                .flexShrink(0)
-              Column({ space: 4 }) {
-                Text(this.attachmentName(chip))
-                  .fontSize(15)
-                  .lineHeight(18)
-                  .fontWeight(FontWeight.Medium)
-                  .fontColor(this.primaryText())
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .width('100%')
-                Text(this.attachmentKindLabel(chip))
-                  .fontSize(12)
-                  .lineHeight(15)
-                  .fontColor(this.secondaryText())
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .width('100%')
-              }
-              .alignItems(HorizontalAlign.Start)
-              .layoutWeight(1)
-            }
-            .padding(12)
-            .borderRadius(12)
-            .backgroundColor(fileCardColor(this.attachmentFileKind(chip), this.isDark))
-            .constraintSize({ maxWidth: 320, minHeight: 72 })
-            .margin({ top: 8 })
-            .onClick(() => {
-              this.onAttachmentTap(this.attachmentName(chip), this.attachmentPath(chip), this.attachmentMediaType(chip));
-            })
+            // 文档类交付（Word / PPT / Excel / PDF …）：对齐 dsh 电脑端样式
+            this.fileReferenceCard(chip)
           }
         }, (chip: string) => chip)
       }
@@ -753,6 +844,115 @@ export struct ConversationRowView {
       .alignItems(alignEnd ? HorizontalAlign.End : HorizontalAlign.Start)
       .margin({ top: this.rpx(12) })
     }
+  }
+
+  /**
+   * 文档图标：dsh 电脑端那套「彩色圆角方块 + 白色字母 + 右上折角」（Word 蓝 W、Excel 绿 X、
+   * PowerPoint 橙 P、PDF 红 PDF）。非 Office 类型仍用 Untitled UI 全彩图标。
+   */
+  @Builder
+  fileKindBadge(kind: string) {
+    if (kind === 'doc' || kind === 'docx') {
+      this.officeBadge(34, '#2B579A', 'W')
+    } else if (kind === 'xls' || kind === 'xlsx' || kind === 'csv') {
+      this.officeBadge(34, '#217346', 'X')
+    } else if (kind === 'ppt' || kind === 'pptx') {
+      this.officeBadge(34, '#D24726', 'P')
+    } else if (kind === 'pdf') {
+      this.officeBadge(34, '#D93025', 'PDF')
+    } else {
+      Image(fileKindIcon(kind))
+        .width(34)
+        .height(34)
+        .objectFit(ImageFit.Contain)
+    }
+  }
+
+  /** 彩色圆角方块 + 白色字母（带右上折角高光，贴近 dsh 端 Office 图标） */
+  @Builder
+  officeBadge(size: number, color: string, letter: string) {
+    Stack({ alignContent: Alignment.TopEnd }) {
+      Stack({ alignContent: Alignment.Center }) {
+        Column()
+          .width(size)
+          .height(size)
+          .borderRadius(size * 0.24)
+          .backgroundColor(color)
+        Text(letter)
+          .fontSize(letter.length > 1 ? size * 0.34 : size * 0.5)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+      }
+      .width(size)
+      .height(size)
+
+      // 右上折角：半透明白三角
+      Column()
+        .width(size * 0.34)
+        .height(size * 0.34)
+        .borderRadius({ topRight: size * 0.24 })
+        .backgroundColor('rgba(255,255,255,0.28)')
+    }
+    .width(size)
+    .height(size)
+  }
+
+  /**
+   * 交付/附件文件卡片：对齐 dsh 电脑端（截图）——
+   * 中性卡片底 + 52 图标底板（内嵌彩色类型图标）+ 文件名 17 Medium + 「Word 文档：说明」14 次要色。
+   */
+  @Builder
+  fileReferenceCard(chip: string) {
+    Row({ space: 14 }) {
+      Stack({ alignContent: Alignment.Center }) {
+        Column()
+          .width(52)
+          .height(52)
+          .borderRadius(13)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(16,19,24,0.04)')
+        this.fileKindBadge(this.attachmentFileKind(chip))
+      }
+      .width(52)
+      .height(52)
+      .flexShrink(0)
+
+      Column({ space: 3 }) {
+        Text(this.attachmentName(chip))
+          .fontSize(17)
+          .lineHeight(22)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.primaryText())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+        Text(this.fileReferenceSubtitle(chip))
+          .fontSize(14)
+          .lineHeight(19)
+          .fontColor(this.secondaryText())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+    }
+    .width('100%')
+    .padding({ left: 10, right: 14, top: 10, bottom: 10 })
+    .borderRadius(14)
+    .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(16,19,24,0.03)')
+    .border({ width: 0.5, color: this.dividerLineColor() })
+    .margin({ top: 8 })
+    .onClick(() => {
+      this.onAttachmentTap(this.attachmentName(chip), this.attachmentPath(chip), this.attachmentMediaType(chip));
+    })
+  }
+
+  /** 卡片副标题：「Word 文档：<说明>」，没有说明时只留类型名 */
+  private fileReferenceSubtitle(chip: string): string {
+    const label: string = this.attachmentKindLabel(chip);
+    // dsh 端会去掉说明末尾括号里的展开清单（FileCardDescription.summary）
+    const description: string = fileCardSummary(this.attachmentDescription(chip));
+    return description.length > 0 ? label + '：' + description : label;
   }
 
   /** 附件类型（走 dsh 端 FileIconCatalog 口径） */
