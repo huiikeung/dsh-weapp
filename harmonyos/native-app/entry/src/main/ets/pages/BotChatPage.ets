@@ -13,6 +13,7 @@
  *       「+」菜单与工作模式一致：相册图片 / 本地文件（图片走 images base64，文件走 receipts 上传）。
  */
 import {
+  BOT_BG_DEFAULT, BotPalette, botPalette,
   BotAnswerChoice, BotChat, BotChatImage, BotChatMessage, BotInteraction,
   BotPresentedFile, BotQuestionAnswer, BotSnapshot, BotStore, emptyBotSnapshot,
   GatewayClient, Logger, pickDocuments, pickImages, uploadAttachment, SpeechFailure, SpeechInput
@@ -90,6 +91,8 @@ export struct BotChatPage {
   @StorageProp('contentFontSize') contentFontSize: string = '标准';
   @Consume('pageStack') pageStack: NavPathStack;
   @StorageLink('isDark') isDark: boolean = false;
+  /** 设置 → Bot 背景配色：对话卡片底色跟着它走 */
+  @StorageLink('botBgTheme') botBgTheme: string = BOT_BG_DEFAULT;
   @StorageLink('safeTopVp') safeTop: number = 0;
   @StorageLink('safeBottomVp') safeBottom: number = 0;
   @StorageLink('botState') @Watch('onStateChanged') state: BotSnapshot = emptyBotSnapshot();
@@ -280,9 +283,15 @@ export struct BotChatPage {
     return this.isDark ? '#000000' : '#F2F2F4';
   }
 
-  /** 卡片底（提问 / 审批 / 已答卡片） */
+  /** Bot 背景配色（设置 → Bot 背景配色），深/浅各一套 */
+  private themePalette(): BotPalette {
+    return botPalette(this.botBgTheme);
+  }
+
+  /** 卡片底（提问 / 审批 / 已答卡片）：跟随 Bot 背景配色（半透明主题色，深浅各一档） */
   private cardColor(): string {
-    return this.isDark ? '#292733' : '#FFFFFF';
+    const palette: BotPalette = this.themePalette();
+    return this.isDark ? palette.veilDark + '0.82)' : palette.veil + '0.92)';
   }
 
   private lineColor(): string {
