@@ -9942,7 +9942,8 @@ export struct ConversationPage {
         if (!this.listTouching) {
           return;
         }
-        this.autoStick = false;
+        // 注意：这里不要立刻把 autoStick 置 false —— 手指刚按下/只是上滑一下（本来就在底部）
+        // 也会先关掉跟随，置底按钮就跟着冒出来。真正滑离底部时 onScrollIndex 会关掉它。
         this.lastUserScrollAt = Date.now();
       })
       .onReachStart(() => {
