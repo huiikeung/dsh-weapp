@@ -2204,6 +2204,8 @@ export class SessionStore {
   private titleFetchSeen: Record<string, boolean> = {};
   /** 每会话轮次标题缓存：首次补全后，重开弹层/切页返回都直接命中 */
   private turnTitleCache: Map<string, string[]> = new Map<string, string[]>();
+  /** 持久化 key 前缀（重启 App 后仍秒开；「清理缓存」会按前缀清掉） */
+  private static readonly TITLE_CACHE_PREFIX: string = 'turnTitles.';
 
   /**
    * 只拉「用户轮次标题」：逐页请求历史，只提取 user/message 文案。
@@ -2251,18 +2253,50 @@ export class SessionStore {
     return this.titleFetchLabels.slice();
   }
 
-  /** 读取某会话已补全的标题缓存（没有则空数组） */
+  /** 读取某会话已补全的标题缓存（内存优先，其次本地持久化；没有则空数组） */
   cachedTurnTitles(sessionId: string): string[] {
-    const labels: string[] | undefined = this.turnTitleCache.get(sessionId);
-    return labels !== undefined ? labels.slice() : [];
+    const cached: string[] | undefined = this.turnTitleCache.get(sessionId);
+    if (cached !== undefined && cached.length > 0) {
+      return cached.slice();
+    }
+    if (sessionId.length === 0) {
+      return [];
+    }
+    try {
+      const raw: string = PreferencesStore.get().getString(SessionStore.TITLE_CACHE_PREFIX + sessionId, '');
+      if (raw.length === 0) {
+        return [];
+      }
+      const parsed: Object = JSON.parse(raw) as Object;
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      const labels: string[] = [];
+      for (const item of parsed as Object[]) {
+        if (typeof item === 'string') {
+          labels.push(item as string);
+        }
+      }
+      if (labels.length > 0) {
+        this.turnTitleCache.set(sessionId, labels);
+      }
+      return labels;
+    } catch (err) {
+      return [];
+    }
   }
 
-  /** 记住某会话补全后的标题（最多保留 6 个会话） */
+  /** 记住某会话补全后的标题（内存最多 6 个会话，本地持久化留 120 条） */
   rememberTurnTitles(sessionId: string, labels: string[]): void {
     if (sessionId.length === 0 || labels.length === 0) {
       return;
     }
-    this.turnTitleCache.set(sessionId, labels.slice());
+    const capped: string[] = labels.length > 120 ? labels.slice(0, 120) : labels.slice();
+    this.turnTitleCache.set(sessionId, capped);
+    try {
+      PreferencesStore.get().putString(SessionStore.TITLE_CACHE_PREFIX + sessionId, JSON.stringify(capped));
+    } catch (err) {
+    }
     if (this.turnTitleCache.size > 6) {
       const keys: string[] = [];
       this.turnTitleCache.forEach((_value: string[], key: string) => {
@@ -3137,6 +3171,14 @@ export class SessionStore {
   }
 
   clear(): void {
+    // 轮次标题缓存也属于「本机缓存」：清理缓存时一起清掉（含本地持久化）
+    this.turnTitleCache.clear();
+    this.titleFetchLabels = [];
+    this.titleFetchSeen = {};
+    try {
+      PreferencesStore.get().removeLocalCacheByPrefixes([SessionStore.TITLE_CACHE_PREFIX]);
+    } catch (err) {
+    }
     this.rows = [];
     this.optimisticUsers = [];
     this.optimisticSince = [];
