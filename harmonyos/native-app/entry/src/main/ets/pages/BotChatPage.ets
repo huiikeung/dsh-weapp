@@ -57,6 +57,11 @@ const BUBBLE_MAX_COMPACT: number = 292;
 const BUBBLE_MAX_WIDE: number = 720;
 /** 原生标题栏高度（HdsNavDestination titleBar） */
 const TITLE_BAR_HEIGHT: number = 56;
+/**
+ * 标题栏圆钮直径：与工作模式 ConversationPage.headerBtnSize(embedded) 取同一个 40
+ * （HdsGlassSurface 的 HdsTabs 背板有最小尺寸，40 渲染出来约 45vp，与系统返回键同视觉大小）。
+ */
+const HEADER_BTN_SIZE: number = 40;
 /** 输入条：左右留白 / 距屏幕底部 / 圆角 / 收起态胶囊高度 / 发送圆钮 */
 const DOCK_SIDE: number = 14;
 const DOCK_BOTTOM: number = 18;
@@ -1010,9 +1015,10 @@ export struct BotChatPage {
   @Builder
   nativeTitleBar() {
     Row({ space: 10 }) {
+      // 与工作模式会话页同一尺寸：内嵌标题栏里按 40 给（渲染约 45vp，与系统返回键同视觉大小）
       NavBackButton({
         isDark: this.isDark,
-        diameter: 36,
+        diameter: HEADER_BTN_SIZE,
         onBack: () => {
           BotStore.get().closeChat();
           this.pageStack.pop();
@@ -1053,22 +1059,23 @@ export struct BotChatPage {
       // 弹性留白：把「⋯」推到与工作模式会话页一致的最右侧（right 14）
       Blank()
 
-      // 更多：36 玻璃圆钮（与工作模式「⋯」同一套 HdsGlassSurface 背板）
+      // 更多：与工作模式「⋯」完全同一套 —— HdsGlassSurface 沉浸光感背板 +
+      // 系统 more 符号（字号 = 直径 × 0.45、Medium 字重、navIconColor）+ 透明底 + 关掉按压缩放
       Stack({ alignContent: Alignment.Center }) {
         HdsGlassSurface() {
-          Row().width(36).height(36).backgroundColor(Color.Transparent)
+          Row().width(HEADER_BTN_SIZE).height(HEADER_BTN_SIZE).backgroundColor(Color.Transparent)
         }
         Button({ type: ButtonType.Circle }) {
-          Text('⋯')
-            .fontSize(16)
-            .fontColor(this.navIconColor())
+          SymbolGlyph($r('sys.symbol.more'))
+            .fontSize(HEADER_BTN_SIZE * 0.45)
+            .fontColor([this.navIconColor()])
+            .fontWeight(FontWeight.Medium)
         }
         .id('bot-chat-more')
-        .width(36)
-        .height(36)
-        .backgroundColor(this.moreOpen
-          ? (this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
-          : Color.Transparent)
+        .width(HEADER_BTN_SIZE)
+        .height(HEADER_BTN_SIZE)
+        .backgroundColor(Color.Transparent)
+        .stateEffect(false)
         .accessibilityText('更多')
         .onClick(() => {
           this.moreOpen = !this.moreOpen;
@@ -1081,8 +1088,8 @@ export struct BotChatPage {
           }
         })
       }
-      .width(36)
-      .height(36)
+      .width(HEADER_BTN_SIZE)
+      .height(HEADER_BTN_SIZE)
     }
     .width('100%')
     .height(TITLE_BAR_HEIGHT)

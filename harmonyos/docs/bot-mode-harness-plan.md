@@ -81,6 +81,12 @@
 - 现象：Bot 聊天页收起态输入胶囊的左右下角比工作模式「尖」——因为背板 `HdsGlassSurface` 传的是固定 `radiusVp: 26`，而工作模式收起态是「半径 = 高度一半」的悬浮胶囊（`radiusRatio 0.5`）。带提示行/宽屏内缩时背板高度不等于 52，固定 26 就显得圆角不足。
 - 已改：收起态 `radiusVp: -1, radiusRatio: 0.5`（半径取高度一半，左下/右下都是正圆弧）；展开态仍用 `radiusVp: 28` 的玻璃卡。与 `ConversationPage.dockGlassRadius()/expandedGlassRadius()` 的规则一致。
 
+## 聊天页顶栏圆钮对齐工作模式（2026-11-25）
+
+- 目标：Bot 聊天页顶部按钮与工作模式会话页**同尺寸、同背景样式**。
+- 工作模式规格（ConversationPage）：内嵌标题栏里 `headerBtnSize(embedded)=40`（HdsGlassSurface 背板最小渲染约 45vp，与系统返回键同视觉大小）；每个圆钮 = `HdsGlassSurface` 沉浸光感背板 + 透明 `Button` + `SymbolGlyph(fontSize = 直径×0.45, Medium, navIconColor)` + `backgroundColor(Transparent)` + `stateEffect(false)`；返回键用 `NavBackButton`。
+- 已改 BotChatPage：新增 `HEADER_BTN_SIZE = 40`；返回键 `NavBackButton` 直径 36 → 40；「⋯」从 `Text('⋯')`（16pt + 36 圆 + 按下底色）改为 `SymbolGlyph(sys.symbol.more)` + 40 圆 + 透明底 + `stateEffect(false)`，背板仍走 `HdsGlassSurface`。
+
 ## 待做（P1/P2）
 
 1. 文件附件上传（bot-attachments receipts 链路；需要网关 upload 协议，iOS 走 FileUploadController）
