@@ -4339,6 +4339,7 @@ export struct ConversationPage {
       this.permissionMenuOpen = false;
       this.modelMenuOpen = false;
       this.metricPopover = '';
+      this.suppressFocusExpandUntil = Date.now() + 800;
       this.getUIContext().getFocusController().clearFocus();
       this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
         this.composerFocused = false;
@@ -6491,6 +6492,12 @@ export struct ConversationPage {
   private keyboardCollapseTimer: number = -1;
   /** 最近一次手指落在输入条内部的时间：这类触摸不该触发任何折叠 */
   private lastInsideComposerTouchAt: number = 0;
+  /**
+   * 发送后的忽略窗口：ArkUI 的焦点事件偶尔晚到（键盘收起/清焦点的竞态），
+   * 迟到的 focused=true 会把刚收起的输入条重新撑成大玻璃胶囊（卡片小、胶囊大）。
+   * 发送成功后 800ms 内的 focused=true 一律当作 false 处理。
+   */
+  private suppressFocusExpandUntil: number = 0;
   private hostWindowRef: arkWindow.Window | null = null;
 
   /**
@@ -6781,8 +6788,10 @@ export struct ConversationPage {
               // 展开态（聚焦或有草稿/附件）都跟随（多行输入长高）；收起态目标固定 52，由补间负责
               // 有草稿未聚焦时也要跟随：进页面恢复草稿直接渲染展开卡，胶囊高度必须同步对齐
               if (this.composerExpanded() && Math.abs(quantized - this.lastExpandedCardHeight) >= 2) {
-                this.lastExpandedCardHeight = quantized;
-                this.dockBarHeight = quantized;
+                // 封顶 320：防止偶发异常实测把胶囊撑成巨大的椭圆
+                const bounded: number = Math.min(Math.max(quantized, 52), 320);
+                this.lastExpandedCardHeight = bounded;
+                this.dockBarHeight = bounded;
               }
             },
             metricPairsFor: (kind: string): MetricMenuPair[] => {
@@ -6800,13 +6809,20 @@ export struct ConversationPage {
               if (!focused && this.composerSheet.length > 0) {
                 return;
               }
+              // 发送后迟到的 focused=true：会把刚收起的胶囊重新撑成大玻璃（竞态），按收起处理
+              let effective: boolean = focused;
+              if (focused && Date.now() < this.suppressFocusExpandUntil) {
+                effective = false;
+              }
               // 展开/收起用补间过渡：卡片高度和胶囊高度一起变，避免瞬间跳变看着卡
               // 250ms 与系统键盘收起动画同时长，两条动画同起同落，不会出现「键盘落完、卡片还在缩」
               // 有草稿/附件时失焦只收键盘，输入条保持展开高度（与 collapseComposer 同一判定）
               const keepExpanded: boolean = this.draft.trim().length > 0 || this.pickedAttachments.length > 0;
+              // 胶囊高度封顶：lastExpandedCardHeight 可能残留旧的大值（发完清空后没有新的实测来纠正）
+              const target: number = Math.min(Math.max(this.lastExpandedCardHeight, 52), 320);
               this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
-                this.composerFocused = focused;
-                this.dockBarHeight = (focused || keepExpanded) ? this.lastExpandedCardHeight : 52;
+                this.composerFocused = effective;
+                this.dockBarHeight = (effective || keepExpanded) ? target : 52;
               });
             },
             onDraft: (value: string) => {
