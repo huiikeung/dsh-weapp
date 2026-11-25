@@ -11549,18 +11549,14 @@ export struct ConversationPage {
     return width < 300 ? width : 300;
   }
 
-  /**
-   * 侧栏系统材质背板尺寸：HdsGlassSurface 的 HdsTabs 背板会比内容外扩约 6vp
-   * （和顶栏圆钮 nominal 48 → 渲染 54 同理），所以背板内容按 -6 给，渲染出来正好等于面板尺寸。
-   */
-  private convSidebarGlassWidth(): number {
-    const width: number = this.convSidebarWidth() - 6;
-    return width > 40 ? width : 40;
+  /** 侧栏玻璃底色（自建玻璃）：深色偏实一点保证文字可读，浅色半透白 */
+  private sidebarGlassFill(): string {
+    return this.isDark ? 'rgba(44,44,48,0.74)' : 'rgba(255,255,255,0.62)';
   }
 
-  private convSidebarGlassHeight(): number {
-    const height: number = this.convSidebarPanelHeight() - 6;
-    return height > 40 ? height : 40;
+  /** 侧栏玻璃模糊半径：深色下更糊一点，浅色稍弱 */
+  private sidebarGlassBlur(): number {
+    return this.isDark ? 30 : 22;
   }
 
   /** 侧栏高度：屏高 − 顶部避让 − 底部输入条避让（对齐小程序按导航栏到输入框计算） */
@@ -11596,14 +11592,6 @@ export struct ConversationPage {
   /** 会话侧栏内容：交给 bindMenu 的系统菜单容器渲染（材质/圆角/描边/动画/点空白收起全部原生） */
   @Builder
   sidebarMenuPanel() {
-    Stack({ alignContent: Alignment.Center }) {
-      // 系统沉浸光感背板（与输入条胶囊、顶栏同一套 HDS 材质，跟随设置里的玻璃档位）
-      HdsGlassSurface({ radiusVp: APP_GLASS_RADIUS }) {
-        Row()
-          .width(this.convSidebarGlassWidth())
-          .height(this.convSidebarGlassHeight())
-          .backgroundColor(Color.Transparent)
-      }
         Column() {
         // 品牌行：首页左上角同款 3D 品牌币 + 字标 + HARNESS 徽章
         Row() {
@@ -11825,21 +11813,26 @@ export struct ConversationPage {
         .width('100%')
         .padding({ bottom: 4 })
         }
+        .id('conv-sidebar')
         .width(this.convSidebarWidth())
         .height(this.convSidebarPanelHeight())
         .alignItems(HorizontalAlign.Start)
         .padding({ top: 2, bottom: 2 })
-    }
-    .id('conv-sidebar')
-    .width(this.convSidebarWidth())
-    .height(this.convSidebarPanelHeight())
-    // 弹出动画对齐系统菜单（右上角「⋯」）：从锚点（右上角按钮）缩放 0.9 → 1 + 淡入
-    .opacity(this.sessionPickerAnim)
-    .scale({
-      x: 0.9 + 0.1 * this.sessionPickerAnim,
-      y: 0.9 + 0.1 * this.sessionPickerAnim,
-      centerX: '100%',
-      centerY: 0
-    })
+        // 自绘玻璃：系统沉浸材质在 HdsTabs 背板里会被裁成胶囊/圆角样式（侧栏太大就像椭圆），
+        // 这里改成自建玻璃 —— 模糊 + 半透明底 + 1vp 亮边 + 投影，圆角是标准的 16vp 直角矩形
+        .backgroundColor(this.sidebarGlassFill())
+        .backdropBlur(this.sidebarGlassBlur())
+        .borderRadius(APP_GLASS_RADIUS)
+        .clip(true)
+        .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+        .shadow(appGlassShadow(this.isDark))
+        // 弹出动画对齐系统菜单（右上角「⋯」）：从锚点（右上角按钮）缩放 0.9 → 1 + 淡入
+        .opacity(this.sessionPickerAnim)
+        .scale({
+          x: 0.9 + 0.1 * this.sessionPickerAnim,
+          y: 0.9 + 0.1 * this.sessionPickerAnim,
+          centerX: '100%',
+          centerY: 0
+        })
   }
 }
