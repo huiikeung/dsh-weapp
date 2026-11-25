@@ -97,6 +97,15 @@ export struct VoiceRipplePanel {
   private base: number[] = [115, 169, 231];
   private glow: number[] = [175, 215, 250];
 
+  aboutToAppear(): void {
+    // 组件是「按需挂载」时（Bot 页只在录音期间挂载），初始 visible 就是 true，
+    // @Watch 不会在初始化时触发 → presented 一直是 false，画布永远不显示（看起来「没有动效」）。
+    // 这里补一次初始化。
+    if (this.visible) {
+      this.onVisibleChanged();
+    }
+  }
+
   aboutToDisappear(): void {
     this.stopLoop();
     this.clearTimers();

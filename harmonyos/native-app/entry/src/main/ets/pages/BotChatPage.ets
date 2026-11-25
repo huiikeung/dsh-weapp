@@ -638,7 +638,8 @@ export struct BotChatPage {
 
   private setVoicePhase(phase: string): void {
     this.voicePhase = phase;
-    this.voiceRecording = phase !== 'idle';
+    // 「转写中」也要让浮层留着（显示「正在识别…」），所以 recording 只覆盖前三个阶段
+    this.voiceRecording = phase === 'authorizing' || phase === 'starting' || phase === 'recording';
     if (this.voiceCancelArmed) {
       this.voiceStatus = '松手取消';
     } else if (phase === 'authorizing') {
@@ -658,6 +659,11 @@ export struct BotChatPage {
     this.speechLimits = null;
     this.voiceCancelArmed = false;
     this.setVoicePhase('idle');
+    // 录音/识别结束后回到文字输入态，保证识别出来的字能立刻看见、可以直接发
+    if (this.draft.trim().length > 0) {
+      this.voiceMode = false;
+      this.composerFocused = true;
+    }
   }
 
   /** 只在按住时申请一次麦克风权限（已授权时系统直接返回，不反复弹窗） */
@@ -747,6 +753,11 @@ export struct BotChatPage {
         this.dictation.cancel();
       }
       this.resetVoice();
+      // 松手太快（还没进入 recording）时也要给用户明确反馈，而不是静默什么都不发生
+      if (!this.voiceHoldConsumed) {
+        this.showHint('说话时间太短，按住再说话');
+      }
+      this.voiceHoldConsumed = false;
       return;
     }
     this.setVoicePhase('transcribing');
@@ -2176,6 +2187,53 @@ export struct BotChatPage {
     })
   }
 
+
+  /**
+   * 语音输入的全屏浮层（页面中间显示文字）：
+   *   录音中 —— 大号「正在聆听…」+ 实时音量条 + 提示「松手转文字 / 上滑取消」；
+   *   转写中 —— 「正在识别…」；
+   * 松手后识别结果直接写进输入框草稿。挂载顺序在输入条之上，保证盖住其它内容。
+   */
+  @Builder
+  voiceHud() {
+    Column({ space: 14 }) {
+      Text(this.voiceRecording ? (this.voiceCancelArmed ? '松手取消' : '正在聆听…') : '正在识别…')
+        .fontSize(20)
+        .fontWeight(FontWeight.Medium)
+        .fontColor('#FFFFFF')
+      Row({ space: 4 }) {
+        ForEach([0, 1, 2, 3, 4, 5, 6], (index: number) => {
+          Column()
+            .width(4)
+            .height(this.voiceLevelBar(index))
+            .borderRadius(2)
+            .backgroundColor('rgba(255,255,255,0.85)')
+        }, (index: number) => index.toString())
+      }
+      .height(36)
+      .alignItems(VerticalAlign.Bottom)
+      Text(this.voiceRecording ? '松手转文字 · 上滑取消' : '马上就好')
+        .fontSize(13)
+        .fontColor('rgba(255,255,255,0.72)')
+    }
+    .width(220)
+    .padding({ left: 24, right: 24, top: 22, bottom: 22 })
+    .borderRadius(24)
+    .backgroundColor('rgba(20,20,24,0.72)')
+    .border({ width: 0.8, color: 'rgba(255,255,255,0.18)' })
+    .backdropBlur(24)
+    .alignItems(HorizontalAlign.Center)
+  }
+
+  /** 中间浮层的音量条高度：读 dictation 的实时音量，5 档随机化让它看起来在跳动 */
+  private voiceLevelBar(index: number): number {
+    const level: number = this.voiceRecording ? this.dictation.level() : 0.12;
+    const seed: number = (index * 37) % 11;
+    const scale: number = 0.35 + (seed / 11) * 0.9;
+    const height: number = 6 + level * 26 * scale;
+    return height < 4 ? 4 : height;
+  }
+
   @Builder
   composerDock() {
     Column({ space: 8 }) {
@@ -2372,17 +2430,23 @@ export struct BotChatPage {
         // 必须放在 composerDock 之后：Stack 里后面的兄弟节点在上层，否则会被输入条压住。
         // 只在录音期间挂载 —— 空闲时若常驻一层全屏容器，即使 hitTestBehavior(None)
         // 在部分版本上仍会吃掉页面的点击/滑动手势。
-        if (this.voiceRecording) {
-          VoiceRipplePanel({
-            visible: true,
-            cancelArmed: this.voiceCancelArmed,
-            isDark: this.isDark,
-            status: this.voiceStatus,
-            readLevel: (): number => this.dictation.level()
-          })
-            .width('100%')
-            .height('100%')
-            .hitTestBehavior(HitTestMode.None)
+        // 语音浮层：波纹特效 + 中间实时文字卡（录音中/识别中），不拦触摸（手指仍压在输入条上）
+        if (this.voiceRecording || this.voicePhase === 'transcribing') {
+          Stack({ alignContent: Alignment.Center }) {
+            VoiceRipplePanel({
+              visible: true,
+              cancelArmed: this.voiceCancelArmed,
+              isDark: this.isDark,
+              status: this.voiceStatus,
+              readLevel: (): number => this.dictation.level()
+            })
+              .width('100%')
+              .height('100%')
+            this.voiceHud()
+          }
+          .width('100%')
+          .height('100%')
+          .hitTestBehavior(HitTestMode.None)
         }
       }
       .width('100%')
