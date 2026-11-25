@@ -1660,6 +1660,17 @@ export class GatewayClient {
     this.tailnetNameIdx = 0;
     this.publish(ConnectionState.CONNECTED);
     this.startHeartbeat();
+    // 开了 Tailscale 隧道且当前走的是局域网：连上后立即升级，不等下一次轮询（2s）。
+    // 没开隧道 / 非局域网入口时不做任何动作，保持局域网或 Cloudflare 的实际链路。
+    if (profile !== null && this.isLocalEndpoint(profile.wsUrl) &&
+        this.tailnetReady() && (AppStorage.get<boolean>('tailscaleTunnelEnabled') ?? false)) {
+      setTimeout(() => {
+        try {
+          this.reconnectViaTailnet();
+        } catch (upgradeErr) {
+        }
+      }, 0);
+    }
     SessionStore.get().resumeAfterConnect();
     this.requestDefaults();
     // 默认模型不在 defaults 帧里，单独拉一次（会话设置 / 模型页展示用）

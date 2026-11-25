@@ -183,7 +183,8 @@ export default class EntryAbility extends UIAbility {
     setTimeout(() => {
     TailscaleTunnelStore.get().start(this.context.filesDir + '/tailscale', this.context);
     GatewayClient.get().setTailnetEnabler(() => {
-      TailscaleTunnelStore.get().enableAndStart();
+      // 只在用户开启过隧道时才拉起；关闭状态下切蜂窝保持直连（Cloudflare/局域网）
+      TailscaleTunnelStore.get().startIfEnabled();
     });
     GatewayClient.get().setTailnetDialer((url: string): string => {
       const stage: string = AppStorage.get<string>('tailscaleStage') ?? 'disabled';

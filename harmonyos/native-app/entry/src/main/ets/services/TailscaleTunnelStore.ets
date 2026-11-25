@@ -296,6 +296,20 @@ export class TailscaleTunnelStore {
   }
 
   /** 需要时自动打开并启动内嵌隧道（扫码配对到 ts.net 地址时使用） */
+  /**
+   * 网络变化时（例如切到蜂窝）按「用户是否开启过隧道」决定是否拉起引擎。
+   * 注意：不能调用 enableAndStart——那会把用户的关闭状态强行改成开启。
+   */
+  startIfEnabled(): void {
+    if (!PreferencesStore.get().getBoolean(KEY_ENABLED, false)) {
+      return;
+    }
+    this.started = false;
+    AppStorage.setOrCreate<boolean>('tailscaleTunnelEnabled', true);
+    this.ensureStarted(false);
+    this.publish();
+  }
+
   enableAndStart(): void {
     PreferencesStore.get().putBoolean(KEY_ENABLED, true)
     this.started = false
