@@ -16,9 +16,10 @@ import {
   BOT_BG_DEFAULT, BotPalette, botPalette,
   BotAnswerChoice, BotChat, BotChatImage, BotChatMessage, BotInteraction,
   BotPresentedFile, BotQuestionAnswer, BotSnapshot, BotStore, emptyBotSnapshot,
-  BotImageCache, GatewayClient, Logger, pickDocuments, pickImages, uploadAttachment, SpeechFailure, SpeechInput
+  BotImageCache, GatewayClient, Logger, pickDocuments, pickImages, uploadAttachment, downloadAttachment,
+  SpeechFailure, SpeechInput
 } from 'nativecore';
-import type { PickedAttachment, SpeechLimits, UploadResult } from 'nativecore';
+import type { DownloadResult, PickedAttachment, SpeechLimits, UploadResult } from 'nativecore';
 import { common } from '@kit.AbilityKit';
 import { abilityAccessCtrl } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
@@ -123,6 +124,9 @@ export struct BotChatPage {
   @State hint: string = '';
   /** 正文图片/附件图片缓存代次：拉取完成后 +1 触发 Markdown 与图片块重绘 */
   @State imageRevision: number = 0;
+  /** 交付文件里的图片：path → 本地缓存路径（imageRevision 变化时重绘） */
+  private fileImagePaths: Map<string, string> = new Map<string, string>();
+  private fileImageBusy: string[] = [];
   /** 语音输入开关（设置页「语音输入」）与当前是否处于语音模式 */
   @StorageLink('voiceInputEnabled') voiceInputEnabled: boolean = true;
   @State voiceMode: boolean = false;
@@ -984,6 +988,89 @@ export struct BotChatPage {
     return Math.max(80, Math.min(height, 360));
   }
 
+  /** 交付文件里那些「其实是图片」的（png/jpg/...）：下载后直接当图片预览，不再显示文件卡 */
+  private isImageFile(name: string): boolean {
+    const ext: string = this.fileExtension(name);
+    return ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif'
+      || ext === 'webp' || ext === 'bmp' || ext === 'heic';
+  }
+
+  private fileImagePath(file: BotPresentedFile): string {
+    const key: string = file.path;
+    const cached: string = this.fileImagePaths.get(key) ?? '';
+    if (cached.length > 0) {
+      return cached;
+    }
+    if (this.fileImageBusy.indexOf(key) >= 0) {
+      return '';
+    }
+    const chat: BotChat | null = this.chat();
+    const sessionId: string = chat !== null && chat.sessionId !== undefined ? chat.sessionId : '';
+    if (sessionId.length === 0) {
+      return '';
+    }
+    const context = getContext(this) as common.UIAbilityContext;
+    if (context === undefined) {
+      return '';
+    }
+    this.fileImageBusy.push(key);
+    // 交付文件给的是主机上的**绝对路径**，而 file-download-open 只接受工作区相对路径：
+    // 先用 file-resolve 解析出相对路径，再分块下载。
+    const client: GatewayClient = GatewayClient.get();
+    Logger.info('BOT_FILE resolve ' + file.path);
+    client.resolveFile(sessionId, file.path).then((resolved) => {
+      const rel: string = resolved.path !== undefined ? String(resolved.path) : '';
+      if (rel.length === 0) {
+        throw new Error('empty resolved path');
+      }
+      return downloadAttachment(context, client, sessionId, rel);
+    }).then((result: DownloadResult) => {
+      Logger.info('BOT_FILE downloaded ' + result.localPath);
+      this.fileImagePaths.set(key, result.localPath);
+      this.imageRevision += 1;
+    }).catch((error: Error) => {
+      Logger.warn('BOT_FILE failed: ' + (error instanceof Error ? error.message : String(error)));
+    });
+    return '';
+  }
+
+  /** 交付图片的展示尺寸：单图铺满气泡宽、多图两列（与附件图片同一套） */
+  @Builder
+  fileImageCard(file: BotPresentedFile, single: boolean) {
+    Stack({ alignContent: Alignment.Center }) {
+      if (this.fileImagePath(file).length > 0) {
+        Image(this.fileImagePath(file))
+          .width('100%')
+          .constraintSize({ maxHeight: 320 })
+          .objectFit(ImageFit.Cover)
+          .borderRadius(12)
+      } else {
+        Row({ space: 8 }) {
+          LoadingProgress()
+            .width(16)
+            .height(16)
+            .color(this.subColor())
+          Text('图片加载中…')
+            .fontSize(13)
+            .fontColor(this.subColor())
+        }
+        .width('100%')
+        .height(single ? 180 : 120)
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)')
+        .borderRadius(12)
+      }
+    }
+    .width(single ? '100%' : '48%')
+    .margin({ bottom: 8 })
+    .onClick(() => {
+      const ready: string = this.fileImagePath(file);
+      if (ready.length > 0) {
+        this.openImagePreview(ready);
+      }
+    })
+  }
+
   private openImagePreview(path: string): void {
     if (path.length === 0) {
       return;
@@ -1099,31 +1186,40 @@ export struct BotChatPage {
     return 'rgb(' + red.toString() + ',' + green.toString() + ',' + blue.toString() + ')';
   }
 
-  /** 文件卡左侧彩色文件图标（圆角方块 + 折角，主色按类型） */
+  /**
+   * 文件卡左侧彩色图标（对齐 dsh-mobile 安卓端截图）：
+   * 该类型主色填充的圆角方块 + 白色大写扩展名文字（DOCX / PNG / PDF …）。
+   */
   @Builder
-  fileGlyph(kind: string) {
+  fileGlyph(name: string) {
     Stack({ alignContent: Alignment.Center }) {
       Column()
-        .width(38)
-        .height(38)
-        .borderRadius(10)
-        .backgroundColor(this.fileTint(kind))
-        .opacity(0.16)
-      Column()
-        .width(20)
-        .height(24)
-        .borderRadius(4)
-        .border({ width: 1.8, color: this.fileTint(kind) })
-      Column()
-        .width(8)
-        .height(8)
-        .borderRadius(1)
-        .backgroundColor(this.fileCardBg(kind))
-        .position({ x: 9, y: 7 })
+        .width(52)
+        .height(52)
+        .borderRadius(14)
+        .backgroundColor(this.fileTint(this.fileKindOf(name)))
+      Text(this.fileBadge(name))
+        .fontSize(this.fileBadge(name).length > 4 ? 10 : 12.5)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#FFFFFF')
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .constraintSize({ maxWidth: 44 })
+        .textAlign(TextAlign.Center)
     }
-    .width(38)
-    .height(38)
+    .width(52)
+    .height(52)
     .flexShrink(0)
+  }
+
+  /** 文件卡图标里的扩展名徽标（大写，最多 4~5 个字符） */
+  private fileBadge(name: string): string {
+    const ext: string = this.fileExtension(name);
+    if (ext.length === 0) {
+      return 'FILE';
+    }
+    const upper: string = ext.toUpperCase();
+    return upper.length > 5 ? upper.substring(0, 5) : upper;
   }
 
   /**
@@ -1133,30 +1229,49 @@ export struct BotChatPage {
   @Builder
   fileCard(file: BotPresentedFile) {
     Row({ space: 12 }) {
-      this.fileGlyph(this.fileKindOf(this.fileNameOf(file)))
+      this.fileGlyph(this.fileNameOf(file))
       Column({ space: 4 }) {
         Text(this.fileNameOf(file))
-          .fontSize(15)
+          .fontSize(17)
           .fontWeight(FontWeight.Medium)
           .fontColor(this.ink())
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(file.path)
-          .fontSize(12)
+          .width('100%')
+        Text(file.description !== undefined && file.description.length > 0
+          ? file.description
+          : this.fileKindLabel(this.fileKindOf(this.fileNameOf(file))))
+          .fontSize(13)
           .fontColor(this.subColor())
-          .maxLines(1)
+          .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
       }
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
     }
-    .padding(12)
-    .constraintSize({ maxWidth: 320 })
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .constraintSize({ maxWidth: 340, minHeight: 76 })
     .backgroundColor(this.fileCardBg(this.fileKindOf(this.fileNameOf(file))))
-    .borderRadius(12)
+    .borderRadius(14)
     .onClick(() => {
       this.onOpenFile(file);
     })
+  }
+
+  /** 没有 description 时的兜底副标题（文档/图片/表格…） */
+  private fileKindLabel(kind: string): string {
+    if (kind === 'pdf') return 'PDF 文档';
+    if (kind === 'document') return '文档';
+    if (kind === 'sheet') return '表格';
+    if (kind === 'slides') return '演示文稿';
+    if (kind === 'image') return '图片';
+    if (kind === 'code') return '代码文件';
+    if (kind === 'media') return '音频';
+    if (kind === 'video') return '视频';
+    if (kind === 'archive') return '压缩包';
+    if (kind === 'package') return '安装包';
+    return '文件';
   }
 
   private onOpenFile(file: BotPresentedFile): void {
@@ -1974,11 +2089,12 @@ export struct BotChatPage {
               }
             }
             if (message.files.length > 0) {
-              // 文件卡对齐 iOS FileReferenceCard：按类型着色的图标 + 文件名 + 路径，宽自适应
+              // 交付文件统一用「彩色扩展名徽标 + 文件名 + 说明」的文件卡（对齐 dsh-mobile 安卓端样式）；
+              // 图片类交付物同样走文件卡，点开后再按文件处理。
               Column({ space: 8 }) {
                 ForEach(message.files, (file: BotPresentedFile) => {
                   this.fileCard(file)
-                }, (file: BotPresentedFile) => file.path)
+                }, (file: BotPresentedFile) => file.path + ':' + (file.description ?? ''))
               }
               .width('100%')
               .alignItems(HorizontalAlign.Start)
