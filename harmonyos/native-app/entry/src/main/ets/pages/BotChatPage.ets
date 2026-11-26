@@ -2943,8 +2943,13 @@ export struct BotChatPage {
       .width(CAPSULE_BUTTON_SIZE)
       .height(CAPSULE_BUTTON_SIZE)
       .borderRadius(CAPSULE_BUTTON_SIZE / 2)
-      // 系统玻璃（不是 HdsGlassSurface 的悬浮 Bar 材质，那个会在四角漏深色残影）
+      // 沉浸光感玻璃：重模糊 + 对角高光 + 半透明 tint + 1vp 亮边
+      .backdropBlur(this.capsuleBlur())
       .backgroundBlurStyle(this.capsuleGlass(), { colorMode: this.capsuleColorMode() })
+      .linearGradient({
+        angle: 135,
+        colors: this.capsuleSheen()
+      })
       .backgroundColor(this.capsuleFill())
       .border({ width: 1, color: this.capsuleEdge() })
       .clip(true)
@@ -2961,8 +2966,13 @@ export struct BotChatPage {
       .justifyContent(FlexAlign.Center)
       .alignItems(HorizontalAlign.Start)
       .borderRadius(CAPSULE_HEIGHT / 2)
-      // 系统玻璃背景（模糊 + 半透明 tint + 细亮边），四角由 borderRadius + clip 裁干净
+      // 沉浸光感玻璃：重模糊 + 对角高光 + 半透明 tint + 1vp 亮边，四角由 borderRadius + clip 裁干净
+      .backdropBlur(this.capsuleBlur())
       .backgroundBlurStyle(this.capsuleGlass(), { colorMode: this.capsuleColorMode() })
+      .linearGradient({
+        angle: 135,
+        colors: this.capsuleSheen()
+      })
       .backgroundColor(this.capsuleFill())
       .border({ width: 1, color: this.capsuleEdge() })
       .clip(true)
@@ -2975,16 +2985,38 @@ export struct BotChatPage {
     .alignItems(VerticalAlign.Center)
   }
 
-  /** 收起态胶囊/圆钮的磨砂配方（与展开卡同一套，只是矮条按胶囊裁圆角） */
+  /** 收起态胶囊/圆钮的沉浸光感玻璃配方 */
   private capsuleFill(): string {
-    return this.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.62)';
+    // 深色：白 12% 的 tint（玻璃厚度感）；浅色：白 70% 的雾面
+    return this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.70)';
   }
 
   private capsuleEdge(): string {
-    return this.isDark ? 'rgba(255,255,255,0.10)' : '#66FFFFFF';
+    return this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.88)';
   }
 
-  /** 系统玻璃档位：深色用 THICK（背后内容明显糊化但不发白），浅色用 REGULAR */
+  /** 玻璃自绘模糊：叠在系统 blurStyle 之上，让背后内容糊得更「厚重」 */
+  private capsuleBlur(): number {
+    return this.isDark ? 34 : 26;
+  }
+
+  /** 对角高光：左上亮、中间透、右下微反光（模拟玻璃折射） */
+  private capsuleSheen(): Array<[ResourceColor, number]> {
+    if (this.isDark) {
+      return [
+        ['rgba(255,255,255,0.14)', 0],
+        ['rgba(255,255,255,0.02)', 0.46],
+        ['rgba(255,255,255,0.07)', 1]
+      ];
+    }
+    return [
+      ['rgba(255,255,255,0.42)', 0],
+      ['rgba(255,255,255,0.02)', 0.5],
+      ['rgba(255,255,255,0.22)', 1]
+    ];
+  }
+
+  /** 系统玻璃档位：深色 THICK（背后内容明显糊化但不发白），浅色 REGULAR */
   private capsuleGlass(): BlurStyle {
     return this.isDark ? BlurStyle.COMPONENT_THICK : BlurStyle.COMPONENT_REGULAR;
   }
