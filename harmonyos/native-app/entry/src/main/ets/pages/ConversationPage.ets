@@ -7057,6 +7057,11 @@ export struct ConversationPage {
    * 所以输入条一直不收。这里显式清焦点 + 关掉面板，再让 expanded 判定自然回落。
    */
   private collapseComposer(): void {
+    // 侧边圆钮的菜单开着时，这次“点空白”其实是点菜单本身（bindMenu 会连带触发列表触摸），
+    // 不能把面板收掉 —— 否则第二层菜单的锚点随面板一起消失，菜单会跑到输入框那边去。
+    if (this.sideMenuOpen) {
+      return;
+    }
     // 左侧玻璃圆面板：点页面任何空白都收起，不受下面的「点在输入条内部」判定影响
     if (this.leftMenuOpen) {
       this.leftMenuOpen = false;

@@ -409,8 +409,15 @@ export struct ConversationComposer {
   private expanded(): boolean {
     // 有草稿或有附件时保持展开卡片：收键盘 / 点输入框以外区域只收焦点，输入条不塌回单栏
     // （内容还在输入框里，塌下去再点开很折腾）；草稿为空才自动折叠回胶囊
+    //
+    // 输入框 chip 的菜单开着时必须算展开：bindMenu 弹出会抢焦点让 TextArea onBlur、
+    // 页面随后把 composerFocused 置 false；如果这里不同时锁住，卡片会随菜单一起消失。
+    // 注意用本地状态（permissionMenuShown / modelRootShown 等）而不是页面回传的 @Prop，
+    // 后者要晚一帧才到，赶不上失焦。
     return this.focused || this.hasDraft() || this.attachmentCount > 0
-      || this.modelRootShown || this.modelListShown || this.permissionOpen;
+      || this.modelRootShown || this.modelListShown || this.permissionOpen
+      || this.permissionMenuShown || this.attachMenuOpen || this.modelPopupShown
+      || this.permissionPopupShown || this.attachPopupShown;
   }
 
   private hasDraft(): boolean {
@@ -1829,10 +1836,13 @@ export struct ConversationComposer {
 
   /** 打开第二层：等第一层收起动画结束再弹（两枚不同菜单，不会互相打断） */
   private openModelList(pane: string): void {
-    // 从左侧面板的模型圆点进来（面板开着就是来源）：只动 side* 变量。
-    // 不能再看 sideModelOpen——第一层菜单 onDisappear 已经把它清掉了。
-    if (this.leftMenuOpen) {
+    // 从左侧面板的模型圆点进来：面板开着、或它自己的第一/第二层菜单还开着，都是侧边来源。
+    // （sideModelOpen 在菜单项 onClick 时还没被 onDisappear 清掉，用它判断最可靠）
+    if (this.leftMenuOpen || this.sideModelOpen || this.sideModelListShown) {
       this.sideModelOpen = false;
+      // 面板必须保持展开：第二层菜单的锚点长在面板里的模型圆上，面板一收菜单就没了
+      this.leftMenuOpen = true;
+      this.onLeftMenuVisible(true);
       // 保险：普通那组变量 participates in expanded()，必须保持 false，否则输入条会被撑开
       this.modelRootShown = false;
       this.modelListShown = false;
@@ -3068,6 +3078,7 @@ export struct ConversationComposer {
       }
       .width(this.compactButtonSize())
       .height(this.compactButtonSize())
+      .accessibilityText('输入条-附件圆钮')
       .bindMenu(!this.keepMenuKeyboard && this.sideAttachOpen, this.sideAttachMenuPanel(), {
         placement: Placement.Top,
         offset: { x: 0, y: 4 },
@@ -3094,6 +3105,7 @@ export struct ConversationComposer {
       }
       .width(this.compactButtonSize())
       .height(this.compactButtonSize())
+      .accessibilityText('输入条-权限圆钮')
       .bindMenu(!this.keepMenuKeyboard && this.sidePermissionOpen, this.sidePermissionMenu(), {
         showInSubWindow: false,
         placement: Placement.Top,
@@ -3122,6 +3134,7 @@ export struct ConversationComposer {
       }
       .width(this.compactButtonSize())
       .height(this.compactButtonSize())
+      .accessibilityText('输入条-模型圆钮')
       .bindMenu(!this.keepMenuKeyboard && this.sideModelOpen, this.sideModelRootMenu(), {
         showInSubWindow: false,
         placement: Placement.Top,

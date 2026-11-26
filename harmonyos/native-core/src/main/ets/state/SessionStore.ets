@@ -3203,6 +3203,14 @@ export class SessionStore {
       if (id.length === 0) {
         continue;
       }
+      // 只显示真正的「排队 / 插话」消息。
+      // DSH 的 session inbox 里还会塞 placement='context' 的条目（例如执行 /permission 这类
+      // 斜杠命令后留下的上下文记录），它们不是待发消息；不过滤就会在输入框上方凭空冒出
+      // 一张「排队消息」卡片（切权限后尤其明显）。
+      const rawPlacement: string = str(raw, 'placement') ?? 'queued';
+      if (rawPlacement === 'context') {
+        continue;
+      }
       // 正文与附件：对齐小程序 qTextOf / qContentOf（DSH 队列项是 UserMessage，正文在 content[] 里）
       let preview: string = this.queueText(raw);
       if (preview.length === 0) {
