@@ -127,6 +127,10 @@ export struct PluginsPage {
   @State detailCheckState: string = '';
   @State detailNewVersion: string = '';
   @State detailUpdateNote: string = '';
+  @State detailInstallSpec: string = '';
+  @State detailSourceSpec: string = '';
+  @State detailTargetVersion: string = '';
+  @State detailReadOnlyReason: string = '';
   @State detailMarkdown: string = '';
   @State detailKind: string = '';
   @State detailFields: PluginField[] = [];
@@ -898,12 +902,22 @@ export struct PluginsPage {
                   Text(this.updateStateText())
                     .fontSize(11)
                     .fontColor(this.detailCheckState === 'error' ? '#FF3B30' : this.subColor())
+                  if (this.detailTargetVersion.length > 0) {
+                    Text('目标版本 v' + this.detailTargetVersion)
+                      .fontSize(11)
+                      .fontColor(this.subColor())
+                  }
+                  if (this.detailReadOnlyReason.length > 0) {
+                    Text(this.detailReadOnlyReason)
+                      .fontSize(11)
+                      .fontColor(this.subColor())
+                  }
                 }
                 .alignItems(HorizontalAlign.Start)
                 .layoutWeight(1)
                 if (this.detailUpdating || this.detailCheckState === 'checking') {
                   LoadingProgress().width(18).height(18).color(this.subColor())
-                } else if (this.detailCheckState === 'available') {
+                } else if (this.detailCheckState === 'available' || this.detailUpdateAvailable) {
                   Text('更新')
                     .fontSize(13)
                     .fontWeight(FontWeight.Medium)
@@ -925,6 +939,24 @@ export struct PluginsPage {
             }
             .width('100%')
             .padding(12)
+            .borderRadius(12)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)')
+          }
+
+          // 安装来源（对齐 dsh 端「当前 DSH 对应来源」）
+          if (this.detailInstallSpec.length > 0 || this.detailSourceSpec.length > 0) {
+            Row({ space: 8 }) {
+              Text('安装来源').fontSize(13).fontColor(this.subColor())
+              Text(this.detailInstallSpec.length > 0 ? this.detailInstallSpec : this.detailSourceSpec)
+                .fontSize(12)
+                .fontColor(this.textColor())
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .layoutWeight(1)
+                .textAlign(TextAlign.End)
+            }
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 8, bottom: 8 })
             .borderRadius(12)
             .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)')
           }
@@ -2458,6 +2490,15 @@ export struct PluginsPage {
     this.detailCheckState = '';
     this.detailNewVersion = '';
     this.detailUpdateNote = '';
+    // 安装来源 / 目标版本（对齐 dsh 端「当前 DSH 对应来源/版本」）+ 只读原因
+    this.detailInstallSpec = item.installSpec;
+    this.detailSourceSpec = item.sourceSpec;
+    this.detailTargetVersion = item.installTargetVersion;
+    this.detailReadOnlyReason = item.readOnlyReason;
+    if (item.updateAvailable && item.installTargetVersion.length > 0) {
+      this.detailNewVersion = item.installTargetVersion;
+      this.detailCheckState = 'available';
+    }
     this.detailEntries = [];
     this.detailError = '';
     this.detailSaved = '';
@@ -2600,7 +2641,7 @@ export struct PluginsPage {
       this.detailError = '未连接网关';
       return;
     }
-    const to: string = this.detailNewVersion;
+    const to: string = this.detailNewVersion.length > 0 ? this.detailNewVersion : this.detailTargetVersion;
     this.detailCheckState = 'updating';
     this.detailUpdateNote = '正在更新到 v' + to + '，期间插件可能短暂停止';
     this.detailUpdating = true;

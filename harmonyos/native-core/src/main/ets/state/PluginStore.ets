@@ -17,6 +17,13 @@ export interface PluginItem {
   updateAvailable: boolean;
   error: string;
   icon: string;
+  /** 主机安装目标（对齐 weapp installTarget：spec + version），用于「可更新到 vX」与一键更新 */
+  installSpec: string;
+  installTargetVersion: string;
+  /** 来源 spec（git/npm 地址，raw.source） */
+  sourceSpec: string;
+  /** 只读原因（运行档案类 bundle 等不可操作时给出说明） */
+  readOnlyReason: string;
 }
 
 /** 内置插件配置项（对齐小程序 officialItems）。 */
@@ -143,7 +150,11 @@ export class PluginStore {
         updateAvailable: bool(raw, 'updateAvailable') === true
           || (installed && version.length > 0 && targetVersion.length > 0 && targetVersion !== version),
         error: errText,
-        icon: icon
+        icon: icon,
+        installSpec: installTarget !== undefined ? (str(installTarget, 'spec') ?? '') : '',
+        installTargetVersion: targetVersion,
+        sourceSpec: str(raw, 'source') ?? '',
+        readOnlyReason: str(raw, 'readOnlyReason') ?? ''
       });
     }
     this.bundles = items;
