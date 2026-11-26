@@ -4439,8 +4439,13 @@ export struct ConversationPage {
       this.attachmentHint = '';
     }
     if (this.sending || (text.length === 0 && this.pickedAttachments.length === 0)) {
-      Logger.info('[SEND] bail sending=' + (this.sending ? '1' : '0')
-        + ' empty=' + (text.length === 0 && this.pickedAttachments.length === 0 ? '1' : '0'));
+      const empty: boolean = text.length === 0 && this.pickedAttachments.length === 0;
+      Logger.info('[SEND] bail sending=' + (this.sending ? '1' : '0') + ' empty=' + (empty ? '1' : '0')
+        + ' picked=' + this.pickedAttachments.length.toString());
+      // 内容为空时必须给反馈：否则用户点了发送只会觉得「没反应」
+      if (!this.sending && empty) {
+        this.pickerToast('请先输入文字或添加图片');
+      }
       return;
     }
     const client: GatewayClient = GatewayClient.get();
@@ -4991,12 +4996,22 @@ export struct ConversationPage {
 
   private async pickImageAttachments(): Promise<void> {
     try {
+      Logger.info('[PICK] images start');
       const picked: PickedAttachment[] = await pickImages(4);
+      Logger.info('[PICK] images returned n=' + picked.length.toString()
+        + (picked.length > 0 ? ' first=' + picked[0].name + ' uri=' + picked[0].uri.substring(0, 40) : ''));
       const localized: PickedAttachment[] = this.localizePickedImages(picked);
       this.pickedAttachments = localized;
+      Logger.info('[PICK] images attached n=' + localized.length.toString());
       this.attachmentHint = localized.length > 0 ? '已选择 ' + localized.length + ' 张图片' : '';
+      if (localized.length === 0) {
+        this.pickerToast('没有选到图片');
+      }
     } catch (err) {
+      const msg: string = err instanceof Error ? err.message : String(err);
+      Logger.warn('[PICK] images failed: ' + msg);
       this.attachmentHint = '未选择图片';
+      this.pickerToast('选择图片失败：' + msg);
     }
   }
 
@@ -5049,6 +5064,14 @@ export struct ConversationPage {
       }
     }
     return out;
+  }
+
+  /** 选择器相关的轻提示：失败必须可见，否则用户只会觉得「点了没反应」 */
+  private pickerToast(message: string): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message, duration: 2500 });
+    } catch (ignored) {
+    }
   }
 
   private async pickAttachments(): Promise<void> {

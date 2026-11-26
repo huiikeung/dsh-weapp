@@ -1961,7 +1961,7 @@ export struct BotChatPage {
 
   private appendPicked(picked: PickedAttachment[]): void {
     if (picked.length === 0) {
-      this.showHint('未选择附件');
+      this.showDockToast('没有选到附件', true);
       return;
     }
     const merged: PickedAttachment[] = this.pickedAttachments.slice();
@@ -1981,10 +1981,14 @@ export struct BotChatPage {
       this.showHint('当前主机不支持在 Bot 里发送图片');
       return;
     }
+    Logger.info('[PICK] bot images start');
     pickImages(4).then((picked: PickedAttachment[]) => {
+      Logger.info('[PICK] bot images returned n=' + picked.length.toString()
+        + (picked.length > 0 ? ' first=' + picked[0].name + ' uri=' + picked[0].uri.substring(0, 40) : ''));
       this.appendPicked(picked);
     }).catch((error: Error) => {
-      this.showHint('选择图片失败：' + error.message);
+      Logger.warn('[PICK] bot images failed: ' + error.message);
+      this.showDockToast('选择图片失败：' + error.message, true);
     });
   }
 
