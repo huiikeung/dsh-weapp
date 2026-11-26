@@ -25,6 +25,7 @@ import { abilityAccessCtrl } from '@kit.AbilityKit';
 import { webview } from '@kit.ArkWeb';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
+import { FileAttachmentCard } from '../components/FileAttachmentCard';
 import { filePreview } from '@kit.PreviewKit';
 import { pdfViewManager, PdfView } from '@kit.PDFKit';
 import { util } from '@kit.ArkTS';
@@ -2349,22 +2350,8 @@ export struct BotChatPage {
                 .objectFit(ImageFit.Cover)
                 .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.04)')
             } else {
-              Row({ space: 5 }) {
-                SymbolGlyph($r('sys.symbol.paperclip'))
-                  .fontSize(13)
-                  .fontColor([this.ink()])
-                Text(attachment.name)
-                  .fontSize(12)
-                  .fontColor(this.ink())
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .constraintSize({ maxWidth: 110 })
-              }
-              .height(30)
-              .padding({ left: 9, right: 9 })
-              .borderRadius(9)
-              .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
-              .alignItems(VerticalAlign.Center)
+              // 文件与图片同款式卡片：彩色扩展名徽标 + 文件名 + 大小
+              FileAttachmentCard({ name: attachment.name, uri: attachment.uri, isDark: this.isDark })
             }
             // 右上角圆形删除钮（半透明黑底 + 白 ×），向内收避免被 Scroll 裁掉
             Stack() {

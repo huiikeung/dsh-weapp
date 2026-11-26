@@ -11,11 +11,14 @@
  * 约束：ArkTS 严格模式；颜色全部字符串字面量。
  */
 import { display, LengthMetrics } from '@kit.ArkUI';
+import { fileIo } from '@kit.CoreFileKit';
 import { KeyCode } from '@kit.InputKit';
 import { HdsGlassSurface } from './HdsGlassSurface';
 import { Logger } from 'nativecore';
 import type { ModelMenuItem, PickedAttachment } from 'nativecore';
+import { FileAttachmentCard } from './FileAttachmentCard';
 import { MENU_KEEP_DEFAULT, MENU_KEEP_KEY } from '../common/MenuPopupSetting';
+import { fileKindIcon, fileKindOf } from '../common/FileKind';
 import { COMPOSER_COMPACT_DEFAULT, COMPOSER_COMPACT_KEY } from '../common/ComposerStyleSetting';
 
 /** 指标菜单行（鸿蒙原生 Menu 的 MenuItem：content 在左，labelInfo 数值在右） */
@@ -823,22 +826,8 @@ export struct ConversationComposer {
                 .objectFit(ImageFit.Cover)
                 .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.04)')
             } else {
-              Row({ space: 5 }) {
-                SymbolGlyph($r('sys.symbol.paperclip'))
-                  .fontSize(13)
-                  .fontColor([this.chipText()])
-                Text(attachment.name)
-                  .fontSize(12)
-                  .fontColor(this.chipText())
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .constraintSize({ maxWidth: 110 })
-              }
-              .height(30)
-              .padding({ left: 9, right: 9 })
-              .borderRadius(9)
-              .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
-              .alignItems(VerticalAlign.Center)
+              // 文件与图片同款式卡片：彩色扩展名徽标 + 文件名 + 大小
+              FileAttachmentCard({ name: attachment.name, uri: attachment.uri, isDark: this.isDark })
             }
             // 右上角圆形删除钮（半透明黑底 + 白 ×）
             Stack() {
