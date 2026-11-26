@@ -1656,7 +1656,9 @@ export struct ConversationRowView {
    */
   @Builder
   userImageGrid() {
-    Flex({ wrap: FlexWrap.Wrap }) {
+    // 用户消息靠右：外层 Row 用 justifyContent(End) 把网格整体推到右侧
+    Row() {
+      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End, alignItems: ItemAlign.End }) {
       ForEach(this.userImageTileList(), (tile: UserImageTile, index: number) => {
         Stack({ alignContent: Alignment.Center }) {
           Image(this.imageSource(tile.path))
@@ -1692,8 +1694,12 @@ export struct ConversationRowView {
         .onClick(() => {
           this.onImageListTap(this.imageList(), index);
         })
-      }, (tile: UserImageTile) => tile.path)
+        }, (tile: UserImageTile) => tile.path)
+      }
+      .constraintSize({ maxWidth: '100%' })
     }
+    .width('100%')
+    .justifyContent(FlexAlign.End)
     .margin({ bottom: this.entry.text.length > 0 ? this.rpx(16) : 0 })
   }
 
