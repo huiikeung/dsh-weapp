@@ -78,6 +78,13 @@ interface MarketEntry {
   iconUrl: string;
   /** 图标加载失败后回退到默认图形 */
   iconFailed: boolean;
+  /** 详情「来源」区（对齐 dsh 端插件详情） */
+  homepage: string;
+  repository: string;
+  packageSpec: string;
+  publishDate: string;
+  categoryId: string;
+  installed: boolean;
 }
 
 @Component
@@ -1311,7 +1318,10 @@ export struct PluginsPage {
                 const failed: MarketEntry = {
                   name: item.name, title: item.title, description: item.description,
                   version: item.version, installLabel: item.installLabel,
-                  iconUrl: item.iconUrl, iconFailed: true
+                  iconUrl: item.iconUrl, iconFailed: true,
+                  homepage: item.homepage, repository: item.repository,
+                  packageSpec: item.packageSpec, publishDate: item.publishDate,
+                  categoryId: item.categoryId, installed: item.installed
                 };
                 this.patchMarketEntry(failed);
               })
@@ -1436,11 +1446,56 @@ export struct PluginsPage {
             .lineHeight(20)
             .fontColor(this.textColor())
             .width('100%')
-          Text('包名：' + this.marketDetailName())
-            .fontSize(12)
+
+          // 版本（对齐 dsh 端：版本号 + 当前已安装 + 发布日期）
+          Text('版本')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.textColor())
+            .width('100%')
+            .margin({ top: 6 })
+          Row({ space: 8 }) {
+            Text(this.marketDetailVersion().length > 0 ? this.marketDetailVersion() : '未知')
+              .fontSize(14)
+              .fontColor(this.textColor())
+          }
+          .width('100%')
+          if (this.marketDetailInstalled()) {
+            Text('当前已安装')
+              .fontSize(11)
+              .fontColor(this.isDark ? '#5BD6A2' : '#1F9D55')
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+              .borderRadius(6)
+              .backgroundColor(this.isDark ? 'rgba(31,157,85,0.16)' : 'rgba(31,157,85,0.10)')
+          }
+          Text(this.marketDetailPublishDate().length > 0 ? this.marketDetailPublishDate() : '')
+            .fontSize(11)
             .fontColor(this.subColor())
             .width('100%')
-            .copyOption(CopyOptions.LocalDevice)
+
+          // 来源
+          Text('来源')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.textColor())
+            .width('100%')
+            .margin({ top: 10 })
+          if (this.marketDetailHomepage().length > 0) {
+            this.detailSourceRow('主页', this.marketDetailHomepage(), true)
+          }
+          if (this.marketDetailRepository().length > 0) {
+            this.detailSourceRow('源代码', this.marketDetailRepository(), true)
+          }
+          if (this.marketDetailPackageSpec().length > 0) {
+            this.detailSourceRow('软件包', this.marketDetailPackageSpec(), false)
+          }
+          if (this.marketDetailPublishDate().length > 0) {
+            this.detailSourceRow('发布时间', this.marketDetailPublishDate(), false)
+          }
+          if (this.marketDetailCategory().length > 0) {
+            this.detailSourceRow('分类', this.marketDetailCategory(), false)
+          }
+          this.detailSourceRow('插件索引', this.marketLabel.length > 0 ? this.marketLabel : this.marketSelected, false)
         }
         .width('100%')
         .alignItems(HorizontalAlign.Start)
@@ -1490,6 +1545,65 @@ export struct PluginsPage {
   private marketDetailVersion(): string {
     const entry: MarketEntry | undefined = this.marketDetailEntry;
     return entry === undefined ? '' : entry.version;
+  }
+
+  /** 详情「来源」区的一行：左标签、右值（链接蓝色） */
+  @Builder
+  detailSourceRow(label: string, value: string, link: boolean) {
+    Row() {
+      Text(label).fontSize(12).fontColor(this.subColor())
+      Blank()
+      Text(value)
+        .fontSize(12)
+        .fontColor(link ? this.accent() : this.textColor())
+        .maxLines(2)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .textAlign(TextAlign.End)
+        .constraintSize({ maxWidth: '70%' })
+        .copyOption(CopyOptions.LocalDevice)
+    }
+    .width('100%')
+    .padding({ top: 8, bottom: 8 })
+    .alignItems(VerticalAlign.Center)
+    .border({ width: { bottom: 0.5 }, color: this.dividerColor() })
+  }
+
+  private marketDetailHomepage(): string {
+    const entry: MarketEntry | undefined = this.marketDetailEntry;
+    return entry === undefined ? '' : entry.homepage;
+  }
+
+  private marketDetailRepository(): string {
+    const entry: MarketEntry | undefined = this.marketDetailEntry;
+    return entry === undefined ? '' : entry.repository;
+  }
+
+  private marketDetailPackageSpec(): string {
+    const entry: MarketEntry | undefined = this.marketDetailEntry;
+    return entry === undefined ? '' : entry.packageSpec;
+  }
+
+  private marketDetailPublishDate(): string {
+    const entry: MarketEntry | undefined = this.marketDetailEntry;
+    return entry === undefined ? '' : entry.publishDate;
+  }
+
+  private marketDetailCategory(): string {
+    const entry: MarketEntry | undefined = this.marketDetailEntry;
+    if (entry === undefined || entry.categoryId.length === 0) {
+      return '';
+    }
+    for (const cat of this.marketCategories) {
+      if (cat.id === entry.categoryId) {
+        return cat.title;
+      }
+    }
+    return entry.categoryId;
+  }
+
+  private marketDetailInstalled(): boolean {
+    const entry: MarketEntry | undefined = this.marketDetailEntry;
+    return entry !== undefined && entry.installed;
   }
 
   private marketDetailDescription(): string {
@@ -2048,6 +2162,22 @@ export struct PluginsPage {
           // owner/repo 形态：用 GitHub 仓库主头像当插件图标（dsh 端市场同款思路）
           iconUrl = 'https://github.com/' + name.substring(0, name.indexOf('/')) + '.png?size=96';
         }
+        const repository: Record<string, Object> = this.asRecord(item['repository']);
+        const metaRec: Record<string, Object> = this.asRecord(item['metadata']);
+        const installation: Record<string, Object> = this.asRecord(item['installation']);
+        let packageSpec: string = '';
+        let publishDate: string = '';
+        if (versions.length > 0) {
+          const first: Record<string, Object> = this.asRecord(versions[0]);
+          const installRec: Record<string, Object> = this.asRecord(first['install']);
+          packageSpec = this.strField(installRec, 'spec');
+          const stamp: number = Number(first['publishTimestamp']);
+          if (Number.isFinite(stamp) && stamp > 0) {
+            const when: Date = new Date(stamp * 1000);
+            publishDate = when.getFullYear().toString() + '年' + (when.getMonth() + 1).toString() + '月'
+              + when.getDate().toString() + '日';
+          }
+        }
         entries.push({
           name: name,
           title: this.strField(item, 'title'),
@@ -2055,7 +2185,13 @@ export struct PluginsPage {
           version: version,
           installLabel: installLabel,
           iconUrl: iconUrl,
-          iconFailed: false
+          iconFailed: false,
+          homepage: this.strField(item, 'homepage'),
+          repository: this.strField(repository, 'url'),
+          packageSpec: packageSpec,
+          publishDate: publishDate,
+          categoryId: this.strField(metaRec, 'category'),
+          installed: this.strField(installation, 'status') === 'installed'
         });
       }
       this.marketEntries = entries;
@@ -2803,6 +2939,7 @@ export struct PluginsPage {
     }
     GatewayClient.get().requestPluginSettings(candidates[index]).then((frame) => {
       const ns: PluginNamespace = parseNamespace(frame);
+      Logger.info('[SCHEMA] ns=' + candidates[index] + ' schema=' + JSON.stringify(ns.schema).substring(0, 1800));
       if (!ns.valid) {
         this.tryLoadSettings(kind, candidates, index + 1);
         return;
