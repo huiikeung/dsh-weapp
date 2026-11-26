@@ -257,6 +257,23 @@ export struct PluginsPage {
     return [];
   }
 
+  /** 网关的 title/description 是本地化对象 {en, zh}，也可能是普通字符串 */
+  private localizedField(rec: Record<string, Object>, key: string): string {
+    const value: Object = rec[key];
+    if (typeof value === 'string') {
+      return value as string;
+    }
+    if (value === undefined || value === null) {
+      return '';
+    }
+    const nested: Record<string, Object> = this.asRecord(value);
+    const zh: string = this.strField(nested, 'zh');
+    if (zh.length > 0) {
+      return zh;
+    }
+    return this.strField(nested, 'en');
+  }
+
   private frameStatus(frame: Object): string {
     const rec: Record<string, Object> = this.asRecord(frame);
     const message: string = this.strField(rec, 'message');
@@ -1465,11 +1482,33 @@ export struct PluginsPage {
     GatewayClient.get().requestMarketIndexes().then((frame) => {
       const rec: Record<string, Object> = this.asRecord(frame);
       const list: MarketIndex[] = [];
-      for (const raw of this.arrField(rec, 'indexes')) {
+      // 网关实际形状：{ kind, requestId, result: [{ url, title: {en,zh}, description: {en,zh}, error? }] }
+      // （兼容老形状 result.indexes / sources，以及纯字符串数组）
+      const resultValue: Object = rec['result'];
+      let rows: Object[] = [];
+      if (Array.isArray(resultValue)) {
+        rows = resultValue as Object[];
+      } else if (resultValue !== undefined && resultValue !== null) {
+        const nested: Record<string, Object> = this.asRecord(resultValue);
+        rows = this.arrField(nested, 'indexes');
+        if (rows.length === 0) {
+          rows = this.arrField(nested, 'sources');
+        }
+      }
+      for (const raw of rows) {
+        if (typeof raw === 'string') {
+          const plain: string = raw as string;
+          if (plain.length > 0) {
+            list.push({ label: plain, url: plain, error: '' });
+          }
+          continue;
+        }
         const item: Record<string, Object> = this.asRecord(raw);
         const url: string = this.strField(item, 'url');
         if (url.length > 0) {
-          list.push({ label: this.strField(item, 'label'), url: url, error: this.strField(item, 'error') });
+          const title: string = this.localizedField(item, 'title');
+          const error: string = this.localizedField(item, 'error');
+          list.push({ label: title.length > 0 ? title : url, url: url, error: error });
         }
       }
       for (const raw of this.arrField(rec, 'sources')) {
@@ -1500,22 +1539,36 @@ export struct PluginsPage {
     this.marketError = '';
     GatewayClient.get().searchMarket(this.marketSelected, this.marketQuery.trim(), '', cursor, 30).then((frame) => {
       const rec: Record<string, Object> = this.asRecord(frame);
+      // 网关实际形状：{ result: { url, title, description, entries: [...], total, nextOffset } }
+      const result: Record<string, Object> = this.asRecord(rec['result']);
       const entries: MarketEntry[] = [];
-      for (const raw of this.arrField(rec, 'entries')) {
+      for (const raw of this.arrField(result, 'entries')) {
         const item: Record<string, Object> = this.asRecord(raw);
         const name: string = this.strField(item, 'name');
-        if (name.length > 0) {
-          entries.push({
-            name: name,
-            title: this.strField(item, 'title'),
-            description: this.strField(item, 'description'),
-            version: this.strField(item, 'version'),
-            installLabel: this.strField(item, 'installLabel')
-          });
+        if (name.length === 0) {
+          continue;
         }
+        const versions: Object[] = this.arrField(item, 'versions');
+        let version: string = this.strField(item, 'version');
+        let installLabel: string = '';
+        if (versions.length > 0) {
+          const first: Record<string, Object> = this.asRecord(versions[0]);
+          if (version.length === 0) {
+            version = this.strField(first, 'version');
+          }
+          installLabel = version.length > 0 ? 'v' + version : '';
+        }
+        entries.push({
+          name: name,
+          title: this.strField(item, 'title'),
+          description: this.localizedField(item, 'description'),
+          version: version,
+          installLabel: installLabel
+        });
       }
       this.marketEntries = entries;
-      this.marketNext = this.strField(rec, 'next');
+      const nextOffset: number = Number(result['nextOffset']);
+      this.marketNext = Number.isFinite(nextOffset) && nextOffset > 0 ? nextOffset.toString() : '';
       this.marketLoading = false;
     }).catch((err: Error) => {
       this.marketLoading = false;
@@ -1529,12 +1582,17 @@ export struct PluginsPage {
       this.marketError = '请输入索引地址';
       return;
     }
-    const indexes: Record<string, Object>[] = [];
+    // 网关要求 urls: string[]（不是 {url,label} 对象数组）
+    const urls: string[] = [];
     for (const item of this.marketIndexes) {
-      indexes.push({ 'url': item.url, 'label': item.label });
+      if (item.url.length > 0 && urls.indexOf(item.url) < 0) {
+        urls.push(item.url);
+      }
     }
-    indexes.push({ 'url': url, 'label': url });
-    GatewayClient.get().setMarketIndexes(indexes as Object[]).then(() => {
+    if (urls.indexOf(url) < 0) {
+      urls.push(url);
+    }
+    GatewayClient.get().setMarketIndexes(urls).then(() => {
       this.marketSourceOpen = false;
       this.marketSourceInput = '';
       this.loadMarketIndexes();

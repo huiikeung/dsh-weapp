@@ -436,18 +436,33 @@ export class GatewayRequestFactory {
     return GatewayRequestFactory.management('plugin-market-indexes', requestId, {});
   }
 
-  /** 插件市场搜索（对齐小程序 plugin-market-search） */
+  /**
+   * 插件市场搜索。网关（dsh-plugin-mobile-gateway）的契约是：
+   *   { url: <索引地址>, query: { offset, limit, sort: { kind: 'index' }, text?, category? } }
+   * 之前发的是 indexUrl/query(字符串)/cursor 的旧形状，网关会直接拒绝。
+   */
   static pluginMarketSearch(requestId: string, indexUrl: string, query: string, category: string,
     cursor: string, limit: number): GatewayRequest {
-    const fields: Record<string, Object> = {
-      'indexUrl': indexUrl, 'query': query, 'category': category, 'cursor': cursor, 'limit': limit
-    };
+    const parsedCursor: number = cursor.trim().length > 0 ? Number(cursor) : 0;
+    const offset: number = Number.isFinite(parsedCursor) && parsedCursor > 0 ? Math.floor(parsedCursor) : 0;
+    const boundedLimit: number = limit < 1 ? 30 : (limit > 100 ? 100 : limit);
+    const sort: Record<string, Object> = { 'kind': 'index' };
+    const q: Record<string, Object> = { 'offset': offset, 'limit': boundedLimit, 'sort': sort };
+    if (query.trim().length > 0) {
+      q['text'] = query.trim();
+    }
+    if (category.trim().length > 0) {
+      q['category'] = category.trim();
+    }
+    const fields: Record<string, Object> = { 'url': indexUrl, 'query': q };
     return GatewayRequestFactory.management('plugin-market-search', requestId, fields);
   }
 
-  /** 写入索引源列表（对齐小程序 plugin-market-set-indexes） */
-  static pluginMarketSetIndexes(requestId: string, indexes: Object[]): GatewayRequest {
-    return GatewayRequestFactory.management('plugin-market-set-indexes', requestId, { 'indexes': indexes }, true);
+  /** 写入索引源列表：网关要求 urls 是字符串数组（最多 100 条） */
+  static pluginMarketSetIndexes(requestId: string, urls: string[]): GatewayRequest {
+    const list: string[] = urls.slice(0, 100);
+    const fields: Record<string, Object> = { 'urls': list };
+    return GatewayRequestFactory.management('plugin-market-set-indexes', requestId, fields, true);
   }
 
   static pluginUpdate(requestId: string, name: string, version: string, registry?: string): GatewayRequest {

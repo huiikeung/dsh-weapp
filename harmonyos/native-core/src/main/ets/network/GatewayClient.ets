@@ -2331,9 +2331,9 @@ export class GatewayClient {
   }
 
   /** 写入插件市场索引源 */
-  setMarketIndexes(indexes: Object[]): Promise<GatewayFrame> {
+  setMarketIndexes(urls: string[]): Promise<GatewayFrame> {
     this.pluginRequestSeq += 1;
-    return this.requestGateway(GatewayRequestFactory.pluginMarketSetIndexes('plugin-market-set-' + this.pluginRequestSeq, indexes), 20000);
+    return this.requestGateway(GatewayRequestFactory.pluginMarketSetIndexes('plugin-market-set-' + this.pluginRequestSeq, urls), 20000);
   }
 
   /**
