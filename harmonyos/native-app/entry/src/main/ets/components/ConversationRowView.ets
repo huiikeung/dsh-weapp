@@ -335,7 +335,11 @@ export struct ConversationRowView {
 
   private assistantBody(): string {
     const value: string = this.entry.text;
-    return value.length > 12000 ? value.substring(0, 12000) + '…' : value;
+    // 之前这里硬截 12000 字：长回复的后半段（代码块、段落）会整段消失，
+    // 而退出重进走的是历史行、不经过这里的截断，所以看起来「重进才完整」。
+    // 现在只保留一个极高的兜底上限，避免病理输入撑爆内存。
+    const LIMIT: number = 200000;
+    return value.length > LIMIT ? value.substring(0, LIMIT) + '…' : value;
   }
 
   // ==================== 复制 ====================
