@@ -56,12 +56,21 @@ interface RegistryOption {
   value: string;
 }
 
+interface MarketCategory {
+  id: string;
+  title: string;
+}
+
 interface MarketEntry {
   name: string;
   title: string;
   description: string;
   version: string;
   installLabel: string;
+  /** 插件图标：索引元数据自带 icon，否则用 GitHub 仓库主头像（owner/repo → github.com/owner.png） */
+  iconUrl: string;
+  /** 图标加载失败后回退到默认图形 */
+  iconFailed: boolean;
 }
 
 @Component
@@ -102,6 +111,10 @@ export struct PluginsPage {
   @State sourceDraft: string = '';
   @State sourceSaving: boolean = false;
   @State marketMenuOpen: boolean = false;
+  // 分类筛选（对齐小程序 market categories）
+  @State marketCategories: MarketCategory[] = [];
+  @State marketCategory: string = '';
+  @State marketCategoriesExpanded: boolean = false;
   @State addEnableAfter: boolean = true;
   @State addBusy: boolean = false;
   @State addStatus: string = '';
@@ -1231,13 +1244,29 @@ export struct PluginsPage {
   marketEntryRow(item: MarketEntry, last: boolean) {
     Column() {
       Row({ space: 12 }) {
-        // 图标底板：与「已安装」列表同一款式
+        // 图标底板：与「已安装」列表同一款式；有图标地址时显示插件真实图标（失败回退默认图形）
         Stack({ alignContent: Alignment.Center }) {
           Image($r('app.media.plugin_art_plugin_default')).width(30).height(30).objectFit(ImageFit.Contain)
+          if (item.iconUrl.length > 0 && !item.iconFailed) {
+            Image(item.iconUrl)
+              .width(44)
+              .height(44)
+              .objectFit(ImageFit.Cover)
+              .borderRadius(11)
+              .onError(() => {
+                const failed: MarketEntry = {
+                  name: item.name, title: item.title, description: item.description,
+                  version: item.version, installLabel: item.installLabel,
+                  iconUrl: item.iconUrl, iconFailed: true
+                };
+                this.patchMarketEntry(failed);
+              })
+          }
         }
         .width(44)
         .height(44)
         .borderRadius(11)
+        .clip(true)
         .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)' })
         .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)')
 
@@ -1403,24 +1432,96 @@ export struct PluginsPage {
         .width('100%')
         .padding({ left: 16, right: 16, top: 8, bottom: 8 })
 
+        // 分类筛选条（对齐小程序：分类 + 数量 + 展开全部 + chips）
+        if (this.marketCategories.length > 0) {
+          Column({ space: 8 }) {
+            Row() {
+              Text('分类').fontSize(13).fontWeight(FontWeight.Medium).fontColor(this.textColor())
+              Text(this.marketCategories.length.toString())
+                .fontSize(11)
+                .fontColor(this.subColor())
+                .padding({ left: 4 })
+              Blank()
+              if (this.marketCategories.length > 7) {
+                Text(this.marketCategoriesExpanded ? '收起' : '展开全部')
+                  .fontSize(12)
+                  .fontColor(this.subColor())
+                  .onClick(() => {
+                    this.marketCategoriesExpanded = !this.marketCategoriesExpanded;
+                  })
+              }
+            }
+            .width('100%')
+            Flex({ wrap: FlexWrap.Wrap }) {
+              Text('全部')
+                .fontSize(12)
+                .fontColor(this.marketCategory.length === 0 ? this.accent() : this.subColor())
+                .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+                .borderRadius(7)
+                .margin({ right: 6, bottom: 6 })
+                .backgroundColor(this.marketCategory.length === 0
+                  ? (this.isDark ? 'rgba(46,107,230,0.20)' : 'rgba(46,107,230,0.12)')
+                  : (this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'))
+                .onClick(() => {
+                  this.marketCategory = '';
+                  this.loadMarketEntries('');
+                })
+              ForEach(this.marketCategories, (cat: MarketCategory, index: number) => {
+                if (this.marketCategoriesExpanded || index < 7 || this.marketCategory === cat.id) {
+                  Text(cat.title)
+                    .fontSize(12)
+                    .fontColor(this.marketCategory === cat.id ? this.accent() : this.subColor())
+                    .maxLines(1)
+                    .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+                    .borderRadius(7)
+                    .margin({ right: 6, bottom: 6 })
+                    .backgroundColor(this.marketCategory === cat.id
+                      ? (this.isDark ? 'rgba(46,107,230,0.20)' : 'rgba(46,107,230,0.12)')
+                      : (this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'))
+                    .onClick(() => {
+                      this.marketCategory = cat.id;
+                      this.loadMarketEntries('');
+                    })
+                }
+              }, (cat: MarketCategory) => cat.id)
+            }
+            .width('100%')
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+        }
+
         if (this.marketEntries.length > 0) {
-          Column() {
+          Column({ space: 2 }) {
             ForEach(this.marketEntries, (item: MarketEntry, index: number) => {
               this.marketEntryRow(item, index === this.marketEntries.length - 1)
             }, (item: MarketEntry) => item.name)
           }
-          .width('calc(100% - 32vp)')
-          .margin({ left: 16, right: 16 })
-          .backgroundColor(this.cardBg())
-          .borderRadius(14)
-          .clip(true)
+          .width('100%')
+          .padding({ left: 16, right: 16 })
         } else if (!this.marketLoading) {
-          Text(this.marketQuery.length > 0 ? '没有符合条件的插件' : '此索引没有插件')
-            .fontSize(12)
+          Text(this.marketQuery.length > 0 || this.marketCategory.length > 0 ? '没有符合条件的插件' : '此索引没有插件')
+            .fontSize(13)
             .fontColor(this.subColor())
             .width('100%')
             .textAlign(TextAlign.Center)
             .padding({ top: 32, bottom: 32 })
+        }
+        if (this.marketNext.length > 0) {
+          Text(this.marketLoading ? '正在加载…' : '显示更多')
+            .fontSize(13)
+            .fontColor(this.textColor())
+            .height(36)
+            .padding({ left: 20, right: 20 })
+            .borderRadius(8)
+            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' })
+            .textAlign(TextAlign.Center)
+            .margin({ top: 8, bottom: 12 })
+            .onClick(() => {
+              if (!this.marketLoading) {
+                this.loadMarketEntries(this.marketNext);
+              }
+            })
         }
       }
     }
@@ -1729,13 +1830,25 @@ export struct PluginsPage {
     }
     this.marketLoading = true;
     this.marketError = '';
-    GatewayClient.get().searchMarket(this.marketSelected, this.marketQuery.trim(), '', cursor, 30).then((frame) => {
+    GatewayClient.get().searchMarket(this.marketSelected, this.marketQuery.trim(), this.marketCategory, cursor, 30).then((frame) => {
       const rec: Record<string, Object> = this.asRecord(frame);
       // 网关实际形状：{ result: { url, title, description, entries: [...], total, nextOffset } }
       // 兼容整帧 {result:{entries}} 与已解包的 {entries}
       const unwrapped: Object = rec['result'];
       const result: Record<string, Object> = unwrapped !== undefined && !Array.isArray(unwrapped)
         ? this.asRecord(unwrapped) : rec;
+      // 分类：来自索引自身的 metadata.categories（{ id: { title: {zh,en} } }），对齐小程序分类条
+      if (this.marketCategories.length === 0) {
+        const meta: Record<string, Object> = this.asRecord(result['metadata']);
+        const categoryMap: Record<string, Object> = this.asRecord(meta['categories']);
+        const categories: MarketCategory[] = [];
+        for (const key of Object.keys(categoryMap)) {
+          const one: Record<string, Object> = this.asRecord(categoryMap[key]);
+          const title: string = this.localizedField(one, 'title');
+          categories.push({ id: key, title: title.length > 0 ? title : key });
+        }
+        this.marketCategories = categories;
+      }
       const entries: MarketEntry[] = [];
       for (const raw of this.arrField(result, 'entries')) {
         const item: Record<string, Object> = this.asRecord(raw);
@@ -1751,14 +1864,22 @@ export struct PluginsPage {
           if (version.length === 0) {
             version = this.strField(first, 'version');
           }
-          installLabel = version.length > 0 ? 'v' + version : '';
+          installLabel = '';
+        }
+        const iconFromIndex: string = this.strField(item, 'icon');
+        let iconUrl: string = iconFromIndex;
+        if (iconUrl.length === 0 && name.indexOf('/') > 0) {
+          // owner/repo 形态：用 GitHub 仓库主头像当插件图标（dsh 端市场同款思路）
+          iconUrl = 'https://github.com/' + name.substring(0, name.indexOf('/')) + '.png?size=96';
         }
         entries.push({
           name: name,
           title: this.strField(item, 'title'),
           description: this.localizedField(item, 'description'),
           version: version,
-          installLabel: installLabel
+          installLabel: installLabel,
+          iconUrl: iconUrl,
+          iconFailed: false
         });
       }
       this.marketEntries = entries;
