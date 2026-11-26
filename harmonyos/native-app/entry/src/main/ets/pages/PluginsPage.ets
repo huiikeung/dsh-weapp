@@ -4,6 +4,7 @@ import { uiMaterial } from '@kit.ArkUI';
 import { GatewayClient, Logger, OfficialPluginItem, PluginItem, parseNamespace } from 'nativecore';
 import type { CatalogEntry, CatalogRow } from 'nativecore';
 import { MarkdownBodyView } from '../components/MarkdownBodyView';
+import { walkSettingsSchema } from '../components/SettingsSchemaWalker';
 import type { PluginNamespace } from 'nativecore';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
@@ -55,6 +56,8 @@ interface PluginField {
   numeric: boolean;
   value: string;
   revision: number;
+  /** 分组标题（设置命名空间的中文名；同组字段连续排列） */
+  section?: string;
 }
 
 /** 安装源选项（对齐小程序 registryOptions） */
@@ -1076,6 +1079,15 @@ export struct PluginsPage {
             Column({ space: 12 }) {
               ForEach(this.detailFields, (field: PluginField, index: number) => {
                 Column({ space: 5 }) {
+                  // 分组标题：同一命名空间的字段连续排列，跨组时显示小节名
+                  if (this.sectionHeaderFor(index).length > 0) {
+                    Text(this.sectionHeaderFor(index))
+                      .fontSize(13)
+                      .fontWeight(FontWeight.Medium)
+                      .fontColor(this.textColor())
+                      .width('100%')
+                      .margin({ top: index === 0 ? 0 : 10 })
+                  }
                   Row() {
                     Text(field.label).fontSize(13).fontColor(this.subColor()).layoutWeight(1)
                     Text('恢复默认')
@@ -1090,7 +1102,7 @@ export struct PluginsPage {
                     .fontSize(14)
                     .fontColor(this.textColor())
                     .placeholderColor(this.subColor())
-                    .type(InputType.Number)
+                    .type(field.numeric ? InputType.Number : InputType.Normal)
                     .height(42)
                     .borderRadius(10)
                     .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)')
@@ -2839,10 +2851,26 @@ export struct PluginsPage {
       'model': '模型',
       'maxUses': '单次搜索次数上限',
       'maxTokens': '最大输出 token',
-      'apiVersion': '接口版本'
+      'apiVersion': '接口版本',
+      'enabled': '启用模型选择',
+      'useMainModel': '使用主模型',
+      'provider': '提供商',
+      'maxConcurrency': '最大并发数'
     };
     const label: string = labels[key] ?? '';
-    return label.length > 0 ? label : key;
+    if (label.length > 0) {
+      return label;
+    }
+    // 兜底：camelCase 拆词，避免直接显示原始键名
+    let out: string = '';
+    for (let i = 0; i < key.length; i++) {
+      const ch: string = key.charAt(i);
+      if (i > 0 && ch >= 'A' && ch <= 'Z') {
+        out += ' ';
+      }
+      out += ch;
+    }
+    return out.length > 0 ? out.charAt(0).toUpperCase() + out.substring(1) : key;
   }
 
   private fieldHint(key: string): string {
@@ -2862,6 +2890,26 @@ export struct PluginsPage {
   }
 
   /** 按主机 schema 的 dict 生成字段（主机加字段会自动出现） */
+  /** 该索引字段前是否需要显示分组标题（同组只在首个字段前显示一次） */
+  private sectionHeaderFor(index: number): string {
+    if (index < 0 || index >= this.detailFields.length) {
+      return '';
+    }
+    const section: string = this.detailFields[index].section ?? '';
+    if (section.length === 0) {
+      return '';
+    }
+    let cursor: number = index - 1;
+    while (cursor >= 0) {
+      const prev: string = this.detailFields[cursor].section ?? '';
+      if (prev.length > 0) {
+        return prev === section ? '' : section;
+      }
+      cursor -= 1;
+    }
+    return section;
+  }
+
   private buildSchemaFields(ns: string, namespace: PluginNamespace): PluginField[] {
     const fields: PluginField[] = [];
     const schemaValue: Object | undefined = namespace.schema;
@@ -2917,37 +2965,72 @@ export struct PluginsPage {
     return fields;
   }
 
+  /** 设置命名空间的中文名（同一插件的多个 ns 分组显示，对齐 dsh 端设置分组） */
+  private namespaceLabel(ns: string): string {
+    const labels: Record<string, string> = {
+      'bash-sandbox': '终端',
+      'pwsh-sandbox': 'PowerShell 终端',
+      'agent-loop': 'Agent 循环',
+      'subagent': '子智能体',
+      'subagent-model-selection-settings': '子智能体模型选择',
+      'web-search-deepseek': '网页搜索与获取'
+    };
+    return labels[ns] ?? ns;
+  }
+
+  /** 一个内置插件对应的全部设置命名空间（都要拉，dsh 端是合并展示的） */
+  private settingsCandidates(kind: string): string[] {
+    if (kind === 'shell') {
+      return ['bash-sandbox', 'pwsh-sandbox'];
+    }
+    if (kind === 'agent-loop') {
+      return ['agent-loop'];
+    }
+    if (kind === 'subagent') {
+      return ['subagent', 'subagent-model-selection-settings'];
+    }
+    if (kind === 'web-search') {
+      return ['web-search-deepseek'];
+    }
+    return [];
+  }
+
   private loadOfficialSettings(kind: string): void {
-    const candidates: string[] = kind === 'shell'
-      ? ['pwsh-sandbox', 'bash-sandbox']
-      : kind === 'agent-loop' ? ['agent-loop']
-      : kind === 'subagent' ? ['subagent']
-      : kind === 'web-search' ? ['web-search-deepseek', 'web-deepseek-api', 'web'] : [];
+    const candidates: string[] = this.settingsCandidates(kind);
     if (candidates.length === 0) {
       this.detailBusy = false;
       this.detailError = '该内置插件需要在桌面端 DSH 配置';
       return;
     }
-    this.tryLoadSettings(kind, candidates, 0);
+    this.detailBusy = true;
+    this.collectSettings(kind, candidates, 0, []);
   }
 
-  private tryLoadSettings(kind: string, candidates: string[], index: number): void {
+  private collectSettings(kind: string, candidates: string[], index: number, acc: PluginField[]): void {
     if (index >= candidates.length) {
+      Logger.info('[PSET] done fields=' + acc.length.toString());
+      this.detailFields = acc;
       this.detailBusy = false;
-      this.detailError = '当前网关未提供该插件的设置项';
+      this.detailError = acc.length === 0 ? '当前网关未提供该插件的设置项' : '';
       return;
     }
-    GatewayClient.get().requestPluginSettings(candidates[index]).then((frame) => {
-      const ns: PluginNamespace = parseNamespace(frame);
-      Logger.info('[SCHEMA] ns=' + candidates[index] + ' schema=' + JSON.stringify(ns.schema).substring(0, 1800));
-      if (!ns.valid) {
-        this.tryLoadSettings(kind, candidates, index + 1);
-        return;
+    const ns: string = candidates[index];
+    GatewayClient.get().requestPluginSettings(ns).then((frame) => {
+      const parsed: PluginNamespace = parseNamespace(frame);
+      Logger.info('[PSET] ns=' + ns + ' valid=' + (parsed.valid ? '1' : '0') + ' schema=' + (parsed.schema !== undefined ? '1' : '0'));
+      const next: PluginField[] = acc.slice();
+      if (parsed.valid) {
+        const section: string = this.namespaceLabel(ns);
+        for (const field of this.buildFields(kind, ns, parsed)) {
+          next.push({
+            ns: field.ns, key: field.key, label: field.label, hint: field.hint,
+            numeric: field.numeric, value: field.value, revision: field.revision, section: section
+          });
+        }
       }
-      this.detailFields = this.buildFields(kind, candidates[index], ns);
-      this.detailBusy = false;
-    }).catch((err: Error) => {
-      this.tryLoadSettings(kind, candidates, index + 1);
+      this.collectSettings(kind, candidates, index + 1, next);
+    }).catch(() => {
+      this.collectSettings(kind, candidates, index + 1, acc);
     });
   }
 
@@ -2958,7 +3041,7 @@ export struct PluginsPage {
     const current: PluginField = this.detailFields[index];
     const updated: PluginField = {
       ns: current.ns, key: current.key, label: current.label, hint: current.hint,
-      numeric: current.numeric, value: text, revision: current.revision
+      numeric: current.numeric, value: text, revision: current.revision, section: current.section
     };
     this.detailFields[index] = updated;
   }
