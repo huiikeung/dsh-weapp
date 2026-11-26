@@ -1128,10 +1128,17 @@ export struct PluginsPage {
 
           if (this.detailEntries.length > 0) {
             Column({ space: 6 }) {
-              Text('包含的组件 · 共 ' + this.detailEntries.length + ' 个')
-                .fontSize(13)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(this.subColor())
+              Row({ space: 8 }) {
+                Text('包含的组件')
+                  .fontSize(14)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(this.textColor())
+                Text('共 ' + this.detailEntries.length + ' 个 · ' + this.runningEntryCount() + ' 运行中')
+                  .fontSize(11)
+                  .fontColor(this.subColor())
+              }
+              .width('100%')
+              .alignItems(VerticalAlign.Center)
               ForEach(this.detailEntries, (entry: EntryRow) => {
                 Row() {
                   Column({ space: 2 }) {
@@ -3235,6 +3242,16 @@ export struct PluginsPage {
 
   private entryRunning(entry: EntryRow): boolean {
     return entry.enabled && entry.phase === 'active';
+  }
+
+  private runningEntryCount(): number {
+    let count: number = 0;
+    for (const entry of this.detailEntries) {
+      if (this.entryRunning(entry)) {
+        count += 1;
+      }
+    }
+    return count;
   }
 
   /** 版本状态文案（对齐 dsh 端详情：检查更新 / 已是最新 / 可更新到 x / 正在更新） */
