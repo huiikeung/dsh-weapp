@@ -2697,7 +2697,12 @@ export class GatewayClient {
     }
     if (frame.kind === 'plugins-changed') {
       // dsh 端插件变化实时推送：目录自动刷新（手机侧改动同样会让 dsh 端收到 plugins-changed）
+      AppStorage.setOrCreate<number>('pluginCatalogRevision', Date.now());
       this.requestPlugins();
+    }
+    if (frame.kind === 'plugin-settings-changed') {
+      // dsh 端插件设置变化：打开中的详情实时跟随
+      AppStorage.setOrCreate<number>('pluginSettingsRevision', Date.now());
     }
     this.settlePending(frame);
     if (frame.kind === 'session-created' || frame.kind === 'session-renamed' || frame.kind === 'session-archived') {
