@@ -72,7 +72,7 @@ export struct PluginsPage {
   @StorageLink('pluginManagementAvailable') managementAvailable: boolean = false;
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
   @Consume('pageStack') pageStack: NavPathStack;
-  @State pluginTab: string = 'installed';
+  @State @Watch('onPluginTabChanged') pluginTab: string = 'installed';
   /** 从设置页「语音插件设置」跳转过来时的深链标记 */
   @StorageProp('pluginsDeepLinkVoice') @Watch('onVoiceDeepLink') voiceDeepLink: boolean = false;
   @State showingMore: boolean = false;
@@ -1264,6 +1264,9 @@ export struct PluginsPage {
   @Builder
   marketBody() {
     Column() {
+      if (this.sourcesOpen) {
+        this.sourcesPanel()
+      }
       if (this.connection !== 'connected') {
         Column({ space: 8 }) {
           Image($r('app.media.plugin_art_plugin_default')).width(44).height(44).objectFit(ImageFit.Contain)
@@ -1604,6 +1607,13 @@ export struct PluginsPage {
     })
     .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
+  }
+
+  /** 切到「发现」时拉主机索引源（标题/描述从主机映射） */
+  onPluginTabChanged(): void {
+    if (this.pluginTab === 'discover') {
+      this.loadMarketIndexes();
+    }
   }
 
   private loadMarketIndexes(): void {
@@ -1981,6 +1991,101 @@ export struct PluginsPage {
     }
     .width(260)
     .padding({ top: 4, bottom: 4 })
+  }
+
+  /** 索引源管理面板（内联在发现页顶部；增删直接回写主机 plugin-market-set-indexes） */
+  @Builder
+  sourcesPanel() {
+    Column() {
+      Row() {
+        Text('索引源').fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.textColor())
+        Blank()
+        Text('收起')
+          .fontSize(13)
+          .fontColor(this.accent())
+          .onClick(() => {
+            this.sourcesOpen = false;
+          })
+      }
+      .width('100%')
+      .padding({ bottom: 6 })
+      Text('插件市场以一个索引文件的 URL 提供，「发现」从这里列出的索引浏览插件')
+        .fontSize(11)
+        .fontColor(this.subColor())
+        .width('100%')
+        .padding({ bottom: 8 })
+      ForEach(this.marketIndexes, (item: MarketIndex) => {
+        Row({ space: 8 }) {
+          Column({ space: 2 }) {
+            Text(item.label.length > 0 ? item.label : item.url)
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.textColor())
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+            Text(item.url)
+              .fontSize(11)
+              .fontColor(this.subColor())
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+          Text('删除')
+            .fontSize(12)
+            .fontColor('#FF3B30')
+            .onClick(() => {
+              this.removeMarketSource(item.url);
+            })
+        }
+        .width('100%')
+        .padding({ top: 8, bottom: 8 })
+        .alignItems(VerticalAlign.Center)
+      }, (item: MarketIndex) => item.url)
+      Row({ space: 8 }) {
+        TextInput({ text: this.sourceDraft, placeholder: 'https://example.com/index.json' })
+          .fontSize(13)
+          .fontColor(this.textColor())
+          .placeholderColor(this.subColor())
+          .backgroundColor('rgba(0,0,0,0)')
+          .borderRadius(8)
+          .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.12)' })
+          .height(38)
+          .layoutWeight(1)
+          .onChange((value: string) => {
+            this.sourceDraft = value;
+          })
+        Text('＋ 添加')
+          .fontSize(13)
+          .fontColor('#FFFFFF')
+          .height(38)
+          .padding({ left: 14, right: 14 })
+          .textAlign(TextAlign.Center)
+          .borderRadius(8)
+          .backgroundColor(this.accent())
+          .opacity(this.sourceDraft.trim().length === 0 ? 0.5 : 1)
+          .onClick(() => {
+            this.addSourceFromDraft();
+          })
+      }
+      .width('100%')
+      .padding({ top: 8 })
+      Text('索引由第三方提供。只添加你信任的来源：其中的插件安装后以你的权限运行')
+        .fontSize(11)
+        .lineHeight(16)
+        .fontColor(this.isDark ? '#FFB05C' : '#B26A00')
+        .width('100%')
+        .padding(10)
+        .margin({ top: 8 })
+        .borderRadius(10)
+        .backgroundColor(this.isDark ? 'rgba(255,149,0,0.12)' : 'rgba(255,149,0,0.10)')
+    }
+    .width('100%')
+    .padding(12)
+    .borderRadius(12)
+    .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)')
+    .alignItems(HorizontalAlign.Start)
+    .margin({ bottom: 12 })
   }
 
   /** 索引源管理弹层：标题 + 列表（名称/URL/错误 + 删除）+ 添加表单 + 信任提示 */
