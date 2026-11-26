@@ -76,12 +76,12 @@ const DOCK_SIDE: number = 14;
 const DOCK_BOTTOM: number = 18;
 const DOCK_RADIUS: number = 28;
 const CAPSULE_RADIUS: number = 26;
-const CAPSULE_HEIGHT: number = 52;
+const CAPSULE_HEIGHT: number = 46;
 const SEND_SIZE: number = 34;
 /** 展开态发送圆钮（工作模式 primaryButton 36） */
 const SEND_EXPANDED_SIZE: number = 36;
-/** 收起态左右两个独立圆钮直径（中间胶囊保持 CAPSULE_HEIGHT） */
-const CAPSULE_BUTTON_SIZE: number = 44;
+/** 收起态左右两个独立圆钮直径：与工作模式对话页圆钮（compactButtonSize = 46）完全一致 */
+const CAPSULE_BUTTON_SIZE: number = 46;
 
 const WEEK_LABELS: string[] = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
@@ -385,10 +385,10 @@ export struct BotChatPage {
   }
 
   private pageBg(): string {
-    // 与工作模式对话页（ConversationPage.pageBg）完全一致：深色纯黑 / 浅色浅灰。
-    // 之前用 BotLavender 浅紫，HDS 沉浸玻璃会把它「染色」到输入框、返回键与「⋯」上，
-    // 换成中性底色后玻璃恢复成工作模式那种干净的白/灰。
-    return this.isDark ? '#000000' : '#F2F2F4';
+    // 对齐 iOS：BotModeView.conversationSurface
+    //   浅色 = Color(uiColor: .systemBackground) → 纯白 #FFFFFF
+    //   深色 = Color("BotLavender")（Assets：r .0902 / g .0863 / b .1216）→ #17161F
+    return this.isDark ? '#17161F' : '#FFFFFF';
   }
 
   /** Bot 背景配色（设置 → Bot 背景配色），深/浅各一套 */
@@ -2160,7 +2160,17 @@ export struct BotChatPage {
     .width(size)
     .height(size)
     .borderRadius(size / 2)
-    .border({ width: outlined ? 0.9 : 0, color: this.isDark ? 'rgba(255,255,255,0.24)' : 'rgba(16,19,24,0.14)' })
+    // 纯白描边在白底/白玻璃上会「消失」，所以圆内补一层极淡的墨色填充（深色补白色），
+    // 让「+」始终看得出来；材质仍由外层 HdsGlassSurface 提供。
+    .backgroundColor(outlined
+      ? (this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
+      : Color.Transparent)
+    .border({
+      width: 1,
+      // 展开态卡片是白色玻璃 → 用白亮边；收起态圆钮浮在纯白页面上 → 白边会消失，改淡墨边
+      color: this.isDark ? 'rgba(255,255,255,0.30)'
+        : (outlined ? 'rgba(255,255,255,0.95)' : 'rgba(16,19,24,0.12)')
+    })
     .opacity(this.attachSupported() ? 1 : 0.4)
     .enabled(true)
     .onClick(() => {
@@ -3090,6 +3100,12 @@ export struct BotChatPage {
         .padding({ left: 18, right: 18 })
         .justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Start)
+        // 边缘强化：叠一道细描边（材质仍由底层 HdsGlassSurface 提供）
+        .borderRadius(CAPSULE_HEIGHT / 2)
+        .border({
+          width: 1,
+          color: this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.95)'
+        })
       }
       .layoutWeight(1)
       .height(CAPSULE_HEIGHT)
@@ -3222,12 +3238,16 @@ export struct BotChatPage {
       } else {
       TextArea({ text: this.draft, placeholder: this.placeholderText() })
         .id('bot-chat-draft')
-        .fontSize(16)
+        // 与工作模式 .composer-input 完全一致：14vp / 字重 350 / 行高 20
+        .fontSize(14)
+        .fontWeight(350)
+        .lineHeight(20)
         .fontColor(this.ink())
         .placeholderColor(this.isDark ? 'rgba(241,244,250,0.42)' : 'rgba(16,19,24,0.34)')
+        .placeholderFont({ size: 14, weight: 350 })
         .backgroundColor(Color.Transparent)
-        .padding(0)
-        .constraintSize({ minHeight: 38, maxHeight: 132 })
+        .padding({ left: 0, right: 0, top: 4, bottom: 4 })
+        .constraintSize({ minHeight: 38, maxHeight: 160 })
         .borderRadius(0)
         .onChange((value: string) => {
           this.draft = value;
@@ -3258,14 +3278,28 @@ export struct BotChatPage {
       .alignItems(VerticalAlign.Center)
     }
     .width('100%')
-    .padding({ left: DOCK_SIDE, right: DOCK_SIDE, top: 12, bottom: 12 })
+    // 工作模式：卡片外沿 = 页面 14vp 边距，卡片内部再 14vp 内边距 → 文字距屏 28vp。
+    // 这里外层 composerDock 已给 14，所以卡片内补 14 即与工作模式同一条文字基线。
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
     // 展开态自己画玻璃，不走 HdsGlassSurface 的悬浮胶囊背板：
     // 工作模式就是这样（展开 = 28 圆角玻璃卡 + 22 模糊 + 半透明底 + 1px 细亮边），
     // 若仍套悬浮 Bar，圆角会被胶囊几何带成椭圆。
     .borderRadius(DOCK_RADIUS)
+    // 与工作模式展开态输入卡完全一致（ConversationComposer）：
+    //   backdropBlur 22 + 底 rgba(255,255,255,0.72) / 深 rgba(30,30,32,0.72) + 1px #66FFFFFF 亮边
     .backdropBlur(22)
     .backgroundColor(this.isDark ? 'rgba(30,30,32,0.72)' : 'rgba(255,255,255,0.72)')
-    .border({ width: 1, color: '#66FFFFFF' })
+    // 边缘强化：浅色用淡墨细边 + 轻投影（纯白底上才看得出输入区范围），深色保持白亮边
+    .border({
+      width: 1,
+      color: this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.95)'
+    })
+    .shadow({
+      radius: this.isDark ? 8 : 14,
+      color: this.isDark ? 'rgba(0,0,0,0.40)' : 'rgba(16,19,24,0.08)',
+      offsetX: 0,
+      offsetY: 3
+    })
     .clip(true)
     .alignItems(HorizontalAlign.Start)
   }
@@ -3622,33 +3656,6 @@ export struct BotChatPage {
                 BotStore.get().loadEarlier();
               }
             })
-            }
-            .width('100%')
-            .height('100%')
-            // 收起态：不裁底，正文一直铺到屏幕底部、从胶囊玻璃后面透过去（没有遮罩层）；
-            // 展开态：底边裁到输入框底边，正文到卡片下沿就消失 —— 展开时输入框下方保留遮罩带。
-            .padding({ bottom: this.composerExpanded() ? this.timelineClipBottom() : 0 })
-          }
-        }
-        .width('100%')
-        .height('100%')
-        .backgroundColor(this.pageBg())
-        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
-
-        if (this.state.supported) {
-          // 不再叠任何底部遮罩/渐变层：工作模式对话页的底边是「时间线直接裁到输入框底边」，
-          // 正文从玻璃后面滚过、到输入框底部消失，没有额外的渐隐遮罩（ConversationPage.bottomFadeOverlay
-          // 只定义了但并未渲染）。之前这里加过一层 44vp 渐变，看起来就是「输入框底部有一层灰罩」。
-          this.composerDock()
-        }
-
-        // 长按语音全屏特效（与工作模式同一套 VoiceRipplePanel：画布光晕 + 粒子波形 + 状态文案）。
-        // 必须放在 composerDock 之后：Stack 里后面的兄弟节点在上层，否则会被输入条压住。
-        // 只在录音期间挂载 —— 空闲时若常驻一层全屏容器，即使 hitTestBehavior(None)
-        // 在部分版本上仍会吃掉页面的点击/滑动手势。
-        // 语音浮层：波纹特效 + 中间实时文字卡（录音中/识别中），不拦触摸（手指仍压在输入条上）
-        if (this.voiceRecording || this.voicePhase === 'transcribing') {
-          Stack({ alignContent: Alignment.Center }) {
             .onTouch((event: TouchEvent) => {
               if (event.type === TouchType.Down) {
                 this.listTouching = true;
@@ -3670,19 +3677,19 @@ export struct BotChatPage {
                 this.autoStick = false;
               }
             })
-            VoiceRipplePanel({
-              visible: true,
-              cancelArmed: this.voiceCancelArmed,
-              isDark: this.isDark,
-              status: this.voiceStatus,
-              readLevel: (): number => this.dictation.level()
-            })
-              .width('100%')
-              .height('100%')
-            this.voiceHud()
+            }
+            .width('100%')
+            .height('100%')
+            // 收起态：不裁底，正文一直铺到屏幕底部、从胶囊玻璃后面透过去（没有遮罩层）；
+            // 展开态：底边裁到输入框底边，正文到卡片下沿就消失 —— 展开时输入框下方保留遮罩带。
+            .padding({ bottom: this.composerExpanded() ? this.timelineClipBottom() : 0 })
           }
-          .width('100%')
-          .height('100%')
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor(this.pageBg())
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+
         if (this.state.supported && !this.autoStick && this.state.messages.length > 0) {
           // 回到底部：与工作模式同款（40 玻璃圆钮 + 下箭头），中心与右下角蓝色主按钮对齐（见 scrollBottomRightInset）
           Row() {
@@ -3718,6 +3725,33 @@ export struct BotChatPage {
           .justifyContent(FlexAlign.End)
         }
 
+        if (this.state.supported) {
+          // 不再叠任何底部遮罩/渐变层：工作模式对话页的底边是「时间线直接裁到输入框底边」，
+          // 正文从玻璃后面滚过、到输入框底部消失，没有额外的渐隐遮罩（ConversationPage.bottomFadeOverlay
+          // 只定义了但并未渲染）。之前这里加过一层 44vp 渐变，看起来就是「输入框底部有一层灰罩」。
+          this.composerDock()
+        }
+
+        // 长按语音全屏特效（与工作模式同一套 VoiceRipplePanel：画布光晕 + 粒子波形 + 状态文案）。
+        // 必须放在 composerDock 之后：Stack 里后面的兄弟节点在上层，否则会被输入条压住。
+        // 只在录音期间挂载 —— 空闲时若常驻一层全屏容器，即使 hitTestBehavior(None)
+        // 在部分版本上仍会吃掉页面的点击/滑动手势。
+        // 语音浮层：波纹特效 + 中间实时文字卡（录音中/识别中），不拦触摸（手指仍压在输入条上）
+        if (this.voiceRecording || this.voicePhase === 'transcribing') {
+          Stack({ alignContent: Alignment.Center }) {
+            VoiceRipplePanel({
+              visible: true,
+              cancelArmed: this.voiceCancelArmed,
+              isDark: this.isDark,
+              status: this.voiceStatus,
+              readLevel: (): number => this.dictation.level()
+            })
+              .width('100%')
+              .height('100%')
+            this.voiceHud()
+          }
+          .width('100%')
+          .height('100%')
           .hitTestBehavior(HitTestMode.None)
         }
 
@@ -3806,6 +3840,7 @@ export struct BotChatPage {
       this.ensureLiveTimer();
       // 进聊天页也补一次头像（页面栈进入时首页的 onShown 可能不再触发）
       BotStore.get().forceAvatars();
+      this.autoStick = true;
       setTimeout(() => {
         try {
           this.scroller.scrollEdge(Edge.Bottom);
@@ -3833,7 +3868,6 @@ export struct BotChatPage {
   roleSheet() {
     BotRoleSheet({
       botId: this.roleBotId,
-      this.autoStick = true;
       onClose: () => {
         this.roleSheetOpen = false;
       }

@@ -69,7 +69,7 @@ const BOT_INK_DARK: string = '#F2EEF6';
 const MEMBER_COLORS_LIGHT: string[] = ['#E7EFE7', '#F3E7EA', '#F3ECDF', '#E4ECEF', '#F2E7E1'];
 /** §8.7 成员色板：深色 5 色（BotBubblePalette.NIGHT_MEMBER_COLORS） */
 const MEMBER_COLORS_DARK: string[] = ['#2C3D34', '#402F3A', '#40382E', '#2A3A43', '#42322F'];
-/** 主 Bot 固定色 */
+/** 主 Bot 固定色（与 shared BotBubblePalette 完全一致：0xF3EFF6 / 0x352D3D） */
 const MAIN_COLOR_LIGHT: string = '#F3EFF6';
 const MAIN_COLOR_DARK: string = '#352D3D';
 /** 未知 botId 兜底色 */
