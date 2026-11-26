@@ -436,6 +436,11 @@ export class GatewayRequestFactory {
     return GatewayRequestFactory.management('plugin-market-indexes', requestId, {});
   }
 
+  /** 插件安装源（npm registry 选项，对齐小程序 pluginInstaller.registries()） */
+  static pluginRegistries(requestId: string): GatewayRequest {
+    return GatewayRequestFactory.management('plugin-registries', requestId, {});
+  }
+
   /**
    * 插件市场搜索。网关（dsh-plugin-mobile-gateway）的契约是：
    *   { url: <索引地址>, query: { offset, limit, sort: { kind: 'index' }, text?, category? } }

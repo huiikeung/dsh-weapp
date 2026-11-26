@@ -2323,6 +2323,12 @@ export class GatewayClient {
     return this.requestGateway(GatewayRequestFactory.pluginMarketIndexes('plugin-market-indexes-' + this.pluginRequestSeq), 20000);
   }
 
+  /** 插件安装源选项（registry / fallbackRegistries / resolved） */
+  requestPluginRegistries(): Promise<GatewayFrame> {
+    this.pluginRequestSeq += 1;
+    return this.requestGateway(GatewayRequestFactory.pluginRegistries('plugin-registries-' + this.pluginRequestSeq), 15000);
+  }
+
   /** 插件市场搜索 */
   searchMarket(indexUrl: string, query: string, category: string, cursor: string, limit: number): Promise<GatewayFrame> {
     this.pluginRequestSeq += 1;

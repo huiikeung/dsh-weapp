@@ -47,6 +47,12 @@ interface PluginField {
   revision: number;
 }
 
+/** 安装源选项（对齐小程序 registryOptions） */
+interface RegistryOption {
+  label: string;
+  value: string;
+}
+
 interface MarketEntry {
   name: string;
   title: string;
@@ -79,6 +85,12 @@ export struct PluginsPage {
   @State addRegistryUrl: string = '';
   /** 「安装引导和示例」展开态（对齐小程序 guideOpen） */
   @State addGuideOpen: boolean = false;
+  // 安装源选择（对齐小程序：弹层列表 + 自定义地址）
+  @State registryOptions: RegistryOption[] = [];
+  @State registryIndex: number = 0;
+  @State registryMenuOpen: boolean = false;
+  @State registryLoading: boolean = false;
+  @State registryError: string = '';
   @State addEnableAfter: boolean = true;
   @State addBusy: boolean = false;
   @State addStatus: string = '';
@@ -481,6 +493,7 @@ export struct PluginsPage {
         this.addSheetOpen = true;
         this.addError = '';
         this.addStatus = '';
+        this.loadRegistryOptions();
       })
       Row() {
         Image($r('app.media.ic_dir_chevron_mist'))
@@ -517,6 +530,7 @@ export struct PluginsPage {
         this.addSheetOpen = true;
         this.addError = '';
         this.addStatus = '';
+        this.loadRegistryOptions();
       })
       Row() {
         Column({ space: 2 }) {
@@ -605,20 +619,30 @@ export struct PluginsPage {
         Blank()
         Row({ space: 6 }) {
           Text('安装源').fontSize(12).fontColor(this.subColor())
-          Text(this.addRegistryMode === 'host' ? '主机默认安装源' : '自定义地址')
+          Text(this.currentRegistryLabel())
             .fontSize(12)
             .fontColor(this.textColor())
             .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .constraintSize({ maxWidth: 150 })
           Image($r('app.media.ic_dir_chevron_mist'))
             .width(9)
             .height(9)
+            .rotate({ angle: this.registryMenuOpen ? 225 : 45 })
             .colorFilter(this.iconTint(this.subColor()))
         }
         .padding({ left: 10, right: 10, top: 6, bottom: 6 })
         .borderRadius(8)
         .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.12)' })
         .onClick(() => {
-          this.addRegistryMode = this.addRegistryMode === 'host' ? 'custom' : 'host';
+          this.registryMenuOpen = !this.registryMenuOpen;
+        })
+        // 弹层选择安装源（对齐小程序 registry 选择弹层）
+        .bindMenu(this.registryMenuOpen, this.registryMenuBuilder(), {
+          placement: Placement.BottomRight,
+          onDisappear: () => {
+            this.registryMenuOpen = false;
+          }
         })
       }
       .width('100%')
@@ -637,7 +661,7 @@ export struct PluginsPage {
           .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)')
       }
 
-      if (this.addRegistryMode === 'custom') {
+      if (this.currentRegistryValue() === 'custom') {
         TextInput({ text: this.addRegistryUrl, placeholder: 'https://npm.example.com/' })
           .fontSize(14)
           .fontColor(this.textColor())
@@ -1676,6 +1700,113 @@ export struct PluginsPage {
     }, 1200);
   }
 
+  /** 拉取主机提供的 npm 安装源选项（对齐小程序 openAdd → pluginInstaller.registries()） */
+  private loadRegistryOptions(): void {
+    if (!GatewayClient.get().isConnected() || this.registryLoading) {
+      return;
+    }
+    this.registryLoading = true;
+    this.registryError = '';
+    GatewayClient.get().requestPluginRegistries().then((frame) => {
+      const rec: Record<string, Object> = this.asRecord(frame);
+      const options: RegistryOption[] = [];
+      options.push({ label: '主机默认安装源', value: 'host' });
+      const resolved: string = this.strField(rec, 'resolved');
+      if (resolved.length > 0) {
+        options.push({ label: this.registryLabelFor(resolved), value: resolved });
+      }
+      for (const raw of this.arrField(rec, 'fallbackRegistries')) {
+        if (typeof raw !== 'string') {
+          continue;
+        }
+        const url: string = (raw as string).replace(/\/+$/, '');
+        if (url.length === 0 || options.filter((one: RegistryOption) => one.value === url).length > 0) {
+          continue;
+        }
+        options.push({ label: this.registryLabelFor(url), value: url });
+      }
+      options.push({ label: '自定义地址', value: 'custom' });
+      this.registryOptions = options;
+      this.registryIndex = 0;
+      this.registryLoading = false;
+    }).catch((err: Error) => {
+      this.registryLoading = false;
+      this.registryError = err.message;
+    });
+  }
+
+  private registryLabelFor(url: string): string {
+    if (url.indexOf('registry.npmmirror.com') >= 0) {
+      return '中国大陆镜像源';
+    }
+    if (url.indexOf('registry.npmjs.org') >= 0) {
+      return 'npm 官方源';
+    }
+    return url;
+  }
+
+  private currentRegistryValue(): string {
+    if (this.registryIndex >= 0 && this.registryIndex < this.registryOptions.length) {
+      return this.registryOptions[this.registryIndex].value;
+    }
+    return 'host';
+  }
+
+  private currentRegistryLabel(): string {
+    if (this.registryLoading) {
+      return '读取中…';
+    }
+    if (this.registryIndex >= 0 && this.registryIndex < this.registryOptions.length) {
+      return this.registryOptions[this.registryIndex].label;
+    }
+    return '主机默认安装源';
+  }
+
+  /** 实际下发给主机的 registry：host/pnpm → null（跟随主机），custom → 输入框内容 */
+  private selectedRegistry(): string | null {
+    const value: string = this.currentRegistryValue();
+    if (value === 'host' || value === 'pnpm') {
+      return null;
+    }
+    if (value === 'custom') {
+      const custom: string = this.addRegistryUrl.trim();
+      return custom.length > 0 ? custom : null;
+    }
+    return value;
+  }
+
+  @Builder
+  registryMenuBuilder() {
+    Column() {
+      ForEach(this.registryOptions, (option: RegistryOption, index: number) => {
+        Row({ space: 8 }) {
+          Text(option.label)
+            .fontSize(14)
+            .fontColor(option.value === this.currentRegistryValue() ? this.accent() : this.textColor())
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          if (option.value === this.currentRegistryValue()) {
+            Text('✓').fontSize(14).fontColor(this.accent())
+          }
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+        .onClick(() => {
+          this.registryIndex = index;
+          this.registryMenuOpen = false;
+        })
+      }, (option: RegistryOption) => option.value)
+      Divider().color(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)')
+      Text('Git 仓库和主机目录不通过 npm 安装源下载')
+        .fontSize(11)
+        .fontColor(this.subColor())
+        .padding({ left: 16, right: 16, top: 8, bottom: 10 })
+    }
+    .width(260)
+    .padding({ top: 4, bottom: 4 })
+  }
+
   private runInstall(): void {
     const spec: string = this.addSpec.trim();
     if (spec.length === 0) {
@@ -1686,8 +1817,7 @@ export struct PluginsPage {
       this.addError = '未连接网关';
       return;
     }
-    const registry: string | null = this.addRegistryMode === 'custom' && this.addRegistryUrl.trim().length > 0
-      ? this.addRegistryUrl.trim() : null;
+    const registry: string | null = this.selectedRegistry();
     this.addBusy = true;
     this.addError = '';
     this.addStatus = '正在检查插件…';
