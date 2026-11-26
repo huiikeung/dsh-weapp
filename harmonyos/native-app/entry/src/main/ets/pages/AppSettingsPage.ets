@@ -7,6 +7,7 @@ import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, hdsMateri
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 import { ensureGlassLevel, glassLevelLabel, GLASS_LEVEL_DEFAULT, GLASS_LEVEL_KEY } from '../common/GlassMaterial';
 import { NodeManageSheet } from '../components/NodeManageSheet';
+import { HostGlyph, ServerGlyph } from '../components/GlyphIcons';
 import { Haptics } from '../services/Haptics';
 import { AttachmentCache, BOT_BG_DEFAULT, BOT_PALETTES, CredentialStore, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, SessionSummary, ThemeManager, WorkStepPresentation, WorkspaceRow } from 'nativecore';
 import type { SavedGateway } from 'nativecore';
@@ -809,57 +810,6 @@ export struct AppSettingsPage {
       return 'desktop';
     }
     return 'desktop';
-  }
-
-  /** iOS 风格「桌面电脑」图标（屏幕 + 支架 + 底座，同 HomePage.hostGlyph） */
-  @Builder
-  hostGlyph(size: number, color: string) {
-    Column() {
-      Column()
-        .width(size * 0.94)
-        .height(size * 0.60)
-        .border({ width: 1.4, color: color })
-        .borderRadius(size * 0.12)
-      Column()
-        .width(1.4)
-        .height(size * 0.14)
-        .backgroundColor(color)
-      Column()
-        .width(size * 0.42)
-        .height(1.4)
-        .borderRadius(1)
-        .backgroundColor(color)
-    }
-    .width(size)
-    .height(size)
-    .justifyContent(FlexAlign.Center)
-  }
-
-  /** iOS 风格「服务器」图标（机箱 + 两道分隔线 + 状态点，同 HomePage.serverGlyph） */
-  @Builder
-  serverGlyph(size: number, color: string) {
-    Stack({ alignContent: Alignment.Center }) {
-      Column()
-        .width(size * 0.90)
-        .height(size * 0.76)
-        .border({ width: 1.4, color: color })
-        .borderRadius(size * 0.14)
-      Column()
-        .width(size * 0.90)
-        .height(1.2)
-        .backgroundColor(color)
-        .translate({ y: -size * 0.127 })
-      Column()
-        .width(size * 0.90)
-        .height(1.2)
-        .backgroundColor(color)
-        .translate({ y: size * 0.127 })
-      Circle({ width: size * 0.075, height: size * 0.075 }).fill(color).translate({ x: -size * 0.30, y: -size * 0.253 })
-      Circle({ width: size * 0.075, height: size * 0.075 }).fill(color).translate({ x: -size * 0.30, y: 0 })
-      Circle({ width: size * 0.075, height: size * 0.075 }).fill(color).translate({ x: -size * 0.30, y: size * 0.253 })
-    }
-    .width(size)
-    .height(size)
   }
 
   /** 沉浸光感能力判断（旧系统降级） */
@@ -1776,9 +1726,9 @@ export struct AppSettingsPage {
                 Row() {
                   // 当前主机是什么类型就画什么图标（电脑 / 服务器），对齐「切换主机」里的类型
                   if (this.currentHostKind() === 'server') {
-                    this.serverGlyph(23, this.textColor())
+                    ServerGlyph({ glyphSize: 23, darkColor: '#F1F4FA', lightColor: '#101318' })
                   } else {
-                    this.hostGlyph(23, this.textColor())
+                    HostGlyph({ glyphSize: 23, darkColor: '#F1F4FA', lightColor: '#101318' })
                   }
                 }
                 .width(42)

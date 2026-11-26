@@ -13,7 +13,7 @@
  *
  * 来源：pages/HomePage.ets
  *   L3648-3761  主机行 UI（胶囊 + 配对钮 + 设置钮）
- *   L618-670    hostGlyph / serverGlyph
+ *   （hostGlyph / serverGlyph 抽到了 components/GlyphIcons：颜色要随主题变，@Builder 传参不刷新）
  *   L672-861    scanGlyph / scanFinder / 菜单行 / menuRow
  *   L2155-2206  pairMenuWidth / pairMenuAnchorX / pairMenuBuilder
  *   L2208-2534  hostSheetContent（列表 / 编辑 / 删除 / 切换主机）
@@ -38,6 +38,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { display, uiMaterial } from '@kit.ArkUI';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { TailscaleMarkView } from './TailscaleMarkView';
+import { HostGlyph, ServerGlyph } from './GlyphIcons';
 import {
   GatewayClient, PairingResult, PreferencesStore, parsePairingPayload, SavedGateway
 } from 'nativecore';
@@ -222,57 +223,6 @@ export struct HostSwitcherBar {
   }
 
   // ==================== 图标（iOS 风格自绘，尺寸随入参缩放）====================
-
-  /** iOS 风格「桌面电脑」图标（近似 SF Symbols desktopcomputer：屏幕 + 支架 + 底座） */
-  @Builder
-  hostGlyph(size: number, color: string) {
-    Column() {
-      Column()
-        .width(size * 0.94)
-        .height(size * 0.60)
-        .border({ width: 1.4, color: color })
-        .borderRadius(size * 0.12)
-      Column()
-        .width(1.4)
-        .height(size * 0.14)
-        .backgroundColor(color)
-      Column()
-        .width(size * 0.42)
-        .height(1.4)
-        .borderRadius(1)
-        .backgroundColor(color)
-    }
-    .width(size)
-    .height(size)
-    .justifyContent(FlexAlign.Center)
-  }
-
-  /** iOS 风格「服务器」图标（近似 SF Symbols server.rack：竖长机箱 + 两道分隔线 + 状态点） */
-  @Builder
-  serverGlyph(size: number, color: string) {
-    Stack({ alignContent: Alignment.Center }) {
-      Column()
-        .width(size * 0.90)
-        .height(size * 0.76)
-        .border({ width: 1.4, color: color })
-        .borderRadius(size * 0.14)
-      Column()
-        .width(size * 0.90)
-        .height(1.2)
-        .backgroundColor(color)
-        .translate({ y: -size * 0.127 })
-      Column()
-        .width(size * 0.90)
-        .height(1.2)
-        .backgroundColor(color)
-        .translate({ y: size * 0.127 })
-      Circle({ width: size * 0.075, height: size * 0.075 }).fill(color).translate({ x: -size * 0.30, y: -size * 0.253 })
-      Circle({ width: size * 0.075, height: size * 0.075 }).fill(color).translate({ x: -size * 0.30, y: 0 })
-      Circle({ width: size * 0.075, height: size * 0.075 }).fill(color).translate({ x: -size * 0.30, y: size * 0.253 })
-    }
-    .width(size)
-    .height(size)
-  }
 
   /**
    * 扫描二维码图标：组件绘制（对齐小程序 .ico-scan）。
@@ -536,9 +486,9 @@ export struct HostSwitcherBar {
                 Blank()
                 Row({ space: 6 }) {
                   if (this.editKind === 'server') {
-                    this.serverGlyph(16, this.iconColor())
+                    ServerGlyph({ glyphSize: 16, darkColor: '#FFFFFF', lightColor: '#000000' })
                   } else {
-                    this.hostGlyph(16, this.iconColor())
+                    HostGlyph({ glyphSize: 16, darkColor: '#FFFFFF', lightColor: '#000000' })
                   }
                   Text(this.editKind === 'server' ? '服务器' : '电脑')
                     .fontSize(16)
@@ -636,7 +586,7 @@ export struct HostSwitcherBar {
             if (!this.hasSavedHost()) {
               Column() {
                 Row({ space: 12 }) {
-                  this.hostGlyph(22, this.iconColorSecondary())
+                  HostGlyph({ glyphSize: 22, darkColor: '#A0A0A8', lightColor: '#8A8A8E' })
                   Text('暂无已连接的主机')
                     .fontSize(16)
                     .fontColor(this.secondaryLabel())
@@ -678,9 +628,9 @@ export struct HostSwitcherBar {
                       })
                     }
                     if (this.savedHostKind(gateway) === 'server') {
-                      this.serverGlyph(22, this.iconColor())
+                      ServerGlyph({ glyphSize: 22, darkColor: '#FFFFFF', lightColor: '#000000' })
                     } else {
-                      this.hostGlyph(22, this.iconColor())
+                      HostGlyph({ glyphSize: 22, darkColor: '#FFFFFF', lightColor: '#000000' })
                     }
                     Column({ space: 2 }) {
                       Row({ space: 6 }) {
@@ -1432,9 +1382,9 @@ export struct HostSwitcherBar {
           }
           // 原首页这里跟的是「编辑表单当前类型」this.editKind（未编辑过时恒为 desktop），按原样照搬
           if (this.editKind === 'server') {
-            this.serverGlyph(18, this.pillInk())
+            ServerGlyph({ glyphSize: 18, darkColor: '#FFFFFF', lightColor: '#252332' })
           } else {
-            this.hostGlyph(18, this.pillInk())
+            HostGlyph({ glyphSize: 18, darkColor: '#FFFFFF', lightColor: '#252332' })
           }
           Text(this.hostPillLabel())
             .fontSize(14)
