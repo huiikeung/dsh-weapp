@@ -11,14 +11,12 @@
  * 约束：ArkTS 严格模式；颜色全部字符串字面量。
  */
 import { display, LengthMetrics } from '@kit.ArkUI';
-import { fileIo } from '@kit.CoreFileKit';
 import { KeyCode } from '@kit.InputKit';
 import { HdsGlassSurface } from './HdsGlassSurface';
 import { Logger } from 'nativecore';
 import type { ModelMenuItem, PickedAttachment } from 'nativecore';
 import { FileAttachmentCard } from './FileAttachmentCard';
 import { MENU_KEEP_DEFAULT, MENU_KEEP_KEY } from '../common/MenuPopupSetting';
-import { fileKindIcon, fileKindOf } from '../common/FileKind';
 import { COMPOSER_COMPACT_DEFAULT, COMPOSER_COMPACT_KEY } from '../common/ComposerStyleSetting';
 
 /** 指标菜单行（鸿蒙原生 Menu 的 MenuItem：content 在左，labelInfo 数值在右） */
