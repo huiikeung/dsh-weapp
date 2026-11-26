@@ -3020,6 +3020,18 @@ export struct PluginsPage {
     this.detailExperimental = item.experimental;
     // 包含的组件：静态 rows × 实时组件状态（目录帧实时推送，dsh 端变化自动跟随）
     this.detailEntries = this.buildEntriesFor(item);
+    // 功能选项：候选命名空间 = 包名 / 短名 / 各组件 id（dsh 端设置文档落在其中之一）
+    const candidates: string[] = [item.name];
+    const slash: number = item.name.lastIndexOf('/');
+    if (slash >= 0 && slash + 1 < item.name.length) {
+      candidates.push(item.name.substring(slash + 1));
+    }
+    for (const entry of this.detailEntries) {
+      if (entry.id.length > 0) {
+        candidates.push(entry.id);
+      }
+    }
+    this.loadBundleSettings(candidates);
     this.detailError = '';
     this.detailSaved = '';
     this.detailMarkdown = '';
@@ -3030,8 +3042,6 @@ export struct PluginsPage {
     this.apiKeyConfigured = false;
     this.apiKeyHint = '';
     this.detailBusy = true;
-    // 插件包的功能选项：命名空间 = 包名（内置插件走 loadOfficialSettings）
-    this.loadBundleSettings(item.name);
     GatewayClient.get().requestPluginDetail(item.name, 'zh').then((frame) => {
       this.detailBusy = false;
       this.detailMarkdown = this.extractMarkdown(frame);
@@ -3044,26 +3054,30 @@ export struct PluginsPage {
       if (description.length > 0) {
         this.detailDescription = description;
       }
-      const entries: EntryRow[] = [];
-      for (const raw of this.arrField(rec, 'items')) {
-        const entry: Record<string, Object> = this.asRecord(raw);
-        const id: string = this.strField(entry, 'entryId') || this.strField(entry, 'id');
-        const name: string = this.strField(entry, 'name') || id;
-        if (id.length > 0) {
-          const moduleId: string = this.strField(entry, 'moduleName');
-          const moduleLine: string = moduleId.length > 0 ? id + ' · ' + moduleId : id;
-          entries.push({
-            id: id,
-            name: name,
-            description: this.localizedField(entry, 'description'),
-            enabled: this.readBool(entry, 'enabled'),
-            moduleLine: moduleLine,
-            phase: this.strField(entry, 'fiberPhase'),
-            packageName: this.strField(entry, 'packageName') || this.strField(entry, 'plugin')
-          });
+      // plugin-detail 帧只带 Markdown；组件列表来自目录 rows × 实时状态，
+      // 这里仅在目录没给出 rows 时兜底解析（避免用空 items 把已构建的列表清掉）
+      if (this.detailEntries.length === 0) {
+        const entries: EntryRow[] = [];
+        for (const raw of this.arrField(rec, 'items')) {
+          const entry: Record<string, Object> = this.asRecord(raw);
+          const id: string = this.strField(entry, 'entryId') || this.strField(entry, 'id');
+          const name: string = this.strField(entry, 'name') || id;
+          if (id.length > 0) {
+            const moduleId: string = this.strField(entry, 'moduleName');
+            const moduleLine: string = moduleId.length > 0 ? id + ' · ' + moduleId : id;
+            entries.push({
+              id: id,
+              name: name,
+              description: this.localizedField(entry, 'description'),
+              enabled: this.readBool(entry, 'enabled'),
+              moduleLine: moduleLine,
+              phase: this.strField(entry, 'fiberPhase'),
+              packageName: this.strField(entry, 'packageName') || this.strField(entry, 'plugin')
+            });
+          }
         }
+        this.detailEntries = entries;
       }
-      this.detailEntries = entries;
     }).catch((err: Error) => {
       this.detailBusy = false;
       this.detailError = err.message;
@@ -3087,42 +3101,69 @@ export struct PluginsPage {
       }
       return;
     }
-    // 插件包（detailKind===''）：设置命名空间 = 包名，静默重载功能选项
-    if (this.detailKind === '' && this.detailName.length > 0) {
-      this.loadBundleSettings(this.detailName);
+    // 插件包（detailKind===''）：功能选项静默重载（候选命名空间同 openDetail）
+    if (this.detailKind === '' && this.detailName.length > 0 && this.detailEntries.length > 0) {
+      const candidates: string[] = [this.detailName];
+      const slash: number = this.detailName.lastIndexOf('/');
+      if (slash >= 0 && slash + 1 < this.detailName.length) {
+        candidates.push(this.detailName.substring(slash + 1));
+      }
+      for (const entry of this.detailEntries) {
+        if (entry.id.length > 0) {
+          candidates.push(entry.id);
+        }
+      }
+      this.loadBundleSettings(candidates);
     }
   }
 
-  /** 插件包的功能选项：settings 命名空间 = 包名；取值非空才显示（对齐 dsh 端功能选项内容） */
-  private loadBundleSettings(ns: string): void {
-    GatewayClient.get().requestPluginSettings(ns).then((frame) => {
-      const namespace: PluginNamespace = parseNamespace(frame);
-      if (!namespace.valid || namespace.value === undefined) {
+  /** 插件包的功能选项：依次尝试候选命名空间（包名/短名/组件 id），取值非空即渲染 */
+  private loadBundleSettings(candidates: string[]): void {
+    const seen: string[] = [];
+    for (const one of candidates) {
+      if (one.length > 0 && seen.indexOf(one) < 0) {
+        seen.push(one);
+      }
+    }
+    const tryOne = (index: number): void => {
+      if (index >= seen.length) {
         return;
       }
-      const valueRec: Record<string, Object> | undefined = this.asRecord(namespace.value);
-      if (valueRec === undefined) {
-        return;
-      }
-      const keys: string[] = Object.keys(valueRec);
-      if (keys.length === 0) {
-        return;
-      }
-      const fields: PluginField[] = [];
-      for (const key of keys) {
-        fields.push({
-          ns: ns,
-          key: key,
-          label: key,
-          hint: '',
-          numeric: false,
-          value: this.readFieldValue(valueRec, key),
-          revision: namespace.revision
-        });
-      }
-      this.detailFields = fields;
-    }).catch(() => {
-    });
+      const ns: string = seen[index];
+      GatewayClient.get().requestPluginSettings(ns).then((frame) => {
+        const namespace: PluginNamespace = parseNamespace(frame);
+        if (!namespace.valid || namespace.value === undefined) {
+          tryOne(index + 1);
+          return;
+        }
+        const valueRec: Record<string, Object> | undefined = this.asRecord(namespace.value);
+        if (valueRec === undefined) {
+          tryOne(index + 1);
+          return;
+        }
+        const keys: string[] = Object.keys(valueRec);
+        if (keys.length === 0) {
+          tryOne(index + 1);
+          return;
+        }
+        const fields: PluginField[] = [];
+        for (const key of keys) {
+          fields.push({
+            ns: ns,
+            key: key,
+            label: key,
+            hint: '',
+            numeric: false,
+            value: this.readFieldValue(valueRec, key),
+            revision: namespace.revision
+          });
+        }
+        this.detailFields = fields;
+      }).catch(() => {
+        tryOne(index + 1);
+      });
+    };
+    tryOne(0);
   }
 
   private tryLoadSettingsSilent(kind: string, candidates: string[], index: number): void {
