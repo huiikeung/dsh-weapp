@@ -4559,9 +4559,16 @@ export struct ConversationPage {
         // 主机会把「运行中」的消息排进队列，而队列项不保留图片内容 → 图片实际没送出去，
         // 界面上却已经当成功处理（气泡出现、随后消失、也没有回复）。这里按 ack.mode 判定：
         // 带图且被排队，就当失败处理，保留草稿与附件让用户等本轮结束后重发。
-        if (imagePayloads.length > 0 && (ack.mode ?? '') === 'queue') {
-          Logger.warn('[SEND] image send queued by host -> treat as failed');
-          throw new Error('本轮还在运行，图片没有送出（主机排队会丢图），等这轮结束后再发一次');
+        if (imagePayloads.length > 0) {
+          // 真正判定是否被排队：查一下会话队列里有没有我们这条（队列会丢图）。
+          // 有 → 撤回排队并按失败处理，保留草稿，避免出现「发出去了但没回复、重进就没了」。
+          const queuedId: string = await this.queueItemIdFor(sessionId, text);
+          Logger.info('[SEND] image queue check queued=' + (queuedId.length > 0 ? '1' : '0'));
+          if (queuedId.length > 0) {
+            await client.queueUpdateAndWait(sessionId, queuedId, 'remove').catch(() => undefined);
+            Logger.warn('[SEND] image message was queued -> removed, treat as failed');
+            throw new Error('本轮还在运行，图片没送达（已撤回排队），等这轮结束后再发一次');
+          }
         }
       } else if (!client.sendUserMessage(text, sessionId)) {
         throw new Error('发送失败，请检查连接');
@@ -4644,6 +4651,35 @@ export struct ConversationPage {
       this.sending = false;
       this.sendStartedAt = 0;
     }
+  }
+
+  /** 会话队列里是否有匹配这条文本的项；返回队列项 id（没有返回空串） */
+  private async queueItemIdFor(sessionId: string, text: string): Promise<string> {
+    const target: string = text.trim().substring(0, 16);
+    if (target.length === 0) {
+      return '';
+    }
+    try {
+      const frame: GatewayFrame = await GatewayClient.get().requestQueue(sessionId);
+      const items: Object[] | undefined = frame.items;
+      if (items === undefined || !Array.isArray(items)) {
+        return '';
+      }
+      for (const raw of items) {
+        const rec = asRec(raw);
+        if (rec === undefined) {
+          continue;
+        }
+        const id: string = str(rec, 'id') ?? '';
+        const preview: string = str(rec, 'preview') ?? '';
+        if (id.length > 0 && preview.indexOf(target) >= 0) {
+          return id;
+        }
+      }
+    } catch (error) {
+      Logger.warn('[SEND] queue check failed: ' + (error instanceof Error ? error.message : String(error)));
+    }
+    return '';
   }
 
   /** 轮询等待会话空闲（最多 timeoutMs）；返回是否等到 */
