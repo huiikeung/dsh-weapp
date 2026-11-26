@@ -272,7 +272,7 @@ export struct HomePage {
 
   private workspaceSubtitle(): string {
     if (this.wsFilter === 'all') {
-      return this.sessions.length + ' 个会话';
+      return this.visibleSessions().length + ' 个会话';
     }
     if (this.wsFilter === 'ungrouped') {
       return '不属于任何工作区';
@@ -344,13 +344,26 @@ export struct HomePage {
     return true;
   }
 
-  private filtered(): SessionSummary[] {
+  /**
+   * 会话列表可见集：先按工作区筛选，再剔掉空会话。
+   * 空会话 = 新建之后还没发过消息（host 的 blank 标记），dsh 端列表同样不显示它，
+   * 否则每点一次「新建会话」都会在首页多出一条只有 id 的空记录。
+   */
+  private visibleSessions(): SessionSummary[] {
     const scoped: SessionSummary[] = [];
     for (const item of this.sessions) {
+      if (item.blank) {
+        continue;
+      }
       if (this.inWorkspace(item)) {
         scoped.push(item);
       }
     }
+    return scoped;
+  }
+
+  private filtered(): SessionSummary[] {
+    const scoped: SessionSummary[] = this.visibleSessions();
     const key: string = this.search.trim().toLowerCase();
     if (key.length === 0) {
       return scoped;
@@ -3718,7 +3731,8 @@ export struct HomePage {
 
           // ── 会话列表（对齐小程序 .session-list / .session-row / .session-section）──
           if (this.filtered().length === 0) {
-            Text(this.sessions.length === 0 ? '暂无会话' : '没有匹配的会话')
+            // 空会话不算会话（已过滤），所以这里也按「可见集」判断是否真的没有会话
+            Text(this.visibleSessions().length === 0 ? '暂无会话' : '没有匹配的会话')
               .fontSize(15)
               .fontColor('rgba(255,255,255,0.5)')
               .width('100%')
@@ -4092,6 +4106,14 @@ export struct HomePage {
   }
 
   private createSession(): void {
+    // 上一次新建、还没发过消息的空会话：直接接着用它。
+    // 空会话不进列表（dsh 端一致），每点一次就造一个只会在主机上堆一串看不见的会话。
+    const reusable: string = SessionStore.reusableBlankSessionId(this.sessions);
+    if (reusable.length > 0) {
+      SessionStore.get().open(reusable);
+      openSessionRoute(this.pageStack);
+      return;
+    }
     this.creating = true;
     this.createHint = '';
     // 新会话按「新会话默认配置 → Agent 预设」创建（网关不持久化默认预设，需客户端显式传）
@@ -4100,6 +4122,8 @@ export struct HomePage {
       ? defaultPreset : PreferencesStore.get().getString('defaultAgentPreset', '');
     GatewayClient.get().createSession('', presetToUse).then((id: string) => {
       this.creating = false;
+      // 记成「可复用的空会话」：下次点新建直接回来，不再多造一个
+      SessionStore.rememberBlankSession(id);
       SessionStore.get().open(id);
       openSessionRoute(this.pageStack);
     }).catch((error: Error) => {

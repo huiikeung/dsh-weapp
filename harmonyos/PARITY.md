@@ -83,6 +83,27 @@
   - 上下文 = 2rpx 竖线 + 缩进正文
   - PTC 子步骤（`tool/ptc-dispatch`）= 每级 28rpx 缩进 + 左侧竖线轨道
 
+### 新会话输入框上方的模式 / 工作区胶囊
+
+对齐 iOS `ConversationView.newConversationWorkspaceControl` / `newConversationWorkspaceMenu`（`_dsh-mobile-latest`）。
+
+- **显示时机**：会话还没有任何消息、没在跑、队列为空（`showModeChip()`）时，输入框上方出现一行胶囊（`ConversationPage.bottomDockLayer`）：
+  - 左：Agent 预设（运行模式）胶囊，原生 `Menu` 弹出标准 / PTC / 极简 / 创造模式（实际项以网关预设为准）
+  - 右：「工作区」胶囊，显示这个新会话所属工作区（认不出时显示「未分组」），原生 `Menu` 弹出「默认工作区 + 各工作区（名称 + 路径）」，当前项打勾
+- **样式**：两个胶囊同一套——`HdsGlassSurface` 沉浸玻璃 + `ButtonType.Capsule` + 右下箭头旋转 −90°，字号 12.5vp（平板 11vp）、最小高度 rpx(56)（平板 32vp）；两个菜单都由原生 `Menu + MenuItem` 承载，行排版共用 `chipMenuRow`（标题 15 + 说明/路径 11.5 + 蓝底白色对勾），因此弹窗样式与模式菜单完全一致
+- **切换行为**（`switchNewSessionWorkspace`）：选目标工作区后按 `session-create`（带 `workspaceId` 与当前 Agent 预设）新建一个会话并切过去，与 iOS `AppStore.selectNewConversationWorkspace` 同一套做法。草稿跟着新会话走（先按新会话 id 落盘，`openSession → restoreDraft` 读回），图片/文件附件是本地 URI 原样保留；`@` 文件/文件夹引用属于旧工作区会被清掉（会话引用保留）
+- **状态**：切换中胶囊显示「切换中…」并禁用；未连网关时禁用；成功后立即按目标工作区显示并补拉 `workspaces`，失败弹顶部 toast 并保持原状
+- **空会话处理**：切换本质是「在新工作区新建一个会话」，原来那个空会话不会出现在任何列表里（见下一节），下一个「新建会话」也只会复用最新的那个空会话
+
+### 空会话（host 的 blank）不占列表、新建会话复用
+
+对齐 dsh 端（iOS `SharedSessionListReducer`）：`sessions` 帧每个会话都带 `blank`，表示「新建之后还没发过消息」。这类会话不算会话列表的一条，也不再每点一次新建就新造一个。
+
+- **数据层**（`native-core/state/SessionStore.ets`）：`SessionSummary` 新增 `blank`；`consumeSessions` 按 `blank` 标记 + 本机 `localSent`（刚发过消息的会话先放行，主机帧翻标记前不会把它藏掉）写入；`appendOptimisticUser` 调 `noteConversationSent` 立即放行并作废「可复用」记忆；冷启动缓存恢复给旧缓存兜底成「有对话」
+- **列表过滤**：首页 `visibleSessions()`（工作区筛选 + 剔除空会话，`filtered()` / 最近会话 / 全部会话分区 / 「N 个会话」计数都走它）与会话页侧栏 `convSidebarSessions()` 都不再列出空会话
+- **新建会话复用**：`HomePage.createSession` 先查 `SessionStore.reusableBlankSessionId(...)`——上次新建、还没发过消息、仍在列表里的空会话直接打开，不再 `session-create`；建成功后 `rememberBlankSession(id)`，工作区切换新建成功也记这一次。这样「新建 → 返回 → 再新建」始终停在同一张空会话上
+- **发消息后**：`localSent` 立即把它放出列表；主机 `blank` 变 false 后，记忆自动作废，下次新建才真正造新会话
+
 ## 插件页 / 自动化页
 
 | # | 功能 | 状态 |

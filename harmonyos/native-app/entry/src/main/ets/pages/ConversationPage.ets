@@ -119,6 +119,14 @@ interface ConvSidebarSession {
   updatedAt: number;
 }
 
+/** 新建会话「工作区」菜单的一行：id 为空串 = 网关默认工作区 */
+interface NewSessionWorkspaceOption {
+  id: string;
+  title: string;
+  /** 路径（默认项写说明文案） */
+  detail: string;
+}
+
 /** 会话侧栏的分组（对齐小程序 conversation-sidebar.buildGroups 的 groups） */
 interface ConvSidebarGroup {
   id: string;
@@ -346,6 +354,14 @@ export struct ConversationPage {
   @StorageLink('sessionAgentPresets') sessionAgentPresets: Record<string, Object> = {};
   /** 预设详细列表：提供网关下发的显示名（自定义预设名优先） */
   @StorageLink('agentPresetDetails') agentPresetDetails: PresetOption[] = [];
+  /** 新会话右上角「工作区切换」：弹窗开关 */
+  @State private wsChipOpen: boolean = false;
+  /** 正在按新工作区建会话：胶囊显示「切换中…」并禁用，避免连点建出多个空会话 */
+  @State private wsSwitching: boolean = false;
+  /** 刚切换完成的会话与工作区名：网关帧回来前先按它显示，避免胶囊闪回旧工作区 */
+  @State private wsPendingSessionId: string = '';
+  @State private wsPendingId: string = '';
+  @State private wsPendingLabel: string = '';
 
   @State entries: ConversationFeedEntryModel[] = [];
   /** 「@」引用菜单可选的会话列表（全部会话） */
@@ -5491,6 +5507,7 @@ export struct ConversationPage {
     // 玻璃由外层 HdsGlassSurface 出；Button 自身必须透明，否则会盖住材质
     .backgroundColor('#00000000')
     .onClick(() => {
+      this.wsChipOpen = false;
       this.modeChipOpen = !this.modeChipOpen;
     })
     // 原生菜单（与右上角「⋯」同款容器/描边/收起行为）
@@ -5516,14 +5533,24 @@ export struct ConversationPage {
   /** 菜单行：模式名称 + 说明（放进原生 MenuItem） */
   @Builder
   modeMenuRow(item: PresetOption, current: boolean) {
+    this.chipMenuRow(item.label.length > 0 ? item.label : item.id, item.description, current, item.broken, 2);
+  }
+
+  /**
+   * 胶囊菜单共用的一行：标题 + 说明/路径 + 选中对勾。
+   * 模式菜单和工作区菜单都走这里，两个弹窗的排版、圆角、选中底色、按下反馈完全一致。
+   */
+  @Builder
+  chipMenuRow(title: string, detail: string, current: boolean, muted: boolean, detailLines: number) {
     Column() {
       // hover 底色只铺在内容胶囊上，胶囊左右各留 12，避免贴着菜单边框
       Column({ space: 2 }) {
         Row() {
-          Text(item.label.length > 0 ? item.label : item.id)
+          Text(title)
             .fontSize(15)
-            .fontColor(item.broken ? this.subColor() : this.textColor())
+            .fontColor(muted ? this.subColor() : this.textColor())
             .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
           Blank()
           if (current) {
             // 选中标记：蓝色圆底 + 白色对勾，垂直居中
@@ -5541,11 +5568,12 @@ export struct ConversationPage {
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
-        if (item.description.length > 0) {
-          Text(item.description)
+        if (detail.length > 0) {
+          Text(detail)
             .fontSize(11.5)
             .fontColor(this.subColor())
-            .maxLines(2)
+            .maxLines(detailLines)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%')
         }
       }
@@ -5623,6 +5651,213 @@ export struct ConversationPage {
     this.modeChipOpen = false;
     Logger.info('[MODE] select id=' + id + ' session=' + sessionId.slice(-8) + ' sent=' + (sent ? '1' : '0'));
     this.showToast('已切换为「' + label + '」' + (sent ? '' : '（未连接网关，仅记录偏好）'), false);
+  }
+
+  // ==================== 新会话：右上角「工作区」切换（对齐 iOS newConversationWorkspaceControl）====================
+
+  /** 当前会话所属工作区：先看网关分组 sessionIds，再按 cwd 前缀匹配 */
+  private workspaceOfCurrentSessionId(): WorkspaceRow | undefined {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0) {
+      return undefined;
+    }
+    for (const ws of this.workspaces) {
+      if (ws.sessionIds.indexOf(sessionId) >= 0) {
+        return ws;
+      }
+    }
+    for (const one of this.sessions) {
+      if (one.id === sessionId) {
+        return this.workspaceOfSession(one);
+      }
+    }
+    return undefined;
+  }
+
+  /** 胶囊文案：切换中 → 刚切换的目标 → 会话所属工作区 → 未分组 */
+  private wsChipText(): string {
+    if (this.wsSwitching) {
+      return '切换中…';
+    }
+    const sessionId: string = SessionStore.get().currentSessionId();
+    const ws = this.workspaceOfCurrentSessionId();
+    if (ws !== undefined) {
+      return this.workspaceLabel(ws);
+    }
+    if (this.wsPendingLabel.length > 0 && this.wsPendingSessionId === sessionId) {
+      return this.wsPendingLabel;
+    }
+    return '未分组';
+  }
+
+  /** 当前高亮的工作区 id（空串 = 默认工作区）：决定菜单里的对勾 */
+  private currentWsOptionId(): string {
+    const ws = this.workspaceOfCurrentSessionId();
+    if (ws !== undefined) {
+      return ws.workspaceId;
+    }
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (this.wsPendingLabel.length > 0 && this.wsPendingSessionId === sessionId) {
+      return this.wsPendingId;
+    }
+    return '';
+  }
+
+  /** 菜单选项：默认工作区 + 每个工作区（名称 + 路径） */
+  private wsOptions(): NewSessionWorkspaceOption[] {
+    const out: NewSessionWorkspaceOption[] = [];
+    out.push({ id: '', title: '默认工作区', detail: '由网关按主机默认目录创建' });
+    for (const ws of this.workspaces) {
+      out.push({ id: ws.workspaceId, title: this.workspaceLabel(ws), detail: this.normalizePath(ws.path) });
+    }
+    return out;
+  }
+
+  /** 胶囊文案宽度上限：长标题省略，别把左侧模式胶囊挤出屏幕 */
+  private wsChipLabelWidth(): number {
+    const base: number = this.pageW > 0 ? this.pageW : 390;
+    const room: number = base - 2 * (14 + this.wideInset()) - 158;
+    return room > 96 ? room : 96;
+  }
+
+  /** 右上角工作区胶囊：与左侧模式胶囊同款玻璃 + 胶囊 + 下拉箭头 */
+  @Builder
+  wsChip() {
+    // 尺寸/字号/箭头全部照抄 modeChip（平板走 vp 小尺寸，手机走 rpx）
+    HdsGlassSurface() {
+    Button({ type: ButtonType.Capsule, stateEffect: true }) {
+      Row({ space: this.wideInset() > 0 ? 5 : this.rpx(8) }) {
+        Text(this.wsChipText())
+          .fontSize(this.wideInset() > 0 ? 11 : 12.5)
+          .fontColor(this.textColor())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .constraintSize({ maxWidth: this.wsChipLabelWidth() })
+        Image($r('app.media.chev_right_gray'))
+          .width(this.wideInset() > 0 ? 12 : this.rpx(18))
+          .height(this.wideInset() > 0 ? 12 : this.rpx(18))
+          .objectFit(ImageFit.Contain)
+          .rotate({ angle: -90 })
+          .opacity(0.7)
+      }
+      .alignItems(VerticalAlign.Center)
+      .padding({
+        left: this.wideInset() > 0 ? 12 : this.rpx(22),
+        right: this.wideInset() > 0 ? 10 : this.rpx(18)
+      })
+    }
+    .constraintSize({ minHeight: this.wideInset() > 0 ? 32 : this.rpx(56) })
+    .buttonStyle(ButtonStyleMode.NORMAL)
+    // 玻璃由外层 HdsGlassSurface 出；Button 自身必须透明，否则会盖住材质
+    .backgroundColor('#00000000')
+    // 未连接 / 切换中不给点：建会话必须先连上网关
+    .enabled(this.connection === 'connected' && !this.wsSwitching)
+    .onTouch((event: TouchEvent) => {
+      if (event.type === TouchType.Down) {
+        Logger.info('[WS] chip touch down conn=' + this.connection + ' ws=' + this.workspaces.length.toString());
+      }
+    })
+    .onClick(() => {
+      Logger.info('[WS] chip click conn=' + this.connection + ' open=' + (this.wsChipOpen ? '1' : '0'));
+      Haptics.play();
+      this.modeChipOpen = false;
+      this.wsChipOpen = !this.wsChipOpen;
+    })
+    // 原生菜单（与模式菜单同款容器/描边；贴右侧，菜单向右对齐）
+    .bindMenu(this.wsChipOpen, this.wsMenu(), {
+      placement: Placement.TopRight,
+      offset: { x: 0, y: -6 },
+      outlineColor: this.dividerColor(),
+      outlineWidth: 1,
+      onWillDisappear: () => {
+        this.wsChipOpen = false;
+      },
+      onDisappear: () => {
+        this.wsChipOpen = false;
+      },
+      onDidDisappear: () => {
+        this.wsChipOpen = false;
+      }
+    })
+    }
+  }
+
+  /** 工作区菜单：原生 Menu + MenuItem（与模式菜单完全同款，行里带路径） */
+  @Builder
+  wsMenu() {
+    Menu() {
+      ForEach(this.wsOptions(), (item: NewSessionWorkspaceOption) => {
+        MenuItem(this.chipMenuRow(item.title, item.detail, item.id === this.currentWsOptionId(), false, 1))
+          .enabled(!this.wsSwitching)
+          .onClick(() => {
+            this.switchNewSessionWorkspace(item);
+          })
+      }, (item: NewSessionWorkspaceOption) => 'ws-' + item.id)
+    }
+  }
+
+  /**
+   * 切换新会话的工作区：在目标工作区里 createSession 再切过去（对齐 iOS selectNewConversationWorkspace）。
+   * 当前会话还没发过消息（模式胶囊只在空会话出现），所以切走不会丢内容：
+   * 草稿按新会话 id 先落盘，openSession 里的 restoreDraft 会把它读回来；附件是本地 URI，原样保留。
+   */
+  private switchNewSessionWorkspace(item: NewSessionWorkspaceOption): void {
+    if (this.wsSwitching) {
+      return;
+    }
+    this.wsChipOpen = false;
+    if (item.id === this.currentWsOptionId()) {
+      this.showToast('当前就在「' + item.title + '」');
+      return;
+    }
+    if (this.connection !== 'connected') {
+      this.showToast('未连接网关，无法切换工作区', true);
+      return;
+    }
+    const draftText: string = this.draft;
+    // 文件/文件夹引用属于旧工作区目录，切走就失效；会话引用是网关全局的，保留
+    const keptChips: RefChipItem[] = [];
+    for (const chip of this.refChips) {
+      if (chip.kind === 'session') {
+        keptChips.push(chip);
+      }
+    }
+    const droppedChips: number = this.refChips.length - keptChips.length;
+    this.wsSwitching = true;
+    GatewayClient.get().createSession(item.id, this.selectedModeId()).then((id: string) => {
+      this.wsSwitching = false;
+      if (id.length === 0) {
+        this.showToast('切换工作区失败：网关没有返回会话', true);
+        return;
+      }
+      if (draftText.length > 0) {
+        DraftStore.get().save(id, draftText);
+      }
+      this.refChips = keptChips;
+      this.openSession(id);
+      // restoreDraft 没赶上（偏好未就绪等）时兜底：正文不能丢
+      if (draftText.length > 0 && this.draft.length === 0) {
+        this.draft = draftText;
+        this.draftOwnerSessionId = id;
+      }
+      this.wsPendingSessionId = id;
+      this.wsPendingId = item.id;
+      this.wsPendingLabel = item.title;
+      // 这个新会话也还是空会话：记下来，下次首页点「新建会话」直接复用它
+      SessionStore.rememberBlankSession(id);
+      // 「@」菜单换成新工作区的根目录
+      this.refCurrentPath = '';
+      this.loadRefDirectory();
+      // 工作区分组里要出现这个新会话；会话列表本身由 session-created 回执自动补拉
+      GatewayClient.get().requestWorkspaces().catch(() => {});
+      Logger.info('[WS] switch id=' + item.id + ' session=' + id.slice(-8) + ' droppedChips=' + droppedChips.toString());
+      this.showToast('已切换到「' + item.title + '」工作区' + (droppedChips > 0 ? '，已清空旧工作区引用' : ''));
+    }).catch((error: Error) => {
+      this.wsSwitching = false;
+      const message: string = error.message.length > 0 ? error.message : '切换工作区失败';
+      Logger.warn('[WS] switch failed: ' + message);
+      this.showToast(message, true);
+    });
   }
 
   @Builder
@@ -6683,11 +6918,14 @@ export struct ConversationPage {
               .width('100%')
               .padding({ left: 20, right: 20, top: 2, bottom: 2 })
           }
-          // 新会话：输入框左上方显示模式切换胶囊
+          // 新会话：输入框左上方是模式胶囊，右上方是工作区胶囊（同一行、同一套胶囊样式）
           if (this.showModeChip()) {
             Row() {
               this.modeChip()
               Blank()
+              if (this.workspaces.length > 0) {
+                this.wsChip()
+              }
             }
             .width('100%')
             // 与输入框左缘对齐：输入条外层左右 14vp（+ 宽屏居中留白），再加输入框最外圈 1.3vp 白色光圈。
@@ -12185,6 +12423,10 @@ export struct ConversationPage {
     const rows: ConvSidebarSession[] = [];
     for (const session of this.sessions) {
       if (ids.indexOf(session.id) < 0) {
+        continue;
+      }
+      // 空会话（新建后没发过消息）不进列表，与首页/dsh 端一致
+      if (session.blank) {
         continue;
       }
       rows.push({

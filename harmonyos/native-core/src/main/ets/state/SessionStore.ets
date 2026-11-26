@@ -131,6 +131,12 @@ export interface SessionSummary {
   cwd: string;
   /** 会话的 Agent 预设（运行模式）id：standard / code / minimal / cordis 或自定义 */
   agentPreset: string;
+  /**
+   * Host 标记的空会话：新建之后还没发过任何消息（sessions 帧的 blank）。
+   * dsh 端（桌面/iOS）不把这种会话算进会话列表，这里同样不显示；
+   * 本机刚发过消息但主机还没翻标记的那一小段，用 localSent 先按「有对话」处理。
+   */
+  blank: boolean;
 }
 
 export interface SessionRow {
@@ -191,6 +197,11 @@ export class SessionStore {
   /** 任务/目标快照的 asOfSeq（旧帧丢弃，对齐小程序 tasksAsOfSeq / goalAsOfSeq） */
   private tasksSeq: number = -1;
   private goalSeq: number = -1;
+  /**
+   * 本机刚发过消息的会话 id：主机把 sessions 帧里的 blank 翻成 false 之前（通常 1 秒内），
+   * 列表先按「有对话」处理，避免刚发完消息回首页时看不到这条会话。
+   */
+  private localSent: Set<string> = new Set<string>();
   /** 乐观回显的本地用户消息（对齐小程序 appendLocalUserRow.pending，回显到达时就地合并） */
   private optimisticUsers: ConversationItem[] = [];
   /** 每条乐观气泡发送时刻已存在的投影条目数：决定它插在时间线的哪个位置 */
@@ -1368,7 +1379,8 @@ export class SessionStore {
           running: running,
           updatedAt: one.updatedAt,
           cwd: one.cwd,
-          agentPreset: one.agentPreset
+          agentPreset: one.agentPreset,
+          blank: one.blank
         });
         changed = true;
       } else {
@@ -1388,7 +1400,9 @@ export class SessionStore {
           running: true,
           updatedAt: Date.now(),
           cwd: '',
-          agentPreset: ''
+          agentPreset: '',
+          // 已经开始跑 = 有对话，别当成空会话藏起来
+          blank: false
         });
         this.localRunningAt.set(targetSessionId, true);
         this.localRunningMarkAt.set(targetSessionId, Date.now());
@@ -1947,6 +1961,55 @@ export class SessionStore {
     }
   }
 
+  /** 偏好键：最近一次「新建但还没发消息」的空会话 id */
+  private static readonly LAST_BLANK_KEY: string = 'lastBlankSessionId';
+
+  /**
+   * 记住这个刚建好的空会话：下次「新建会话」直接复用它。
+   * dsh 端空会话不进列表，也不该每点一次新建就凭空造一个（主机上会堆一串看不见的空会话）。
+   */
+  static rememberBlankSession(sessionId: string): void {
+    if (sessionId.length === 0) {
+      return;
+    }
+    try {
+      PreferencesStore.get().putString(SessionStore.LAST_BLANK_KEY, sessionId);
+    } catch (err) {
+      Logger.warn('remember blank session failed');
+    }
+  }
+
+  /** 作废「可复用的空会话」记忆（已经发过消息 / 会话没了） */
+  static forgetBlankSession(): void {
+    try {
+      PreferencesStore.get().deleteKey(SessionStore.LAST_BLANK_KEY);
+    } catch (err) {
+    }
+  }
+
+  /** 记着的空会话 id（没有则空串） */
+  static lastBlankSessionId(): string {
+    try {
+      return PreferencesStore.get().getString(SessionStore.LAST_BLANK_KEY, '');
+    } catch (err) {
+      return '';
+    }
+  }
+
+  /** 可复用的空会话 id：上次新建过、列表里还在、而且仍是空会话（空串 = 没有） */
+  static reusableBlankSessionId(sessions: SessionSummary[]): string {
+    const remembered: string = SessionStore.lastBlankSessionId();
+    if (remembered.length === 0) {
+      return '';
+    }
+    for (const one of sessions) {
+      if (one.id === remembered && one.blank) {
+        return one.id;
+      }
+    }
+    return '';
+  }
+
   /** 冷启动恢复会话/工作区缓存（不自动打开会话）。 */
   static restoreCatalogCache(): void {
     try {
@@ -1966,7 +2029,9 @@ export class SessionStore {
             running: bool(item, 'running') === true,
             updatedAt: num(item, 'updatedAt') ?? 0,
             cwd: str(item, 'cwd') ?? '',
-            agentPreset: str(item, 'agentPreset') ?? ''
+            agentPreset: str(item, 'agentPreset') ?? '',
+            // 旧缓存没有 blank：按「有对话」处理，宁可多显示也别把正常会话藏起来
+            blank: bool(item, 'blank') === true
           });
         }
         if (list.length > 0) {
@@ -2082,6 +2147,8 @@ export class SessionStore {
       const updatedAt: number = num(item, 'updatedAt') ?? 0;
       const cwd: string = str(item, 'cwd') ?? '';
     const agentPreset: string = str(item, 'agentPreset') ?? '';
+      // 空会话：新建后还没发过消息（host 的 blank）。本机刚发过消息的会话先放行。
+      const blank: boolean = bool(item, 'blank') === true && !this.localSent.has(id);
       // 主机是权威来源，但刚按实时事件改过的状态要压过这份可能更旧的快照。
       let running: boolean = hostRunning;
       const markedAt: number = this.localRunningMarkAt.get(id) ?? 0;
@@ -2093,15 +2160,25 @@ export class SessionStore {
           this.localRunningAt.delete(id);
         }
       }
-      list.push({ id: id, title: title, running: running, updatedAt: updatedAt, cwd: cwd, agentPreset: agentPreset });
+      list.push({ id: id, title: title, running: running, updatedAt: updatedAt, cwd: cwd, agentPreset: agentPreset, blank: blank });
     }
     // 列表没变就什么都不写：轮询每秒一次，重复赋值会让首页整表重绘、还平白写磁盘。
     let signature: string = '';
     let anyRunning: boolean = false;
     for (const one of list) {
-      signature += one.id + (one.running ? '1' : '0') + one.updatedAt.toString() + one.title + ';';
+      signature += one.id + (one.running ? '1' : '0') + (one.blank ? 'b' : '-') + one.updatedAt.toString() + one.title + ';';
       if (one.running) {
         anyRunning = true;
+      }
+    }
+    // 记着的空会话已经发过消息（主机回 blank=false）：记忆作废，下次新建另起一个
+    const rememberedBlank: string = SessionStore.lastBlankSessionId();
+    if (rememberedBlank.length > 0) {
+      for (const one of list) {
+        if (one.id === rememberedBlank && !one.blank) {
+          SessionStore.forgetBlankSession();
+          break;
+        }
       }
     }
     if (signature !== this.sessionsSignature) {
@@ -3170,6 +3247,20 @@ export class SessionStore {
     }
   }
 
+  /**
+   * 本机对某会话发出过消息：列表立即按「有对话」处理，
+   * 并作废「空会话可复用」记忆（下次新建另起一个）。
+   */
+  noteConversationSent(sessionId: string): void {
+    if (sessionId.length === 0) {
+      return;
+    }
+    this.localSent.add(sessionId);
+    if (SessionStore.lastBlankSessionId() === sessionId) {
+      SessionStore.forgetBlankSession();
+    }
+  }
+
   clear(): void {
     // 轮次标题缓存也属于「本机缓存」：清理缓存时一起清掉（含本地持久化）
     this.turnTitleCache.clear();
@@ -3191,6 +3282,8 @@ export class SessionStore {
    * 真实 user/message 事件到达时按文本就地采纳，避免出现两条气泡。
    */
   appendOptimisticUser(text: string, imageCount: number = 0, localImagePaths: string[] = []): void {
+    // 发过消息就不再是空会话：列表立刻放出来，也不再复用
+    this.noteConversationSent(this.sessionId);
     // 幂等：发送链路里 GatewayClient.sendUserMessage 与页面都会尝试插乐观气泡，
     // 同一条消息重复插入会让时间线出现两条一样的用户气泡，这里按文本合并。
     for (let index = 0; index < this.optimisticUsers.length; index++) {
