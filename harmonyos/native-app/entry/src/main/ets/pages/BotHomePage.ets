@@ -83,6 +83,10 @@ export struct BotHomePage {
       PreferencesStore.get().putString('botMode', '1');
     } catch (ignored) {
     }
+    // 作为根内容时 NavDestination.onShown 不一定触发，这里补一次首页该做的清理：
+    // 清掉上一次聊天选择（否则「与 X 聊聊」不出红角标）+ 补头像。
+    BotStore.get().clearChatSelection();
+    BotStore.get().forceAvatars();
     Logger.info('BOT_HOME appear chats=' + this.state.chats.length.toString()
       + ' supported=' + (this.state.supported ? '1' : '0'));
   }
@@ -136,13 +140,13 @@ export struct BotHomePage {
   }
 
   private leaveBotMode(animated: boolean = false): void {
+    // 模式切换不做左右推屏转场（对齐 iOS：直接换根内容，用波纹覆盖）：
+    // 只改 botMode，Index 会把根内容换回工作首页，这里不再 pop。
     AppStorage.setOrCreate<string>('botMode', '0');
     try {
       PreferencesStore.get().putString('botMode', '0');
     } catch (ignored) {
     }
-    // 模式切换不做左右推屏转场（对齐 iOS：直接换根内容，用波纹覆盖）
-    this.pageStack.pop(animated);
   }
 
   // ==================== 左侧栏 / 模式切换（对齐工作模式抽屉与 iOS §2） ====================
@@ -1866,8 +1870,8 @@ export struct BotHomePage {
         this.drawerOpen = false;
         return true;
       }
-      this.leaveBotMode();
-      return true;
+      // Bot 首页是根内容：返回直接交给系统（退到桌面），不再切回工作模式
+      return false;
     })
   }
 

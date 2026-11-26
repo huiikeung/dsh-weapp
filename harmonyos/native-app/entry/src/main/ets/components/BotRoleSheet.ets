@@ -156,13 +156,12 @@ export struct BotRoleSheet {
   }
 
   private leaveBotMode(animated: boolean = false): void {
+    // 模式切换 = 换根内容（Index 按 botMode 渲染），不再 pop 页面栈
     AppStorage.setOrCreate<string>('botMode', '0');
     try {
       PreferencesStore.get().putString('botMode', '0');
     } catch (ignored) {
     }
-    // 模式切换不做左右推屏转场（对齐 iOS：直接换根内容，用波纹覆盖）
-    this.pageStack.pop(animated);
   }
 
   // ==================== 左侧栏 / 模式切换（对齐工作模式抽屉与 iOS §2） ====================

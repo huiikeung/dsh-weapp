@@ -8,6 +8,7 @@ import { hdsEffect } from '@kit.UIDesignKit';
 import { TailscaleMarkView } from '../components/TailscaleMarkView';
 import { FluKeCoin } from '../components/FluKeCoin';
 import { HdsGlassSurface } from '../components/HdsGlassSurface';
+import { HostGlyph, ServerGlyph } from '../components/GlyphIcons';
 import { Haptics } from '../services/Haptics';
 import { StatusBarStyle, STATUS_BAR_HOME_ROUTE } from '../services/StatusBarStyle';
 import { openSessionRoute } from '../common/SessionRoute';
@@ -759,60 +760,6 @@ export struct HomePage {
   }
 
 
-
-  /** iOS 风格「桌面电脑」图标（近似 SF Symbols desktopcomputer：屏幕 + 支架 + 底座） */
-  @Builder
-  hostGlyph(size: number, color: string) {
-    Column() {
-      Column()
-        .width(size * 0.94)
-        .height(size * 0.60)
-        .border({ width: 1.4, color: color })
-        .borderRadius(size * 0.12)
-      Column()
-        .width(1.4)
-        .height(size * 0.14)
-        .backgroundColor(color)
-      Column()
-        .width(size * 0.42)
-        .height(1.4)
-        .borderRadius(1)
-        .backgroundColor(color)
-    }
-    .width(size)
-    .height(size)
-    .justifyContent(FlexAlign.Center)
-  }
-
-  /** iOS 风格「服务器」图标（近似 SF Symbols server.rack：竖长机箱 + 两道分隔线 + 状态点） */
-  @Builder
-  serverGlyph(size: number, color: string) {
-    Stack({ alignContent: Alignment.Center }) {
-      // 机箱外框（接近 SF Symbols：略扁的方形）
-      Column()
-        .width(size * 0.90)
-        .height(size * 0.76)
-        .border({ width: 1.4, color: color })
-        .borderRadius(size * 0.14)
-      // 两道分隔线（与机箱同宽，把它分成三层）
-      Column()
-        .width(size * 0.90)
-        .height(1.2)
-        .backgroundColor(color)
-        .translate({ y: -size * 0.127 })
-      Column()
-        .width(size * 0.90)
-        .height(1.2)
-        .backgroundColor(color)
-        .translate({ y: size * 0.127 })
-      // 三层状态点（左侧）
-      Circle({ width: size * 0.075, height: size * 0.075 }).fill(color).translate({ x: -size * 0.30, y: -size * 0.253 })
-      Circle({ width: size * 0.075, height: size * 0.075 }).fill(color).translate({ x: -size * 0.30, y: 0 })
-      Circle({ width: size * 0.075, height: size * 0.075 }).fill(color).translate({ x: -size * 0.30, y: size * 0.253 })
-    }
-    .width(size)
-    .height(size)
-  }
 
   /** 扫描二维码图标：15×15 等比设计（四角外沿 + 三个定位框 + 右下四个圆点） */
   @Builder
@@ -1944,7 +1891,12 @@ export struct HomePage {
         this.drawerInstant = true;
         startModeWave(event.windowX, event.windowY, this.isDark ? '#17161F' : '#F4F1FA');
         setTimeout(() => {
-          this.pageStack.pushPathByName('bot-home', null, false);
+          // 切模式 = 换根内容（Index 按 botMode 渲染 Bot 首页），不再 push 一层页面
+          AppStorage.setOrCreate<string>('botMode', '1');
+          try {
+            PreferencesStore.get().putString('botMode', '1');
+          } catch (ignored) {
+          }
           this.drawerInstant = false;
         }, 430);
         return;
@@ -2494,9 +2446,9 @@ export struct HomePage {
                   Blank()
                   Row({ space: 6 }) {
                     if (this.editKind === 'server') {
-                      this.serverGlyph(16, this.iconColor())
+                      ServerGlyph({ glyphSize: 16, darkColor: '#FFFFFF', lightColor: '#000000' })
                     } else {
-                      this.hostGlyph(16, this.iconColor())
+                      HostGlyph({ glyphSize: 16, darkColor: '#FFFFFF', lightColor: '#000000' })
                     }
                     Text(this.editKind === 'server' ? '服务器' : '电脑')
                       .fontSize(16)
@@ -2594,7 +2546,7 @@ export struct HomePage {
               if (!this.hasSavedHost()) {
                 Column() {
                   Row({ space: 12 }) {
-                    this.hostGlyph(22, this.iconColorSecondary())
+                    HostGlyph({ glyphSize: 22, darkColor: '#A0A0A8', lightColor: '#8A8A8E' })
                     Text('暂无已连接的主机')
                       .fontSize(16)
                       .fontColor(this.secondaryLabel())
@@ -2636,9 +2588,9 @@ export struct HomePage {
                         })
                       }
                       if (this.savedHostKind(gateway) === 'server') {
-                        this.serverGlyph(22, this.iconColor())
+                        ServerGlyph({ glyphSize: 22, darkColor: '#FFFFFF', lightColor: '#000000' })
                       } else {
-                        this.hostGlyph(22, this.iconColor())
+                        HostGlyph({ glyphSize: 22, darkColor: '#FFFFFF', lightColor: '#000000' })
                       }
                       Column({ space: 2 }) {
                         Row({ space: 6 }) {
@@ -3866,9 +3818,9 @@ export struct HomePage {
                 })
               }
               if (this.editKind === 'server') {
-                this.serverGlyph(18, '#FFFFFF')
+                ServerGlyph({ glyphSize: 18, darkColor: '#FFFFFF', lightColor: '#FFFFFF' })
               } else {
-                this.hostGlyph(18, '#FFFFFF')
+                HostGlyph({ glyphSize: 18, darkColor: '#FFFFFF', lightColor: '#FFFFFF' })
               }
               Text(this.hostPillLabel())
                 .fontSize(14)

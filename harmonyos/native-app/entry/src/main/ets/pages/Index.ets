@@ -1,7 +1,7 @@
 import { BackgroundKeepAlive } from '../services/BackgroundKeepAlive';
 import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { Logger } from 'nativecore';
-import { SessionStore } from 'nativecore';
+import { SessionStore, PreferencesStore } from 'nativecore';
 import { HomePage } from './HomePage';
 import { AddNodePage } from './AddNodePage';
 import { ConversationPage } from './ConversationPage';
@@ -83,6 +83,13 @@ struct Index {
 
   @StorageLink('agentWorkActive') @Watch('onAgentWorkActive') agentWorkActive: boolean = false;
 
+  /**
+   * Bot 模式：'1' 时 Navigation 的**根内容**就是 Bot 首页。
+   * 以前是 push 一层 bot-home 盖在工作首页上，结果手势返回 / 关闭 App 会先掉回工作首页。
+   */
+  @StorageLink('botMode') botModeRoot: string = '0';
+  private botModeSeeded: boolean = false;
+
   onAgentWorkActive(): void {
     const lifecycle: string = AppStorage.get<string>('appLifecycle') ?? 'foreground';
     if (this.agentWorkActive && lifecycle === 'background') {
@@ -114,20 +121,24 @@ struct Index {
     if (this.pendingPageRoute.length > 0) {
       setTimeout(() => this.openPendingPageRoute(), 700);
     }
-    // 上次停留在 Bot 模式：进入首页后自动切回 Bot 模式
-    setTimeout(() => {
-      const mode: string = AppStorage.get<string>('botMode') ?? '0';
-      const names: string[] = this.pageStack.getAllPathName();
-      if (mode === '1' && names.length === 0) {
-        this.pageStack.pushPathByName('bot-home', null, false);
-      }
-    }, 900);
+    // 上次停留在 Bot 模式：直接换根内容，不再往栈里 push 一层。
+    // StorageLink 的默认值是 '0'，区分不了「没存过」，所以这里以偏好里的值为准。
+    if (!this.botModeSeeded) {
+      this.botModeSeeded = true;
+      const stored: string = PreferencesStore.get().getString('botMode', this.botModeRoot);
+      this.botModeRoot = stored === '1' ? '1' : '0';
+    }
   }
 
   private openPendingPageRoute(): void {
     const route: string = this.pendingPageRoute;
     if (route.length === 0) return;
     this.pendingPageRoute = '';
+    // 深链 bot-home 现在等价于「切到 Bot 模式」，不再 push 一层
+    if (route === 'bot-home') {
+      this.botModeRoot = '1';
+      return;
+    }
     this.pageStack.pushPathByName(route, null);
   }
 
@@ -372,7 +383,12 @@ struct Index {
   build() {
     Stack() {
       Navigation(this.pageStack) {
-        HomePage();
+        // 模式即根内容：Bot 模式下根是 Bot 首页，返回手势/关闭 App 都不会先露出工作首页
+        if (this.botModeRoot === '1') {
+          BotHomePage()
+        } else {
+          HomePage()
+        }
       }
       .navDestination(this.PageMap)
       .hideTitleBar(true)
