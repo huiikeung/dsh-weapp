@@ -187,8 +187,10 @@ export struct BotChatPage {
   private lastTailKey: string = '';
   private liveTimer: number = -1;
   private hintTimer: number = -1;
-  /** §8.7 气泡色板：按名册 id 排序稳定取色（状态变化时重建） */
+  /** §8.7 气泡色板：按名册 id 排序稳定取色（仅在名册变化时重建，见 rebuildPalette） */
   private palette: BotBubblePalette = new BotBubblePalette([], '');
+  /** 色板签名：名册 id 集合 + 主 Bot，用来跳过无意义的重复重建 */
+  private paletteSignature: string = '';
 
   aboutToAppear(): void {
     this.rebuildImageIndex();
@@ -228,8 +230,25 @@ export struct BotChatPage {
     this.scheduleScroll();
   }
 
+  /**
+   * 气泡色板只在「名册 id 集合 / 主 Bot」变化时重建。
+   * 之前每次 publish（流式增量、每秒计时器刷新都会触发）都 new 一个色板并重排全部 id，
+   * 长会话流式时是纯粹的白白开销。
+   */
   private rebuildPalette(): void {
-    this.palette = new BotBubblePalette(this.state.chats, this.state.mainBotId ?? '');
+    const mainId: string = this.state.mainBotId ?? '';
+    let signature: string = mainId;
+    for (const chat of this.state.chats) {
+      if (chat.room) {
+        continue;
+      }
+      signature += '|' + chat.id;
+    }
+    if (signature === this.paletteSignature) {
+      return;
+    }
+    this.paletteSignature = signature;
+    this.palette = new BotBubblePalette(this.state.chats, mainId);
   }
 
   private stopLiveTimer(): void {
@@ -2450,8 +2469,30 @@ export struct BotChatPage {
         .width('100%')
         .padding({ left: DOCK_SIDE, right: DOCK_SIDE })
         .alignItems(VerticalAlign.Top)
-      } else if (message.kind === 'event' || message.kind === 'divider' || message.kind === 'closed'
-        || message.kind === 'view') {
+      } else if (message.kind === 'view') {
+        // view 消息是「摘要视图」正文：内容同样是 Markdown，必须走同一个渲染器，
+        // 否则里面的文件会退化成一段不可点的纯文字。
+        Column() {
+          MarkdownBodyView({
+            text: message.text,
+            fontSize: 14,
+            resolveImage: (src: string): string => this.resolveBotImage(src),
+            imageRevision: this.imageRevision,
+            onImageTap: (src: string) => {
+              if (src.length > 0) {
+                this.openImagePreview(src);
+              }
+            },
+            linkTapEnabled: true,
+            onLinkTap: (text: string, href: string) => {
+              this.onMarkdownFileLink(text, href);
+            }
+          })
+        }
+        .width('100%')
+        .padding({ left: DOCK_SIDE, right: DOCK_SIDE, top: 4, bottom: MESSAGE_ROW_GAP })
+        .alignItems(HorizontalAlign.Start)
+      } else if (message.kind === 'event' || message.kind === 'divider' || message.kind === 'closed') {
         Text(message.text.length > 0 ? message.text : '协作动态')
           .fontSize(12)
           .fontColor(this.subColor())
