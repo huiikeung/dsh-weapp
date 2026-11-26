@@ -361,6 +361,20 @@ export struct MarkdownBodyView {
     }
   }
 
+  /** 复制围栏代码块全文（对齐 dsh 端代码块右上角「复制代码」） */
+  private copyCode(value: string): void {
+    try {
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, value);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        this.toast('已复制代码');
+      }).catch(() => {
+        this.toast('复制失败');
+      });
+    } catch (err) {
+      this.toast('复制失败');
+    }
+  }
+
   private copyLink(value: string): void {
     try {
       const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, value);
@@ -566,12 +580,22 @@ export struct MarkdownBodyView {
   @Builder
   blockView(block: MarkdownBlock) {
     if (block.kind === 'code') {
-      Column({ space: 4 }) {
-        if (block.language.length > 0) {
-          Text(block.language.toUpperCase())
-            .fontSize(10)
+      // 头部行对齐 dsh 端：左侧语言名（无语言时显示「代码块」），右侧「复制代码」按钮
+      Column({ space: 6 }) {
+        Row({ space: 8 }) {
+          Text(block.language.length > 0 ? block.language : '代码块')
+            .fontSize(12)
             .fontColor(this.secondaryColor())
+          Blank()
+          Text('复制代码')
+            .fontSize(12)
+            .fontColor(this.secondaryColor())
+            .onClick(() => {
+              this.copyCode(block.text);
+            })
         }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
         Scroll() {
           Text(block.text)
             .fontSize(12)
@@ -586,7 +610,7 @@ export struct MarkdownBodyView {
       }
       .alignItems(HorizontalAlign.Start)
       .width('100%')
-      .padding(10)
+      .padding({ left: 12, right: 12, top: 10, bottom: 12 })
       .borderRadius(9)
       .backgroundColor(this.fillColor())
       .border({ width: 0.5, color: this.strongBorderColor() })
