@@ -1398,6 +1398,8 @@ export struct PluginsPage {
             .padding(3)
             .borderRadius(10)
             .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)')
+            // Column 默认居中，这里显式靠左（对齐小程序 align-self: flex-start）
+            .alignSelf(ItemAlign.Start)
             }
 
             if (this.connection !== 'connected') {
