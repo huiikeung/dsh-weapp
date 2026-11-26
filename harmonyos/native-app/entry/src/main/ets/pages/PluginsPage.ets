@@ -32,6 +32,12 @@ interface EntryRow {
   name: string;
   description: string;
   enabled: boolean;
+  /** 次行：组件 id · 模块名（对齐 dsh 端组件行） */
+  moduleLine: string;
+  /** 运行相位：active/failed/loading/unloading/pending/'' */
+  phase: string;
+  /** 所属包名（如 @deepseek-ai/dsh-experimental-xxx） */
+  packageName: string;
 }
 
 interface SettingsOp {
@@ -115,6 +121,9 @@ export struct PluginsPage {
   @State marketCategories: MarketCategory[] = [];
   @State marketCategory: string = '';
   @State marketCategoriesExpanded: boolean = false;
+  // 发现页条目详情弹层
+  @State marketDetailOpen: boolean = false;
+  @State marketDetailEntry: MarketEntry | undefined = undefined;
   @State addEnableAfter: boolean = true;
   @State addBusy: boolean = false;
   @State addStatus: string = '';
@@ -148,6 +157,7 @@ export struct PluginsPage {
   @State detailSourceSpec: string = '';
   @State detailTargetVersion: string = '';
   @State detailReadOnlyReason: string = '';
+  @State detailExperimental: boolean = false;
   @State detailMarkdown: string = '';
   @State detailKind: string = '';
   @State detailFields: PluginField[] = [];
@@ -881,9 +891,20 @@ export struct PluginsPage {
             .fontColor(this.textColor())
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
-          if (this.detailVersion.length > 0) {
-            Text('v' + this.detailVersion).fontSize(12).fontColor(this.subColor())
+          Row({ space: 6 }) {
+            if (this.detailVersion.length > 0) {
+              Text('v' + this.detailVersion).fontSize(12).fontColor(this.subColor())
+            }
+            if (this.detailExperimental) {
+              Text('实验性')
+                .fontSize(10)
+                .fontColor(this.isDark ? '#7E9AF2' : '#3D5BB8')
+                .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                .borderRadius(6)
+                .backgroundColor(this.isDark ? 'rgba(90,120,220,0.18)' : 'rgba(64,90,190,0.10)')
+            }
           }
+          .alignItems(VerticalAlign.Center)
         }
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
@@ -1120,15 +1141,39 @@ export struct PluginsPage {
                         .maxLines(2)
                         .textOverflow({ overflow: TextOverflow.Ellipsis })
                     }
+                    if (entry.moduleLine.length > 0) {
+                      Text(entry.moduleLine)
+                        .fontSize(10)
+                        .fontColor(this.subColor())
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    }
+                    if (entry.packageName.length > 0) {
+                      Text(entry.packageName)
+                        .fontSize(10)
+                        .fontColor(this.subColor())
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    }
                   }
                   .alignItems(HorizontalAlign.Start)
                   .layoutWeight(1)
-                  Toggle({ type: ToggleType.Switch, isOn: entry.enabled })
-                    .selectedColor(this.accent())
-                    .scale({ x: 0.65, y: 0.65 })
-                    .onChange((isOn: boolean) => {
-                      this.toggleEntry(entry, isOn);
-                    })
+                  Row({ space: 5 }) {
+                    if (this.entryRunning(entry)) {
+                      Circle().width(6).height(6).fill('#34C759')
+                      Text('运行中').fontSize(11).fontColor(this.subColor())
+                    } else if (entry.enabled) {
+                      Circle().width(6).height(6).fill(this.subColor())
+                      Text(this.entryStatusText(entry)).fontSize(11).fontColor(this.subColor())
+                    }
+                    Toggle({ type: ToggleType.Switch, isOn: entry.enabled })
+                      .selectedColor(this.accent())
+                      .scale({ x: 0.65, y: 0.65 })
+                      .onChange((isOn: boolean) => {
+                        this.toggleEntry(entry, isOn);
+                      })
+                  }
+                  .alignItems(VerticalAlign.Center)
                 }
                 .width('100%')
                 .padding({ left: 12, right: 8, top: 5, bottom: 5 })
@@ -1315,13 +1360,134 @@ export struct PluginsPage {
         }
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 11, bottom: 11 })
+      // 外层容器已有 16 的左右内边距，这里不再叠加（否则行比上方搜索/分类条窄一截）
+      .padding({ left: 0, right: 0, top: 11, bottom: 11 })
       .alignItems(VerticalAlign.Center)
+      .onClick(() => {
+        this.marketDetailEntry = item;
+        this.marketDetailOpen = true;
+      })
       if (!last) {
-        Row().width('100%').height(0.5).backgroundColor(this.dividerColor()).margin({ left: 62 })
+        Row().width('100%').height(0.5).backgroundColor(this.dividerColor()).margin({ left: 56 })
       }
     }
     .width('100%')
+  }
+
+  /** 发现页条目详情底部弹层：完整描述 + 包名 + 版本 + 安装 */
+  @Builder
+  marketDetailSheet() {
+    Column() {
+      Column()
+        .width(36)
+        .height(4)
+        .borderRadius(2)
+        .margin({ top: 8, bottom: 8 })
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(0,0,0,0.18)')
+      Row({ space: 12 }) {
+        Stack({ alignContent: Alignment.Center }) {
+          Image($r('app.media.plugin_art_plugin_default')).width(30).height(30).objectFit(ImageFit.Contain)
+        }
+        .width(44)
+        .height(44)
+        .borderRadius(11)
+        .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)' })
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)')
+        Column({ space: 2 }) {
+          Text(this.marketDetailTitle())
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.textColor())
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          if (this.marketDetailVersion().length > 0) {
+            Text('版本 ' + this.marketDetailVersion()).fontSize(11).fontColor(this.subColor())
+          }
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        Text('×')
+          .fontSize(20)
+          .fontColor(this.subColor())
+          .width(36)
+          .height(36)
+          .textAlign(TextAlign.Center)
+          .onClick(() => {
+            this.marketDetailOpen = false;
+          })
+      }
+      .width('100%')
+      .padding({ left: 18, right: 10, bottom: 10 })
+      .alignItems(VerticalAlign.Top)
+
+      Scroll() {
+        Column({ space: 10 }) {
+          Text(this.marketDetailDescription())
+            .fontSize(13)
+            .lineHeight(20)
+            .fontColor(this.textColor())
+            .width('100%')
+          Text('包名：' + this.marketDetailName())
+            .fontSize(12)
+            .fontColor(this.subColor())
+            .width('100%')
+            .copyOption(CopyOptions.LocalDevice)
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .padding({ left: 18, right: 18 })
+      .scrollBar(BarState.Off)
+      .align(Alignment.Top)
+
+      Text('安装')
+        .fontSize(14)
+        .fontWeight(FontWeight.Medium)
+        .fontColor('#FFFFFF')
+        .height(44)
+        .width('calc(100% - 36vp)')
+        .margin({ left: 18, right: 18, top: 10, bottom: 16 })
+        .textAlign(TextAlign.Center)
+        .borderRadius(10)
+        .backgroundColor(this.accent())
+        .onClick(() => {
+          const entry: MarketEntry | undefined = this.marketDetailEntry;
+          this.marketDetailOpen = false;
+          if (entry !== undefined) {
+            this.installMarketEntry(entry);
+          }
+        })
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  private marketDetailTitle(): string {
+    const entry: MarketEntry | undefined = this.marketDetailEntry;
+    if (entry === undefined) {
+      return '';
+    }
+    return entry.title.length > 0 ? entry.title : entry.name;
+  }
+
+  private marketDetailName(): string {
+    const entry: MarketEntry | undefined = this.marketDetailEntry;
+    return entry === undefined ? '' : entry.name;
+  }
+
+  private marketDetailVersion(): string {
+    const entry: MarketEntry | undefined = this.marketDetailEntry;
+    return entry === undefined ? '' : entry.version;
+  }
+
+  private marketDetailDescription(): string {
+    const entry: MarketEntry | undefined = this.marketDetailEntry;
+    if (entry === undefined) {
+      return '';
+    }
+    return entry.description.length > 0 ? entry.description : '该插件没有提供描述。';
   }
 
   @Builder
@@ -1499,6 +1665,17 @@ export struct PluginsPage {
           }
           .width('100%')
           .padding({ left: 16, right: 16 })
+          .bindSheet($$this.marketDetailOpen, this.marketDetailSheet(), {
+            height: '62%',
+            dragBar: false,
+            showClose: false,
+            preferType: SheetType.BOTTOM,
+            backgroundColor: this.sheetMaterial() !== undefined ? Color.Transparent : (this.isDark ? '#1C1C1E' : '#F7F8FA'),
+            systemMaterial: this.sheetMaterial(),
+            onDisappear: () => {
+              this.marketDetailOpen = false;
+            }
+          })
         } else if (!this.marketLoading) {
           Text(this.marketQuery.length > 0 || this.marketCategory.length > 0 ? '没有符合条件的插件' : '此索引没有插件')
             .fontSize(13)
@@ -1684,18 +1861,7 @@ export struct PluginsPage {
         .scrollBar(BarState.Off)
         // 平板/宽屏：与其它设置页一致，插件列表居中一栏（对齐 iOS iPad）
         .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
-        // 索引源管理弹层（对齐小程序 sources dialog）
-        .bindSheet($$this.sourcesOpen, this.sourcesSheetContent(), {
-          height: '62%',
-          dragBar: false,
-          showClose: false,
-          preferType: SheetType.BOTTOM,
-          backgroundColor: this.sheetMaterial() !== undefined ? Color.Transparent : (this.isDark ? '#1C1C1E' : '#F7F8FA'),
-          systemMaterial: this.sheetMaterial(),
-          onDisappear: () => {
-            this.sourcesOpen = false;
-          }
-        })
+
         .align(Alignment.Top)
         .bindSheet($$this.detailOpen, this.detailSheetContent(), {
           height: '85%',
@@ -1915,6 +2081,15 @@ export struct PluginsPage {
     }).catch((err: Error) => {
       this.marketError = err.message;
     });
+  }
+
+  /** 网络图标加载失败：标记该行回退默认图形 */
+  private patchMarketEntry(updated: MarketEntry): void {
+    const list: MarketEntry[] = [];
+    for (const item of this.marketEntries) {
+      list.push(item.name === updated.name ? updated : item);
+    }
+    this.marketEntries = list;
   }
 
   private installMarketEntry(item: MarketEntry): void {
@@ -2569,7 +2744,10 @@ export struct PluginsPage {
       this.detailError = '未连接网关';
       return;
     }
-    const updated: EntryRow = { id: entry.id, name: entry.name, description: entry.description, enabled: enabled };
+    const updated: EntryRow = {
+      id: entry.id, name: entry.name, description: entry.description,
+      enabled: enabled, moduleLine: entry.moduleLine, phase: entry.phase, packageName: entry.packageName
+    };
     const list: EntryRow[] = [];
     for (const item of this.detailEntries) {
       list.push(item.id === entry.id ? updated : item);
@@ -2759,6 +2937,7 @@ export struct PluginsPage {
       this.detailNewVersion = item.installTargetVersion;
       this.detailCheckState = 'available';
     }
+    this.detailExperimental = item.experimental;
     this.detailEntries = [];
     this.detailError = '';
     this.detailSaved = '';
@@ -2770,6 +2949,8 @@ export struct PluginsPage {
     this.apiKeyConfigured = false;
     this.apiKeyHint = '';
     this.detailBusy = true;
+    // 插件包的功能选项：命名空间 = 包名（内置插件走 loadOfficialSettings）
+    this.loadBundleSettings(item.name);
     GatewayClient.get().requestPluginDetail(item.name, 'zh').then((frame) => {
       this.detailBusy = false;
       this.detailMarkdown = this.extractMarkdown(frame);
@@ -2788,11 +2969,16 @@ export struct PluginsPage {
         const id: string = this.strField(entry, 'entryId') || this.strField(entry, 'id');
         const name: string = this.strField(entry, 'name') || id;
         if (id.length > 0) {
+          const moduleId: string = this.strField(entry, 'moduleName');
+          const moduleLine: string = moduleId.length > 0 ? id + ' · ' + moduleId : id;
           entries.push({
             id: id,
             name: name,
             description: this.localizedField(entry, 'description'),
-            enabled: this.readBool(entry, 'enabled')
+            enabled: this.readBool(entry, 'enabled'),
+            moduleLine: moduleLine,
+            phase: this.strField(entry, 'fiberPhase'),
+            packageName: this.strField(entry, 'packageName') || this.strField(entry, 'plugin')
           });
         }
       }
@@ -2805,18 +2991,57 @@ export struct PluginsPage {
 
   /** dsh 端设置变化：详情开着时静默重载当前内置插件的功能选项 */
   private onSettingsRevChanged(): void {
-    if (!this.detailOpen || this.detailSaving || this.detailFields.length === 0 || this.detailKind.length === 0 || this.detailKind === 'web-search') {
+    if (!this.detailOpen || this.detailSaving) {
       return;
     }
-    const candidates: string[] = this.detailKind === 'shell'
-      ? ['pwsh-sandbox', 'bash-sandbox']
-      : this.detailKind === 'agent-loop' ? ['agent-loop']
-      : this.detailKind === 'subagent' ? ['subagent']
-      : [];
-    if (candidates.length === 0) {
+    // 内置插件：按 kind 的候选命名空间静默重载
+    if (this.detailKind.length > 0 && this.detailKind !== 'web-search' && this.detailFields.length > 0) {
+      const candidates: string[] = this.detailKind === 'shell'
+        ? ['pwsh-sandbox', 'bash-sandbox']
+        : this.detailKind === 'agent-loop' ? ['agent-loop']
+        : this.detailKind === 'subagent' ? ['subagent']
+        : [];
+      if (candidates.length > 0) {
+        this.tryLoadSettingsSilent(this.detailKind, candidates, 0);
+      }
       return;
     }
-    this.tryLoadSettingsSilent(this.detailKind, candidates, 0);
+    // 插件包（detailKind===''）：设置命名空间 = 包名，静默重载功能选项
+    if (this.detailKind === '' && this.detailName.length > 0) {
+      this.loadBundleSettings(this.detailName);
+    }
+  }
+
+  /** 插件包的功能选项：settings 命名空间 = 包名；取值非空才显示（对齐 dsh 端功能选项内容） */
+  private loadBundleSettings(ns: string): void {
+    GatewayClient.get().requestPluginSettings(ns).then((frame) => {
+      const namespace: PluginNamespace = parseNamespace(frame);
+      if (!namespace.valid || namespace.value === undefined) {
+        return;
+      }
+      const valueRec: Record<string, Object> | undefined = this.asRecord(namespace.value);
+      if (valueRec === undefined) {
+        return;
+      }
+      const keys: string[] = Object.keys(valueRec);
+      if (keys.length === 0) {
+        return;
+      }
+      const fields: PluginField[] = [];
+      for (const key of keys) {
+        fields.push({
+          ns: ns,
+          key: key,
+          label: key,
+          hint: '',
+          numeric: false,
+          value: this.readFieldValue(valueRec, key),
+          revision: namespace.revision
+        });
+      }
+      this.detailFields = fields;
+    }).catch(() => {
+    });
   }
 
   private tryLoadSettingsSilent(kind: string, candidates: string[], index: number): void {
@@ -2861,17 +3086,39 @@ export struct PluginsPage {
         const id: string = this.strField(entry, 'entryId') || this.strField(entry, 'id');
         const name: string = this.strField(entry, 'name') || id;
         if (id.length > 0) {
+          const moduleId: string = this.strField(entry, 'moduleName');
+          const moduleLine: string = moduleId.length > 0 ? id + ' · ' + moduleId : id;
           entries.push({
             id: id,
             name: name,
             description: this.localizedField(entry, 'description'),
-            enabled: this.readBool(entry, 'enabled')
+            enabled: this.readBool(entry, 'enabled'),
+            moduleLine: moduleLine,
+            phase: this.strField(entry, 'fiberPhase'),
+            packageName: this.strField(entry, 'packageName') || this.strField(entry, 'plugin')
           });
         }
       }
       this.detailEntries = entries;
     }).catch(() => {
     });
+  }
+
+  /** 组件运行状态（对齐 weapp buildRow statusText） */
+  private entryStatusText(entry: EntryRow): string {
+    if (!entry.enabled) {
+      return '已停用';
+    }
+    if (entry.phase === 'active') return '运行中';
+    if (entry.phase === 'failed') return '运行失败';
+    if (entry.phase === 'loading') return '加载中';
+    if (entry.phase === 'unloading') return '卸载中';
+    if (entry.phase === 'pending') return '待启动';
+    return '空闲';
+  }
+
+  private entryRunning(entry: EntryRow): boolean {
+    return entry.enabled && entry.phase === 'active';
   }
 
   /** 版本状态文案（对齐 dsh 端详情：检查更新 / 已是最新 / 可更新到 x / 正在更新） */
