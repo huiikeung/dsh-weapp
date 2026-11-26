@@ -165,9 +165,16 @@ export class BotStore {
     this.subscription = EMPTY;
   }
 
+  /**
+   * 每次启动随机生成的 id 盐：网关按 requestId 去重，重复 id 会被当成重放 ——
+   * 直接回放上一次的 bot-result（send 的结果是 true），但消息不会真的发出。
+   * ordinal 每次进程重启都从 0 开始，必须带盐才能避免撞上历史 id。
+   */
+  private idSalt: string = Math.random().toString(36).substring(2, 8);
+
   private nextId(): string {
     this.ordinal += 1;
-    return 'bot-' + this.ordinal.toString();
+    return 'bot-' + this.idSalt + '-' + this.ordinal.toString();
   }
 
   private post(payload: Record<string, Object>): boolean {
