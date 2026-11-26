@@ -4,7 +4,6 @@ import { uiMaterial } from '@kit.ArkUI';
 import { GatewayClient, Logger, OfficialPluginItem, PluginItem, parseNamespace } from 'nativecore';
 import type { CatalogEntry, CatalogRow } from 'nativecore';
 import { MarkdownBodyView } from '../components/MarkdownBodyView';
-import { walkSettingsSchema } from '../components/SettingsSchemaWalker';
 import type { PluginNamespace } from 'nativecore';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
@@ -58,6 +57,8 @@ interface PluginField {
   revision: number;
   /** 分组标题（设置命名空间的中文名；同组字段连续排列） */
   section?: string;
+  /** schema 类型为 boolean 时用开关渲染 */
+  isBool?: boolean;
 }
 
 /** 安装源选项（对齐小程序 registryOptions） */
@@ -1088,27 +1089,41 @@ export struct PluginsPage {
                       .width('100%')
                       .margin({ top: index === 0 ? 0 : 10 })
                   }
-                  Row() {
-                    Text(field.label).fontSize(13).fontColor(this.subColor()).layoutWeight(1)
-                    Text('恢复默认')
-                      .fontSize(11)
-                      .fontColor(this.accent())
-                      .onClick(() => {
-                        this.resetField(field);
+                  if (field.isBool === true) {
+                    // 布尔项：dsh 端是开关，这里同样用开关
+                    Row() {
+                      Text(field.label).fontSize(14).fontColor(this.textColor()).layoutWeight(1)
+                      Toggle({ type: ToggleType.Switch, isOn: field.value === 'true' })
+                        .selectedColor(this.accent())
+                        .onChange((isOn: boolean) => {
+                          this.setFieldValue(index, isOn ? 'true' : 'false');
+                        })
+                    }
+                    .width('100%')
+                    .alignItems(VerticalAlign.Center)
+                  } else {
+                    Row() {
+                      Text(field.label).fontSize(13).fontColor(this.subColor()).layoutWeight(1)
+                      Text('恢复默认')
+                        .fontSize(11)
+                        .fontColor(this.accent())
+                        .onClick(() => {
+                          this.resetField(field);
+                        })
+                    }
+                    .width('100%')
+                    TextInput({ text: field.value, placeholder: '留空使用默认值' })
+                      .fontSize(14)
+                      .fontColor(this.textColor())
+                      .placeholderColor(this.subColor())
+                      .type(field.numeric ? InputType.Number : InputType.Normal)
+                      .height(42)
+                      .borderRadius(10)
+                      .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)')
+                      .onChange((value: string) => {
+                        this.setFieldValue(index, value);
                       })
                   }
-                  .width('100%')
-                  TextInput({ text: field.value, placeholder: '留空使用默认值' })
-                    .fontSize(14)
-                    .fontColor(this.textColor())
-                    .placeholderColor(this.subColor())
-                    .type(field.numeric ? InputType.Number : InputType.Normal)
-                    .height(42)
-                    .borderRadius(10)
-                    .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)')
-                    .onChange((value: string) => {
-                      this.setFieldValue(index, value);
-                    })
                   if (field.hint.length > 0) {
                     Text(field.hint).fontSize(11).fontColor(this.subColor())
                   }
@@ -2938,7 +2953,8 @@ export struct PluginsPage {
         hint: this.fieldHint(key),
         numeric: type === 'number',
         value: this.readFieldValue(namespace.value, key),
-        revision: namespace.revision
+        revision: namespace.revision,
+        isBool: type === 'boolean'
       });
     }
     return fields;
@@ -3024,7 +3040,8 @@ export struct PluginsPage {
         for (const field of this.buildFields(kind, ns, parsed)) {
           next.push({
             ns: field.ns, key: field.key, label: field.label, hint: field.hint,
-            numeric: field.numeric, value: field.value, revision: field.revision, section: section
+            numeric: field.numeric, value: field.value, revision: field.revision, section: section,
+            isBool: field.isBool
           });
         }
       }
@@ -3041,7 +3058,8 @@ export struct PluginsPage {
     const current: PluginField = this.detailFields[index];
     const updated: PluginField = {
       ns: current.ns, key: current.key, label: current.label, hint: current.hint,
-      numeric: current.numeric, value: text, revision: current.revision, section: current.section
+      numeric: current.numeric, value: text, revision: current.revision, section: current.section,
+      isBool: current.isBool
     };
     this.detailFields[index] = updated;
   }
@@ -3201,10 +3219,16 @@ export struct PluginsPage {
         continue;
       }
       const parsed: number = Number.parseInt(text, 10);
+      let value: Object = text;
+      if (field.isBool === true) {
+        value = text === 'true';
+      } else if (field.numeric && !Number.isNaN(parsed)) {
+        value = parsed;
+      }
       const op: SettingsOp = {
         op: 'set',
         path: [field.key],
-        value: field.numeric && !Number.isNaN(parsed) ? parsed : text
+        value: value
       };
       ops.push(op);
     }
