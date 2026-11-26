@@ -66,6 +66,7 @@ export async function uploadAttachment(
 ): Promise<UploadResult> {
   const generation: number = client.generation();
   checkConnection(client, generation);
+  Logger.info('[UPLOAD] start name=' + attachment.name + ' uri=' + attachment.uri.substring(0, 40));
   const file = await fileIo.open(attachment.uri, fileIo.OpenMode.READ_ONLY);
   let uploadId: string = '';
   let completed: boolean = false;
@@ -75,12 +76,15 @@ export async function uploadAttachment(
     if (!Number.isSafeInteger(size) || size < 0 || size > MAX_UPLOAD_BYTES) {
       throw new Error('文件不能超过 50 MB');
     }
+    Logger.info('[UPLOAD] size=' + size.toString());
     const digest: string = (await sha256OfFile(file.fd, size)).toLowerCase();
+    Logger.info('[UPLOAD] sha256=' + digest.substring(0, 12));
     checkConnection(client, generation);
     const opened: GatewayFrame = await client.openFileUpload(sessionId, attachment.name, size, digest);
     checkConnection(client, generation);
     uploadId = opened.uploadId ?? opened.transferId ?? '';
     const chunkBytes: number = opened.chunkBytes ?? 0;
+    Logger.info('[UPLOAD] opened id=' + uploadId + ' chunk=' + chunkBytes.toString());
     if (opened.sessionId !== sessionId || uploadId.length === 0 || opened.size !== size ||
       !Number.isSafeInteger(chunkBytes) || chunkBytes < 1 || chunkBytes > 4 * 1024 * 1024) {
       throw new Error('文件上传响应无效');
@@ -116,6 +120,7 @@ export async function uploadAttachment(
       throw new Error('文件校验失败，请重试');
     }
     completed = true;
+    Logger.info('[UPLOAD] done receipt=' + receiptId + ' name=' + attachment.name);
     return { receiptId: receiptId, uploadId: uploadId, name: attachment.name, size: size, sha256: digest, file: returnedFile };
   } finally {
     try { await fileIo.close(file); } catch (err) { }

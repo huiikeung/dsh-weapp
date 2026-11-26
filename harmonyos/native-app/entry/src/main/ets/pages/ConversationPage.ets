@@ -4503,10 +4503,18 @@ export struct ConversationPage {
         if (client.generation() !== generation || sessionId !== SessionStore.get().currentSessionId()) {
           throw new Error('连接或会话已变化，草稿已保留');
         }
-        const result: UploadResult = await uploadAttachment(client, sessionId, attachment, (percent: number) => {
-          this.attachmentHint = '正在上传 ' + attachment.name + ' · ' + percent + '%';
-        });
-        uploaded.push(result);
+        Logger.info('[SEND] upload file ' + attachment.name + ' uri=' + attachment.uri.substring(0, 40));
+        try {
+          const result: UploadResult = await uploadAttachment(client, sessionId, attachment, (percent: number) => {
+            this.attachmentHint = '正在上传 ' + attachment.name + ' · ' + percent + '%';
+          });
+          Logger.info('[SEND] upload ok receipt=' + result.receiptId);
+          uploaded.push(result);
+        } catch (uploadError) {
+          const uploadMessage: string = uploadError instanceof Error ? uploadError.message : String(uploadError);
+          Logger.warn('[SEND] upload failed: ' + uploadMessage);
+          throw new Error(uploadMessage);
+        }
       }
       if (client.generation() !== generation || sessionId !== SessionStore.get().currentSessionId()) {
         throw new Error('连接或会话已变化，草稿已保留');
@@ -5109,11 +5117,20 @@ export struct ConversationPage {
   private async pickAttachments(): Promise<void> {
     try {
       const context = getContext(this) as common.UIAbilityContext;
+      Logger.info('[PICK] docs start');
       const picked: PickedAttachment[] = await pickDocuments(context, 4);
+      Logger.info('[PICK] docs returned n=' + picked.length.toString()
+        + (picked.length > 0 ? ' first=' + picked[0].name + ' uri=' + picked[0].uri.substring(0, 40) : ''));
       this.pickedAttachments = picked;
       this.attachmentHint = picked.length > 0 ? '已选择 ' + picked.length + ' 个附件' : '';
+      if (picked.length === 0) {
+        this.pickerToast('没有选到文件');
+      }
     } catch (err) {
+      const msg: string = err instanceof Error ? err.message : String(err);
+      Logger.warn('[PICK] docs failed: ' + msg);
       this.attachmentHint = '未选择附件';
+      this.pickerToast('选择文件失败：' + msg);
     }
   }
 
