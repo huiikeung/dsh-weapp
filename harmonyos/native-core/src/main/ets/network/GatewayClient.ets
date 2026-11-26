@@ -1504,13 +1504,19 @@ export class GatewayClient {
         this.stopHeartbeat();
         return;
       }
-      const lifecycle: string = AppStorage.get<string>('appLifecycle') ?? 'foreground';
-      if (lifecycle === 'background') return;
-      if (Date.now() - this.lastFrameAt > 60000) {
-        Logger.warn('heartbeat timeout: no frame in 60s, reconnecting');
+      // 60s 无任何帧 = 连接已死：前后台都要检测。
+      // 之前后台直接 return，把失效检测也跳过了 —— 后台被服务器/NAT 闲置踢线后，
+      // 客户端停留在僵尸「已连接」且永不重连，只能重启 App（用户实测的断连问题）。
+      const staleFor: number = Date.now() - this.lastFrameAt;
+      if (staleFor > 60000) {
+        const lifecycle: string = AppStorage.get<string>('appLifecycle') ?? 'foreground';
+        Logger.warn('heartbeat timeout: no frame in ' + Math.round(staleFor / 1000).toString()
+          + 's (lifecycle=' + lifecycle + '), reconnecting');
         this.failSocket(ws);
         return;
       }
+      const lifecycle: string = AppStorage.get<string>('appLifecycle') ?? 'foreground';
+      if (lifecycle === 'background') return;
       try {
         ws.send('{"type":"ping"}', (err: BusinessError) => {
           if (err) Logger.warn('heartbeat ping failed: ' + JSON.stringify(err));
