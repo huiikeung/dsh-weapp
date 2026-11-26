@@ -22,6 +22,7 @@ import {
 import type { DownloadResult, PickedAttachment, SpeechLimits, UploadResult } from 'nativecore';
 import { common } from '@kit.AbilityKit';
 import { abilityAccessCtrl } from '@kit.AbilityKit';
+import { webview } from '@kit.ArkWeb';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { filePreview } from '@kit.PreviewKit';
@@ -79,6 +80,8 @@ const CAPSULE_HEIGHT: number = 52;
 const SEND_SIZE: number = 34;
 /** 展开态发送圆钮（工作模式 primaryButton 36） */
 const SEND_EXPANDED_SIZE: number = 36;
+/** 收起态左右两个独立圆钮直径（中间胶囊保持 CAPSULE_HEIGHT） */
+const CAPSULE_BUTTON_SIZE: number = 44;
 
 const WEEK_LABELS: string[] = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
@@ -178,6 +181,12 @@ export struct BotChatPage {
   /** PDF 直接在底部弹窗里用 PDFKit 的 PdfView 渲染（可以嵌进任意容器，不必跳系统预览） */
   @State filePreviewIsPdf: boolean = false;
   private pdfController: pdfViewManager.PdfController = new pdfViewManager.PdfController();
+  /** HTML 网页：底部弹窗里用 Web 组件渲染（完整 CSS/JS），不再当纯文本展示 */
+  @State filePreviewIsHtml: boolean = false;
+  /** 远程网页（http/https）：同一套底部弹窗，只是地址来自网络 */
+  @State filePreviewIsWeb: boolean = false;
+  @State filePreviewHtmlUrl: string = '';
+  private htmlWebController: webview.WebviewController = new webview.WebviewController();
   private filePreviewSource: BotPresentedFile | null = null;
   @State previewPath: string = '';
   @State previewZoom: number = 1;
@@ -1418,13 +1427,27 @@ export struct BotChatPage {
       return;
     }
     const lower: string = target.toLowerCase();
-    if (lower.startsWith('http://') || lower.startsWith('https://') || lower.startsWith('mailto:')
-      || lower.startsWith('tel:') || lower.startsWith('#')) {
+    if (target.startsWith('#') || lower.startsWith('mailto:') || lower.startsWith('tel:')) {
       this.showHint('已复制链接');
       const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, target);
       pasteboard.getSystemPasteboard().setData(data).catch((err: Error) => {
         Logger.warn('BOT_LINK copy failed ' + err.message);
       });
+      return;
+    }
+    if (lower.startsWith('http://') || lower.startsWith('https://')) {
+      // 网页：底部弹窗里用 Web 组件渲染（与本地 html 同一套）
+      const title: string = text.trim().length > 0 && text.trim() !== target ? text.trim() : this.webHostOf(target);
+      this.filePreviewName = title;
+      this.filePreviewIsHtml = true;
+      this.filePreviewIsImage = false;
+      this.filePreviewIsPdf = false;
+      this.filePreviewText = '';
+      this.filePreviewError = '';
+      this.filePreviewLoading = false;
+      this.filePreviewIsWeb = true;
+      this.filePreviewHtmlUrl = target;
+      this.filePreviewOpen = true;
       return;
     }
     if (target.startsWith('file://')) {
@@ -1447,10 +1470,32 @@ export struct BotChatPage {
       return;
     }
     const name: string = this.baseNameOf(path);
+    // 方括号写法（[文件.xlsx]）给的是纯文件名：先在当前会话的交付文件里找同名条目，拿到真实路径
+    const hit: BotPresentedFile | null = this.findPresentedFile(name);
+    if (hit !== null) {
+      this.onOpenFile(hit);
+      return;
+    }
     const file: BotPresentedFile = { name: name, path: path };
     this.onOpenFile(file);
   }
 
+
+  /** 在当前会话的消息里按文件名找交付文件（找不到返回 null） */
+  private findPresentedFile(name: string): BotPresentedFile | null {
+    if (name.length === 0) {
+      return null;
+    }
+    const messages: BotChatMessage[] = this.state.messages;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      for (const file of messages[i].files) {
+        if (this.fileNameOf(file) === name) {
+          return file;
+        }
+      }
+    }
+    return null;
+  }
   /** 路径最后一段作为文件名（兼容 / 与 \\） */
   private baseNameOf(path: string): string {
     let cut: number = path.lastIndexOf('/');
@@ -1460,6 +1505,14 @@ export struct BotChatPage {
     }
     return cut >= 0 ? path.substring(cut + 1) : path;
   }
+
+  /** 网页链接的兜底标题：取域名 */
+  private webHostOf(target: string): string {
+    const start: number = target.indexOf('//');
+    const rest: string = start >= 0 ? target.substring(start + 2) : target;
+    const slash: number = rest.indexOf('/');
+    return slash > 0 ? rest.substring(0, slash) : rest;
+  }
   /** 没有 description 时的兜底副标题（文档/图片/表格…） */
   private fileKindLabel(kind: string): string {
     if (kind === 'pdf') return 'PDF 文档';
@@ -1467,6 +1520,7 @@ export struct BotChatPage {
     if (kind === 'sheet') return '表格';
     if (kind === 'slides') return '演示文稿';
     if (kind === 'image') return '图片';
+    if (kind === 'html') return '网页';
     if (kind === 'code') return '代码文件';
     if (kind === 'media') return '音频';
     if (kind === 'video') return '视频';
@@ -1516,10 +1570,15 @@ export struct BotChatPage {
     this.filePreviewSize = '';
     this.filePreviewIsImage = this.isImageFile(this.filePreviewName);
     this.filePreviewIsPdf = this.isPdfFile(this.filePreviewName);
+    // 网页：半模态里用 Web 组件渲染（保留完整 CSS/JS），不进纯文本分支
+    this.filePreviewIsHtml = this.isHtmlFile(this.filePreviewName);
+    this.filePreviewIsWeb = false;
+    this.filePreviewHtmlUrl = '';
     const isText: boolean = this.isTextFile(this.filePreviewName);
     // 图片 / 文本 / PDF 走自家底部弹窗；其它文档（docx / xlsx / pptx …）不弹弹窗，
     // 下载完直接交给系统 PreviewKit 全屏预览（它没法嵌进我们的弹窗）
-    const systemPreviewOnly: boolean = !this.filePreviewIsImage && !this.filePreviewIsPdf && !isText;
+    const systemPreviewOnly: boolean = !this.filePreviewIsImage && !this.filePreviewIsPdf && !isText
+      && !this.filePreviewIsHtml;
     this.filePreviewLoading = true;
     this.filePreviewOpen = !systemPreviewOnly;
     const context = getContext(this) as common.UIAbilityContext;
@@ -1537,6 +1596,13 @@ export struct BotChatPage {
       if (this.filePreviewIsImage) {
         this.filePreviewLoading = false;
         this.imageRevision += 1;
+        return Promise.resolve();
+      }
+      if (this.filePreviewIsHtml) {
+        // 网页：本地路径转 file:// 交给 Web 组件，弹窗内直接渲染
+        this.filePreviewHtmlUrl = result.localPath.startsWith('file://')
+          ? result.localPath : 'file://' + result.localPath;
+        this.filePreviewLoading = false;
         return Promise.resolve();
       }
       if (this.isTextFile(this.filePreviewName)) {
@@ -1583,6 +1649,11 @@ export struct BotChatPage {
 
   private isPdfFile(name: string): boolean {
     return this.fileExtension(name) === 'pdf';
+  }
+
+  /** 网页文件：走 Web 组件渲染而不是文本预览 */
+  private isHtmlFile(name: string): boolean {
+    return /\.(html?|xhtml)$/i.test(name.trim());
   }
 
   /** 把 PDF 载入 PdfView；失败时在弹窗里给错误文案 */
@@ -1675,6 +1746,17 @@ export struct BotChatPage {
             .fontSize(14)
             .fontColor(this.subColor())
             .padding(24)
+        } else if (this.filePreviewIsHtml && this.filePreviewHtmlUrl.length > 0) {
+          // 网页：Web 组件渲染完整 HTML（CSS/JS 都生效，可交互）
+          Web({ src: this.filePreviewHtmlUrl, controller: this.htmlWebController })
+            .width('100%')
+            .layoutWeight(1)
+            .fileAccess(true)
+            .javaScriptAccess(true)
+            .domStorageAccess(true)
+            .backgroundColor(Color.Transparent)
+            .borderRadius(14)
+            .clip(true)
         } else if (this.filePreviewIsPdf && this.filePreviewLocalPath.length > 0) {
           // PDF 用 PDFKit 的 PdfView 在弹窗里渲染（可滚动、可缩放，由组件自己处理）
           PdfView({ controller: this.pdfController })
@@ -1955,18 +2037,21 @@ export struct BotChatPage {
     }
   }
 
-  /** 「+」圆钮：折叠态 36、展开态 27（与工作模式 composer 的加号同尺寸） */
+  /**
+   * 「+」圆钮：展开态 27（与工作模式 composer 的加号同尺寸）、收起态 44（独立圆钮）。
+   * outlined=false 用于收起态：底色/描边已经由外层玻璃圆盘提供，不再叠一圈细线。
+   */
   @Builder
-  plusButton(size: number) {
+  plusButton(size: number, outlined: boolean) {
     Stack() {
       Text('+')
-        .fontSize(size >= 36 ? 17 : 15)
+        .fontSize(size >= 36 ? 18 : 15)
         .fontColor(this.isDark ? '#F2EEF6' : '#252332')
     }
     .width(size)
     .height(size)
     .borderRadius(size / 2)
-    .border({ width: 0.9, color: this.isDark ? 'rgba(255,255,255,0.24)' : 'rgba(16,19,24,0.14)' })
+    .border({ width: outlined ? 0.9 : 0, color: this.isDark ? 'rgba(255,255,255,0.24)' : 'rgba(16,19,24,0.14)' })
     .opacity(this.attachSupported() ? 1 : 0.4)
     .enabled(true)
     .onClick(() => {
@@ -2442,6 +2527,16 @@ export struct BotChatPage {
   @Builder
   messageRow(message: BotChatMessage) {
     Column({ space: 4 }) {
+      // 调试用：把带文件名的消息原文打到 hilog，确认客户端拿到的到底是哪种写法（定位完即删）
+      if (message.text.indexOf('.xlsx') >= 0 || message.text.indexOf('.docx') >= 0) {
+        Text('')
+          .width(0)
+          .height(0)
+          .onAppear(() => {
+            Logger.info('BOTLINKDBG kind=' + message.kind + ' len=' + message.text.length.toString()
+              + ' text=' + message.text.substring(0, 400));
+          })
+      }
       if (this.showSpeaker(message)) {
         Text(message.name)
           .fontSize(12)
@@ -2843,58 +2938,87 @@ export struct BotChatPage {
   // ==================== 输入条（对齐工作模式会话页） ====================
 
   /**
-   * 收起态细胶囊：底色/描边全部交给外层 HdsGlassSurface 的系统沉浸光感材质，
-   * 这里只排内容（与工作模式 ConversationComposer 收起态同一套做法：内容透明、玻璃由背板渲染）。
+   * 收起态：左右两个独立圆钮 + 中间一条独立输入胶囊 ——
+   *   (+)      (输入胶囊)      (蓝色主圆钮)
+   * 三块各自挂系统沉浸光感背板（HdsGlassSurface），互不相连；
+   * 点中间胶囊 → 展开成 composerCard（展开样式与之前完全一致）。
    */
   @Builder
   composerCapsule() {
-    Row({ space: 6 }) {
-          // 左「+」：与工作模式折叠态 composer-plus-inline 同尺寸（36 圆 + 0.9 描边）
-          this.plusButton(36)
-          // 占位文字区：文字态轻点展开输入；语音态按住说话（与工作模式 voice-touch-surface 一致）
-          Stack({ alignContent: Alignment.Start }) {
-            Text(this.voiceRecording ? this.voiceStatus
-              : (this.voiceInputEnabled && this.voiceMode ? '按住说话' : this.placeholderText()))
-              .fontSize(this.voiceRecording ? 13 : 15)
-              .fontColor(this.voiceCancelArmed ? '#D9413A'
-                : (this.isDark ? 'rgba(241,244,250,0.42)' : 'rgba(16,19,24,0.34)'))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .width('100%')
-            if (this.voiceInputEnabled) {
-              Column()
-                .width('100%')
-                .height('100%')
-                .backgroundColor('#00000000')
-                .onTouch((event: TouchEvent) => this.onVoiceTouch(event))
-            }
+    Row({ space: 8 }) {
+      // 左「+」：独立圆钮（玻璃圆盘 + 加号，不加细描边）
+      Stack({ alignContent: Alignment.Center }) {
+        HdsGlassSurface({ radiusRatio: 0.5 }) {
+          Column()
+            .width(CAPSULE_BUTTON_SIZE)
+            .height(CAPSULE_BUTTON_SIZE)
+            .backgroundColor(Color.Transparent)
+        }
+        this.plusButton(CAPSULE_BUTTON_SIZE, false)
+      }
+      .width(CAPSULE_BUTTON_SIZE)
+      .height(CAPSULE_BUTTON_SIZE)
+
+      // 中间：独立输入胶囊（只放占位文字，点它展开）
+      Column() {
+        HdsGlassSurface({ radiusRatio: 0.5 }) {
+          Column() {
+            this.capsulePlaceholder()
           }
-          .layoutWeight(1)
-          .height(36)
-          .onClick(() => {
-            if (this.voiceHoldConsumed) {
-              this.voiceHoldConsumed = false;
-              return;
-            }
-            if (this.voiceRecording) {
-              return;
-            }
-            if (this.voiceMode) {
-              this.toggleVoiceMode();
-              return;
-            }
-            this.focusComposer();
-          })
-          // 右侧主圆钮：与工作模式同一套三态（发送箭头 / 麦克风键盘切换），
-          // 收起与展开时都固定在同一个蓝色圆钮位置。
-          this.composerPrimaryButton()
+          .width('100%')
+          .height(CAPSULE_HEIGHT)
+          .padding({ left: 18, right: 18 })
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Start)
+        }
+      }
+      .layoutWeight(1)
+      .height(CAPSULE_HEIGHT)
+
+      // 右：主圆钮（发送箭头 / 麦克风键盘切换）
+      this.composerPrimaryButton(CAPSULE_BUTTON_SIZE)
     }
     .width('100%')
     .height(CAPSULE_HEIGHT)
-    .padding({ left: 8, right: 8, top: 8, bottom: 8 })
     .alignItems(VerticalAlign.Center)
-    // 圆角与材质由外层 HdsGlassSurface 提供（与工作模式一致），内容自身透明
-    .backgroundColor(Color.Transparent)
+  }
+
+  /** 收起态胶囊里的占位文字区：文字态轻点展开；语音态按住说话 */
+  @Builder
+  capsulePlaceholder() {
+    Stack({ alignContent: Alignment.Start }) {
+      Text(this.voiceRecording ? this.voiceStatus
+        : (this.voiceInputEnabled && this.voiceMode ? '按住说话' : this.placeholderText()))
+        .fontSize(this.voiceRecording ? 13 : 15)
+        .fontColor(this.voiceCancelArmed ? '#D9413A'
+          : (this.isDark ? 'rgba(241,244,250,0.42)' : 'rgba(16,19,24,0.34)'))
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .width('100%')
+      if (this.voiceInputEnabled) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor('#00000000')
+          .onTouch((event: TouchEvent) => this.onVoiceTouch(event))
+      }
+    }
+    .width('100%')
+    .height(36)
+    .onClick(() => {
+      if (this.voiceHoldConsumed) {
+        this.voiceHoldConsumed = false;
+        return;
+      }
+      if (this.voiceRecording) {
+        return;
+      }
+      if (this.voiceMode) {
+        this.toggleVoiceMode();
+        return;
+      }
+      this.focusComposer();
+    })
   }
 
   /**
@@ -2954,9 +3078,9 @@ export struct BotChatPage {
       // 主圆钮三态与工作模式 primaryButton 一致：有草稿/附件 → 发送箭头；
       // 否则开了语音 → 麦克风/键盘切换（始终占据这个蓝色圆钮的位置，不会左右跳）。
       Row({ space: 0 }) {
-        this.plusButton(27)
+        this.plusButton(27, true)
         Blank()
-        this.composerPrimaryButton()
+        this.composerPrimaryButton(SEND_EXPANDED_SIZE)
       }
       .width('100%')
       .height(34)
@@ -2982,7 +3106,7 @@ export struct BotChatPage {
    * 语音图标始终在这个蓝色圆钮里，不会因为展开/收起换位置。
    */
   @Builder
-  composerPrimaryButton() {
+  composerPrimaryButton(size: number) {
     Stack() {
       if (this.canSend()) {
         Image($r('app.media.arrow_up_white'))
@@ -3005,9 +3129,9 @@ export struct BotChatPage {
           .draggable(false)
       }
     }
-    .width(SEND_EXPANDED_SIZE)
-    .height(SEND_EXPANDED_SIZE)
-    .borderRadius(SEND_EXPANDED_SIZE / 2)
+    .width(size)
+    .height(size)
+    .borderRadius(size / 2)
     .backgroundColor('#2E6BE6')
     .opacity(this.sending ? 0.66 : (this.canSend() || this.voiceInputEnabled ? 1 : 0.48))
     .enabled(!this.sending)
@@ -3157,17 +3281,8 @@ export struct BotChatPage {
       if (this.composerExpanded()) {
         this.composerCard()
       } else {
-        // 收起态：系统沉浸光感胶囊背板（HdsGlassSurface）负责材质与圆角，内容透明浮在上面。
-        // 注意 ArkUI 不允许在 trailing closure 之后再链式挂属性，这里用外层 Column 撑满宽度。
-        Column() {
-          HdsGlassSurface({ radiusRatio: 0.5 }) {
-            Column() {
-              this.composerCapsule()
-            }
-            .width('100%')
-          }
-        }
-        .width('100%')
+        // 收起态：+ 圆钮 / 输入胶囊 / 主圆钮 三块各自独立（每块自带玻璃背板）
+        this.composerCapsule()
       }
     }
     .width('100%')
@@ -3380,7 +3495,7 @@ export struct BotChatPage {
           .opacity(0.01)
           .bindSheet($$this.filePreviewOpen, this.filePreviewSheet(), {
             // PDF 需要更大的阅读面积：弹窗拉高到 94%，其它类型维持 78%
-            height: this.filePreviewIsPdf ? '94%' : '78%',
+          height: this.filePreviewIsPdf ? '94%' : (this.filePreviewIsHtml ? '92%' : '78%'),
             dragBar: true,
             showClose: false,
             preferType: SheetType.BOTTOM,
@@ -3397,6 +3512,9 @@ export struct BotChatPage {
                 }
                 this.filePreviewIsPdf = false;
               }
+              this.filePreviewIsHtml = false;
+              this.filePreviewIsWeb = false;
+              this.filePreviewHtmlUrl = '';
             }
           })
       }
