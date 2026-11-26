@@ -216,6 +216,9 @@ export struct BotChatPage {
 
   aboutToDisappear(): void {
     this.stopLiveTimer();
+    // 页面被弹掉（按钮返回 / 系统手势返回）就等于「聊天已关闭」：清掉当前选择，
+    // 否则首页会一直把这条聊天的回复当成「正在看」而不计未读（对齐 iOS 聊天页 dismissed 时 select(nil)）
+    BotStore.get().clearChatSelection();
   }
 
   /** 上一次弹过的错误文本：状态没变就不重复弹气泡 */
@@ -1511,6 +1514,51 @@ export struct BotChatPage {
     }
     return null;
   }
+
+  /** 正文里提到的 .md 文件（[标题](x.md) 或裸路径），用于在 Bot 模式下补一张文件卡 */
+  private mentionedMdFiles(message: BotChatMessage): BotPresentedFile[] {
+    const out: BotPresentedFile[] = [];
+    const text: string = message.text;
+    if (text.length === 0 || text.toLowerCase().indexOf('.md') < 0) {
+      return out;
+    }
+    const linkPattern: RegExp = new RegExp('\\[([^\\]]+)\\]\\(([^)\\s]+\\.md)\\)', 'gi');
+    const matches: RegExpMatchArray | null = text.match(linkPattern);
+    if (matches !== null) {
+      for (const raw of matches) {
+        // 只转义一层：解码后是 \(([^)\s]+\.md)\)；多写一层会变成「\\(…)\)」→ 括号不配对，
+        // new RegExp 直接抛 SyntaxError: capture syntax error（渲染期抛异常 = 整个 App 被杀）
+        const inner: RegExp = new RegExp('\\(([^)\\s]+\\.md)\\)', 'i');
+        const hit: RegExpMatchArray | null = raw.match(inner);
+        if (hit !== null && hit.length > 1) {
+          this.pushMdFile(out, hit[1]);
+        }
+      }
+    }
+    // 裸路径：xxx.md（前后是空白或标点）
+    const barePattern: RegExp = new RegExp('[\\w./\\-\\u4e00-\\u9fa5]+\\.md\\b', 'gi');
+    const bare: RegExpMatchArray | null = text.match(barePattern);
+    if (bare !== null) {
+      for (const raw of bare) {
+        this.pushMdFile(out, raw);
+      }
+    }
+    return out;
+  }
+
+  private pushMdFile(out: BotPresentedFile[], path: string): void {
+    const trimmed: string = path.trim();
+    if (trimmed.length === 0) {
+      return;
+    }
+    const exists: boolean = out.some((one: BotPresentedFile) => one.path === trimmed);
+    if (exists) {
+      return;
+    }
+    const name: string = this.baseNameOf(trimmed);
+    const file: BotPresentedFile = { name: name, path: trimmed };
+    out.push(file);
+  }
   /** 路径最后一段作为文件名（兼容 / 与 \\） */
   private baseNameOf(path: string): string {
     let cut: number = path.lastIndexOf('/');
@@ -1700,13 +1748,32 @@ export struct BotChatPage {
     }
   }
 
+  /** 网页链接图标：与正文行内链接一致（公众号 / 微信 → 微信图标，其余 → 地球，深色走深色描边版） */
+  private webLinkIcon(url: string): Resource {
+    const value: string = url.trim().toLowerCase();
+    if (value.indexOf('mp.weixin.qq.com') >= 0 || value.indexOf('weixin.qq.com') >= 0
+      || value.indexOf('wechat.com') >= 0) {
+      return $r('app.media.proc_wechat');
+    }
+    return this.isDark ? $r('app.media.proc_web_dark') : $r('app.media.proc_web');
+  }
+
   /** 交付文件预览弹窗（底部原生玻璃 sheet，与图片预览/角色弹窗同一套材质） */
   @Builder
   filePreviewSheet() {
     Column() {
-      // 标题行：彩色徽标 + 文件名 + 大小
+      // 标题行：图标 + 文件名 + 大小
       Row({ space: 12 }) {
-        this.fileGlyph(this.filePreviewName)
+        if (this.filePreviewIsWeb) {
+          // 网页链接：和正文里同一套地球图标（公众号/微信走微信图标），不再套「未知文件」的问号图标
+          Image(this.webLinkIcon(this.filePreviewHtmlUrl))
+            .width(38)
+            .height(38)
+            .objectFit(ImageFit.Contain)
+            .flexShrink(0)
+        } else {
+          this.fileGlyph(this.filePreviewName)
+        }
         Column({ space: 3 }) {
           Text(this.filePreviewName)
             .fontSize(16)
@@ -2588,6 +2655,8 @@ export struct BotChatPage {
             imageRevision: this.imageRevision,
             // Bot 模式：长按正文直接选中文字复制（Body 上没有别的手势抢占）
             selectable: true,
+            // Bot 模式气泡正文两端对齐（工作模式保持左对齐）
+            justifyText: true,
             onImageTap: (src: string) => {
               if (src.length > 0) {
                 this.openImagePreview(src);
@@ -2642,6 +2711,8 @@ export struct BotChatPage {
                   imageRevision: this.imageRevision,
                   // Bot 模式：长按正文直接选中文字复制
                   selectable: true,
+                  // Bot 模式气泡正文两端对齐
+                  justifyText: true,
                   onImageTap: (src: string) => {
                     if (src.length > 0) {
                       this.openImagePreview(src);
@@ -2678,6 +2749,22 @@ export struct BotChatPage {
                     .margin({ right: message.images.length === 1 ? 0 : 6, bottom: 6 })
                 }, (image: BotChatImage) => image.sessionId + ':' + image.attachmentId)
               }
+            }
+            if (this.mentionedMdFiles(message).length > 0) {
+              // Bot 模式：正文里提到的 .md 也补一张文件卡（其余类型暂不处理）
+              Flex({ wrap: FlexWrap.Wrap }) {
+                ForEach(this.mentionedMdFiles(message), (file: BotPresentedFile) => {
+                  if (!message.files.some((one: BotPresentedFile) => this.fileNameOf(one) === this.fileNameOf(file))) {
+                    Column() {
+                      this.fileCard(file)
+                    }
+                    .width('100%')
+                    .alignItems(HorizontalAlign.Start)
+                    .margin({ bottom: 8 })
+                  }
+                }, (file: BotPresentedFile) => 'md:' + file.path)
+              }
+              .width(this.bubbleMaxWidth())
             }
             if (message.files.length > 0) {
               // 图片类交付物直接显示成图片（缩略图，点开是大图）；其余文件仍用文件卡。
@@ -3642,6 +3729,8 @@ export struct BotChatPage {
       }
       this.liveClock = Date.now();
       this.ensureLiveTimer();
+      // 进聊天页也补一次头像（页面栈进入时首页的 onShown 可能不再触发）
+      BotStore.get().forceAvatars();
       setTimeout(() => {
         try {
           this.scroller.scrollEdge(Edge.Bottom);
