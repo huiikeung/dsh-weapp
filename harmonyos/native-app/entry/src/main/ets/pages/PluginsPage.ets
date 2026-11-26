@@ -77,6 +77,8 @@ export struct PluginsPage {
   @State addSpec: string = '';
   @State addRegistryMode: string = 'host';
   @State addRegistryUrl: string = '';
+  /** 「安装引导和示例」展开态（对齐小程序 guideOpen） */
+  @State addGuideOpen: boolean = false;
   @State addEnableAfter: boolean = true;
   @State addBusy: boolean = false;
   @State addStatus: string = '';
@@ -572,32 +574,68 @@ export struct PluginsPage {
         .padding({ left: 18, right: 18, bottom: 14 })
 
       TextInput({ text: this.addSpec, placeholder: '例如 dsh-plugin-whale-pet' })
-        .fontSize(15)
+        .fontSize(14)
         .fontColor(this.textColor())
         .placeholderColor(this.subColor())
-        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)')
-        .borderRadius(10)
+        .backgroundColor('rgba(0,0,0,0)')
+        .borderRadius(8)
+        .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.12)' })
         .height(44)
         .margin({ left: 18, right: 18 })
         .onChange((value: string) => {
           this.addSpec = value;
         })
 
-      Row({ space: 8 }) {
-        Text('安装源').fontSize(14).fontColor(this.textColor())
+      // 安装引导开关 + 安装源（对齐小程序 plugin-install-options）
+      Row({ space: 10 }) {
+        Row({ space: 4 }) {
+          Text(this.addGuideOpen ? '收起引导' : '安装引导和示例')
+            .fontSize(13)
+            .fontColor(this.accent())
+          Image($r('app.media.ic_dir_chevron_mist'))
+            .width(9)
+            .height(9)
+            .rotate({ angle: this.addGuideOpen ? 225 : 45 })
+            .colorFilter(this.iconTint(this.accent()))
+        }
+        .padding({ top: 4, bottom: 4 })
+        .onClick(() => {
+          this.addGuideOpen = !this.addGuideOpen;
+        })
         Blank()
-        Text(this.addRegistryMode === 'host' ? '跟随主机配置' : '自定义地址')
-          .fontSize(13)
-          .fontColor(this.accent())
-          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-          .backgroundColor(this.isDark ? 'rgba(46,107,230,0.18)' : 'rgba(46,107,230,0.10)')
-          .borderRadius(6)
-          .onClick(() => {
-            this.addRegistryMode = this.addRegistryMode === 'host' ? 'custom' : 'host';
-          })
+        Row({ space: 6 }) {
+          Text('安装源').fontSize(12).fontColor(this.subColor())
+          Text(this.addRegistryMode === 'host' ? '主机默认安装源' : '自定义地址')
+            .fontSize(12)
+            .fontColor(this.textColor())
+            .maxLines(1)
+          Image($r('app.media.ic_dir_chevron_mist'))
+            .width(9)
+            .height(9)
+            .colorFilter(this.iconTint(this.subColor()))
+        }
+        .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+        .borderRadius(8)
+        .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.12)' })
+        .onClick(() => {
+          this.addRegistryMode = this.addRegistryMode === 'host' ? 'custom' : 'host';
+        })
       }
       .width('100%')
-      .padding({ left: 18, right: 18, top: 14 })
+      .padding({ left: 18, right: 18, top: 12 })
+      .alignItems(VerticalAlign.Center)
+
+      if (this.addGuideOpen) {
+        Text('包名：dsh-plugin-whale-pet 或 @作者/插件名\nGit：填写实际仓库地址\n目录：填写电脑上的绝对路径，不是手机路径\n私有安装源凭据请配置在 DSH 主机的 .npmrc 中')
+          .fontSize(11)
+          .lineHeight(17)
+          .fontColor(this.subColor())
+          .width('calc(100% - 36vp)')
+          .margin({ left: 18, right: 18 })
+          .padding(12)
+          .borderRadius(10)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)')
+      }
 
       if (this.addRegistryMode === 'custom') {
         TextInput({ text: this.addRegistryUrl, placeholder: 'https://npm.example.com/' })
@@ -625,11 +663,15 @@ export struct PluginsPage {
       .width('100%')
       .padding({ left: 18, right: 18, top: 10 })
 
-      Text('请确认插件来源可信。插件将在所连接的 DSH 主机以你的权限运行，可能读取、修改或泄露数据。')
+      Text('请确认插件来源可信。插件将在所连接的 DSH 主机以你的权限运行，可能读取、修改或泄露数据。安装操作不会在手机上执行。')
         .fontSize(11)
-        .fontColor(this.subColor())
-        .width('100%')
-        .padding({ left: 18, right: 18, top: 12 })
+        .lineHeight(17)
+        .fontColor(this.isDark ? '#FFB05C' : '#B26A00')
+        .width('calc(100% - 36vp)')
+        .margin({ left: 18, right: 18, top: 2 })
+        .padding(12)
+        .borderRadius(10)
+        .backgroundColor(this.isDark ? 'rgba(255,149,0,0.12)' : 'rgba(255,149,0,0.10)')
 
       if (this.addError.length > 0) {
         Text(this.addError)
@@ -668,19 +710,6 @@ export struct PluginsPage {
       Blank()
 
       Row({ space: 10 }) {
-        Text('完成')
-          .fontSize(13)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.sheetSecondaryText())
-          .layoutWeight(1)
-          .height(42)
-          .textAlign(TextAlign.Center)
-          .borderRadius(9)
-          .border({ width: 0.5, color: this.sheetSecondaryBorder() })
-          .backgroundColor('rgba(0,0,0,0)')
-          .onClick(() => {
-            this.addSheetOpen = false;
-          })
         if (this.addBusy) {
           Text('取消安装')
             .fontSize(13)
@@ -1283,40 +1312,6 @@ export struct PluginsPage {
             Column().width('100%').height((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 56)
             if (!this.showingMore) {
               Row({ space: 8 }) {
-              Row({ space: 3 }) {
-                Text('已安装')
-                  .fontSize(14)
-                  .fontWeight(this.pluginTab === 'installed' ? FontWeight.Medium : FontWeight.Normal)
-                  .fontColor(this.pluginTab === 'installed' ? this.textColor() : this.subColor())
-                  .layoutWeight(1)
-                  .textAlign(TextAlign.Center)
-                  .height(28)
-                  .borderRadius(8)
-                  .backgroundColor(this.pluginTab === 'installed'
-                    ? this.pageBg() : 'rgba(0,0,0,0)')
-                  .border({ width: this.pluginTab === 'installed' ? 0.5 : 0, color: this.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.10)' })
-                  .onClick(() => {
-                    this.pluginTab = 'installed';
-                  })
-                Text('发现')
-                  .fontSize(14)
-                  .fontWeight(this.pluginTab === 'discover' ? FontWeight.Medium : FontWeight.Normal)
-                  .fontColor(this.pluginTab === 'discover' ? this.textColor() : this.subColor())
-                  .layoutWeight(1)
-                  .textAlign(TextAlign.Center)
-                  .height(28)
-                  .borderRadius(8)
-                  .backgroundColor(this.pluginTab === 'discover'
-                    ? this.pageBg() : 'rgba(0,0,0,0)')
-                  .border({ width: this.pluginTab === 'discover' ? 0.5 : 0, color: this.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.10)' })
-                  .onClick(() => {
-                    this.pluginTab = 'discover';
-                  })
-              }
-              .width(240)
-              .padding(3)
-              .borderRadius(10)
-              .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)')
                 Text('安装、启用和配置插件')
                   .fontSize(11)
                   .fontColor(this.subColor())
@@ -1343,6 +1338,42 @@ export struct PluginsPage {
               }
               .width('100%')
               .alignItems(VerticalAlign.Center)
+
+              // 分段控件单独一行、靠左（对齐小程序 .plugin-tabs：480rpx 宽 + 靠左）
+            Row({ space: 3 }) {
+              Text('已安装')
+              .fontSize(14)
+              .fontWeight(this.pluginTab === 'installed' ? FontWeight.Medium : FontWeight.Normal)
+              .fontColor(this.pluginTab === 'installed' ? this.textColor() : this.subColor())
+              .layoutWeight(1)
+              .textAlign(TextAlign.Center)
+              .height(28)
+              .borderRadius(8)
+              .backgroundColor(this.pluginTab === 'installed'
+                ? this.pageBg() : 'rgba(0,0,0,0)')
+              .border({ width: this.pluginTab === 'installed' ? 0.5 : 0, color: this.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.10)' })
+              .onClick(() => {
+                this.pluginTab = 'installed';
+              })
+              Text('发现')
+              .fontSize(14)
+              .fontWeight(this.pluginTab === 'discover' ? FontWeight.Medium : FontWeight.Normal)
+              .fontColor(this.pluginTab === 'discover' ? this.textColor() : this.subColor())
+              .layoutWeight(1)
+              .textAlign(TextAlign.Center)
+              .height(28)
+              .borderRadius(8)
+              .backgroundColor(this.pluginTab === 'discover'
+                ? this.pageBg() : 'rgba(0,0,0,0)')
+              .border({ width: this.pluginTab === 'discover' ? 0.5 : 0, color: this.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.10)' })
+              .onClick(() => {
+                this.pluginTab = 'discover';
+              })
+            }
+            .width(240)
+            .padding(3)
+            .borderRadius(10)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)')
             }
 
             if (this.connection !== 'connected') {
