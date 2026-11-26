@@ -614,22 +614,21 @@ export struct MarkdownBodyView {
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
-        Scroll() {
-          // 语法高亮：关键字/字符串/数字/注释着色，对齐 dsh 端观感
-          Text() {
+        // 不再用横向 Scroll：无界高度里 Scroll 会被量成 0（流式结束后也不重算，
+        // 表现就是「代码块只剩标题、要退出重进才完整」）。直接让 Text 换行自撑高度。
+        // 语法高亮：关键字/字符串/数字/注释着色，对齐 dsh 端观感
+        Text() {
             ForEach(highlightCode(block.text, block.language), (token: CodeToken, idx: number) => {
               Span(token.text)
                 .fontFamily(MONO_FONT)
                 .fontSize(12)
                 .fontColor(this.codeTokenColor(token.kind))
             }, (token: CodeToken, idx: number) => idx.toString() + '_' + token.kind + '_' + this.themeGeneration)
-          }
-          .lineHeight(17)
         }
-        .scrollable(ScrollDirection.Horizontal)
-        .scrollBar(BarState.Off)
+        .lineHeight(17)
         .width('100%')
-        .align(Alignment.Start)
+        .textAlign(TextAlign.Start)
+        .copyOption(CopyOptions.LocalDevice)
       }
       .alignItems(HorizontalAlign.Start)
       .width('100%')
@@ -696,7 +695,8 @@ export struct MarkdownBodyView {
     } else if (block.kind === 'table') {
       // 小程序 .md-table: margin 20rpx 0 / 1rpx 描边 / 10rpx 圆角 / 表内分割线；
       // 宽度铺满容器，单元格 flex:1 等分，长内容在格内换行，不再用固定 120vp 窄列。
-      Scroll() {
+      // 不再套横向 Scroll：无界高度里的 Scroll 会被量成 0，表格只剩一条边线。
+      Column() {
         Column() {
           this.tableRow(block.headers, true, -1, false)
           ForEach(block.rows, (row: string[], rowIndex: number) => {
@@ -709,8 +709,6 @@ export struct MarkdownBodyView {
         .border({ width: 0.5, color: this.strongBorderColor() })
         .clip(true)
       }
-      .scrollable(ScrollDirection.Horizontal)
-      .scrollBar(BarState.Off)
       .width('100%')
       .margin({ top: 8, bottom: 10 })
     } else {

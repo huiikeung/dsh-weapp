@@ -3415,6 +3415,15 @@ export struct ConversationPage {
   private onRunningChanged(): void {
     if (!this.running) {
       this.runningFalseAt = Date.now();
+      // 回合刚结束：流式期间行高是按「半截内容」量的，结束后不重建就会截断
+      // （代码块只剩标题、表格缺行、正文显示不全），只有退出重进才恢复。
+      // 这里在结束后自动做一次「重进」等价操作：整表重载并保持滚动位置。
+      setTimeout(() => {
+        this.reloadFeedAfterSettle();
+      }, 420);
+      setTimeout(() => {
+        this.reloadFeedAfterSettle();
+      }, 1800);
       // 回合结束：稍后补两次重排，让过程组按「已收工」折叠成「已完成」
       // （折叠条件里带 3 秒活跃窗口，结束后不一定还有新的数据推送来触发重排）。
       setTimeout(() => {
@@ -3788,6 +3797,21 @@ export struct ConversationPage {
   }
 
   /** 主题切换专用：无条件重载列表，保持当前滚动位置 */
+  /** 回合结束后的整表重载：重建可见行（重新测量完整内容），并保持当前滚动位置 */
+  private reloadFeedAfterSettle(): void {
+    if (!this.pageVisible || this.entries.length === 0) {
+      return;
+    }
+    const yOffset: number = this.scroller.currentOffset().yOffset;
+    const stick: boolean = this.autoStick;
+    this.source.update(this.entries);
+    setTimeout(() => {
+      if (!stick) {
+        this.scroller.scrollTo({ xOffset: 0, yOffset: yOffset, animation: false });
+      }
+    }, 0);
+  }
+
   private reloadForTheme(): void {
     const yOffset: number = this.scroller.currentOffset().yOffset;
     this.suppressReachEnd = true;
