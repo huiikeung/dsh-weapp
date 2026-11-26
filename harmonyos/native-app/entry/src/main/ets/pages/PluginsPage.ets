@@ -2,6 +2,7 @@ import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignK
 import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 import { uiMaterial } from '@kit.ArkUI';
 import { GatewayClient, Logger, OfficialPluginItem, PluginItem, parseNamespace } from 'nativecore';
+import type { CatalogEntry, CatalogRow } from 'nativecore';
 import { MarkdownBodyView } from '../components/MarkdownBodyView';
 import type { PluginNamespace } from 'nativecore';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
@@ -88,6 +89,7 @@ export struct PluginsPage {
   @StorageLink('pluginManagementAvailable') managementAvailable: boolean = false;
   /** 实时映射：dsh 端设置/插件变化 → 静默刷新打开中的详情 */
   @StorageLink('pluginSettingsRevision') @Watch('onSettingsRevChanged') settingsRevision: number = 0;
+  @StorageLink('pluginCatalogEntries') @Watch('onCatalogRevChanged') catalogEntries: CatalogEntry[] = [];
   @StorageLink('pluginCatalogRevision') @Watch('onCatalogRevChanged') catalogRevision: number = 0;
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
   @Consume('pageStack') pageStack: NavPathStack;
@@ -1445,13 +1447,14 @@ export struct PluginsPage {
       Text('安装')
         .fontSize(14)
         .fontWeight(FontWeight.Medium)
-        .fontColor('#FFFFFF')
+        .fontColor(this.accent())
         .height(44)
         .width('calc(100% - 36vp)')
         .margin({ left: 18, right: 18, top: 10, bottom: 16 })
         .textAlign(TextAlign.Center)
         .borderRadius(10)
-        .backgroundColor(this.accent())
+        .backgroundColor('rgba(0,0,0,0)')
+        .border({ width: 0.8, color: this.accent() })
         .onClick(() => {
           const entry: MarketEntry | undefined = this.marketDetailEntry;
           this.marketDetailOpen = false;
@@ -1664,7 +1667,7 @@ export struct PluginsPage {
             }, (item: MarketEntry) => item.name)
           }
           .width('100%')
-          .padding({ left: 16, right: 16 })
+          .padding({ left: 12, right: 12 })
           .bindSheet($$this.marketDetailOpen, this.marketDetailSheet(), {
             height: '62%',
             dragBar: false,
@@ -2677,7 +2680,84 @@ export struct PluginsPage {
     return '';
   }
 
+  /** 字段标签/说明：主机 schema 只有类型和默认值，文案在这里映射（与 dsh 端一致） */
+  private fieldLabel(key: string): string {
+    const labels: Record<string, string> = {
+      'cwd': '工作目录',
+      'timeoutMs': '命令超时（毫秒）',
+      'maxTimeoutMs': '最长超时（毫秒）',
+      'maxOutputBytes': '单流输出上限（字节）',
+      'maxSpillBytes': '溢出文件上限（字节）',
+      'graceMs': '终止宽限（毫秒）',
+      'maxDepth': '子智能体递归层级',
+      'maxActiveSubagents': '同时活跃子智能体',
+      'maxSteps': '单轮最大步数',
+      'baseURL': '接口地址',
+      'model': '模型',
+      'maxUses': '单次搜索次数上限',
+      'maxTokens': '最大输出 token',
+      'apiVersion': '接口版本'
+    };
+    const label: string = labels[key] ?? '';
+    return label.length > 0 ? label : key;
+  }
+
+  private fieldHint(key: string): string {
+    const hints: Record<string, string> = {
+      'cwd': '命令默认在哪个目录下执行，留空使用会话工作区。',
+      'timeoutMs': '单条命令允许运行多久，超时即终止。',
+      'maxTimeoutMs': '模型可以为单条命令申请的最长超时。',
+      'maxOutputBytes': '超出部分会转存到临时文件，而不是被丢弃。',
+      'maxSpillBytes': '单次命令输出转存到文件的上限。',
+      'graceMs': '超时后等待进程退出的宽限时间。',
+      'maxDepth': '设置子智能体最多可以递归多少层。',
+      'maxActiveSubagents': '限制同一时间运行的子智能体数量。',
+      'maxSteps': '单轮对话里最多派发多少次工具调用。',
+      'maxUses': '一次会话里最多调用多少次搜索。'
+    };
+    return hints[key] ?? '';
+  }
+
+  /** 按主机 schema 的 dict 生成字段（主机加字段会自动出现） */
+  private buildSchemaFields(ns: string, namespace: PluginNamespace): PluginField[] {
+    const fields: PluginField[] = [];
+    const schemaValue: Object | undefined = namespace.schema;
+    if (schemaValue === undefined) {
+      return fields;
+    }
+    const schema: Record<string, Object> = this.asRecord(schemaValue);
+    const refs: Record<string, Object> = this.asRecord(schema['refs']);
+    const root: Record<string, Object> = this.asRecord(refs[String(Number(schema['uid']))]);
+    const dict: Record<string, Object> = this.asRecord(root['dict']);
+    for (const key of Object.keys(dict)) {
+      const ref: Record<string, Object> = this.asRecord(refs[String(Number(dict[key]))]);
+      const type: string = this.strField(ref, 'type');
+      if (type !== 'number' && type !== 'string' && type !== 'boolean') {
+        continue;
+      }
+      const meta: Record<string, Object> = this.asRecord(ref['meta']);
+      const role: string = this.strField(meta, 'role');
+      if (role.length > 0) {
+        continue;
+      }
+      fields.push({
+        ns: ns,
+        key: key,
+        label: this.fieldLabel(key),
+        hint: this.fieldHint(key),
+        numeric: type === 'number',
+        value: this.readFieldValue(namespace.value, key),
+        revision: namespace.revision
+      });
+    }
+    return fields;
+  }
+
   private buildFields(kind: string, ns: string, namespace: PluginNamespace): PluginField[] {
+    const dynamic: PluginField[] = this.buildSchemaFields(ns, namespace);
+    if (dynamic.length > 0) {
+      return dynamic;
+    }
     const specs: string[][] = this.fieldSpecs(kind);
     const fields: PluginField[] = [];
     for (const spec of specs) {
@@ -3061,47 +3141,41 @@ export struct PluginsPage {
     });
   }
 
-  /** dsh 端插件变化：详情开着时静默重拉详情（版本/组件/介绍/启停状态） */
+  /** dsh 端插件变化：目录已实时刷新，这里把打开中的详情从最新目录重建（组件状态/启停/版本） */
   private onCatalogRevChanged(): void {
-    if (!this.detailOpen || this.detailBusy || this.detailName.length === 0 || this.detailKind.length > 0) {
+    if (!this.detailOpen || this.detailName.length === 0 || this.detailKind.length > 0) {
       return;
     }
-    GatewayClient.get().requestPluginDetail(this.detailName, 'zh').then((frame) => {
-      if (!this.detailOpen) {
-        return;
-      }
-      this.detailMarkdown = this.extractMarkdown(frame);
-      const rec: Record<string, Object> = this.asRecord(frame);
-      const version: string = this.strField(rec, 'version');
-      if (version.length > 0) {
-        this.detailVersion = version;
-      }
-      const description: string = this.strField(rec, 'description');
-      if (description.length > 0) {
-        this.detailDescription = description;
-      }
-      const entries: EntryRow[] = [];
-      for (const raw of this.arrField(rec, 'items')) {
-        const entry: Record<string, Object> = this.asRecord(raw);
-        const id: string = this.strField(entry, 'entryId') || this.strField(entry, 'id');
-        const name: string = this.strField(entry, 'name') || id;
-        if (id.length > 0) {
-          const moduleId: string = this.strField(entry, 'moduleName');
-          const moduleLine: string = moduleId.length > 0 ? id + ' · ' + moduleId : id;
-          entries.push({
-            id: id,
-            name: name,
-            description: this.localizedField(entry, 'description'),
-            enabled: this.readBool(entry, 'enabled'),
-            moduleLine: moduleLine,
-            phase: this.strField(entry, 'fiberPhase'),
-            packageName: this.strField(entry, 'packageName') || this.strField(entry, 'plugin')
-          });
-        }
-      }
-      this.detailEntries = entries;
-    }).catch(() => {
-    });
+    const item: PluginItem | undefined = this.bundles.find(b => b.name === this.detailName);
+    if (item === undefined) {
+      return;
+    }
+    this.detailVersion = item.version.length > 0 ? item.version : this.detailVersion;
+    this.detailEnabled = item.enabled;
+    this.detailEntries = this.buildEntriesFor(item);
+  }
+
+  /** 静态 rows × 实时组件状态 → 详情「包含的组件」行（对齐 weapp buildRow） */
+  private buildEntriesFor(item: PluginItem): EntryRow[] {
+    const rows: EntryRow[] = [];
+    for (const row of item.rows) {
+      const live: CatalogEntry | undefined = this.catalogEntries.find(x =>
+        x.entryId === row.entryId || x.entryId === row.rowId);
+      const id: string = row.entryId.length > 0 ? row.entryId : row.rowId;
+      const name: string = live !== undefined && live.name.length > 0 ? live.name : row.name;
+      const description: string = live !== undefined && live.description.length > 0 ? live.description : row.description;
+      const moduleLine: string = row.moduleName.length > 0 ? id + ' · ' + row.moduleName : id;
+      rows.push({
+        id: id,
+        name: name,
+        description: description,
+        enabled: live !== undefined ? live.enabled : false,
+        moduleLine: moduleLine,
+        phase: live !== undefined ? live.fiberPhase : '',
+        packageName: item.name
+      });
+    }
+    return rows;
   }
 
   /** 组件运行状态（对齐 weapp buildRow statusText） */

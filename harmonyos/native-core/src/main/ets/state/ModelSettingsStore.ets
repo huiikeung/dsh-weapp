@@ -233,6 +233,8 @@ export interface PluginNamespace {
   value: Object | undefined;
   revision: number;
   valid: boolean;
+  /** 主机下发的设置 schema（Typert refs 树），用于动态生成字段 */
+  schema?: Object;
 }
 
 /** 解析 plugin-settings 响应（namespace 视图在 frame.namespace） */
@@ -240,11 +242,18 @@ export function parseNamespace(frame: GatewayFrame | undefined): PluginNamespace
   if (frame === undefined) {
     return { value: undefined, revision: -1, valid: false };
   }
-  const inner: Object | undefined = field(frame, 'namespace');
+  // 兼容三种帧形态：{namespace:{…}} / 平铺 {writable,namespace} / 解包后只剩 namespace
+  let inner: Object | undefined = field(frame, 'namespace');
+  if (inner === undefined) {
+    const nested: Object | undefined = field(frame, 'result');
+    if (nested !== undefined) {
+      inner = field(nested, 'namespace');
+    }
+  }
   const namespace: Object = inner !== undefined ? inner : frame;
   const revision: number = num(namespace, 'revision') ?? -1;
   const value: Object | undefined = field(namespace, 'value');
-  return { value: value, revision: revision, valid: Number.isSafeInteger(revision) && revision >= 0 };
+  return { value: value, revision: revision, valid: Number.isSafeInteger(revision) && revision >= 0, schema: field(namespace, 'schema') };
 }
 
 /** 构造 set 操作 */
