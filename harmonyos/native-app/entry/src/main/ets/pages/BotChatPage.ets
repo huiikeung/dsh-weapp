@@ -28,7 +28,7 @@ import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { filePreview } from '@kit.PreviewKit';
 import { pdfViewManager, PdfView } from '@kit.PDFKit';
 import { util } from '@kit.ArkTS';
-import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
+import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, HdsTabs, hdsMaterial } from '@kit.UIDesignKit';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { MarkdownBodyView } from '../components/MarkdownBodyView';
 import { fileKindIcon, fileKindOf as botFileKindOf } from '../common/FileKind';
@@ -2936,46 +2936,30 @@ export struct BotChatPage {
   @Builder
   composerCapsule() {
     Row({ space: 8 }) {
-      // 左「+」：独立圆钮
+      // 左「+」：独立圆钮，背板 = 工作模式输入框那一套原生沉浸光感材质
       Stack({ alignContent: Alignment.Center }) {
+        this.nativeGlassBackplate(CAPSULE_BUTTON_SIZE, CAPSULE_BUTTON_SIZE, CAPSULE_BUTTON_SIZE / 2)
         this.plusButton(CAPSULE_BUTTON_SIZE, false)
       }
       .width(CAPSULE_BUTTON_SIZE)
       .height(CAPSULE_BUTTON_SIZE)
-      .borderRadius(CAPSULE_BUTTON_SIZE / 2)
-      // 沉浸光感玻璃：重模糊 + 对角高光 + 半透明 tint + 1vp 亮边
-      .backdropBlur(this.capsuleBlur())
-      .backgroundBlurStyle(this.capsuleGlass(), { colorMode: this.capsuleColorMode() })
-      .linearGradient({
-        angle: 135,
-        colors: this.capsuleSheen()
-      })
-      .backgroundColor(this.capsuleFill())
-      .border({ width: 1, color: this.capsuleEdge() })
-      .clip(true)
 
-      // 中间：独立输入胶囊（只放占位文字，点它展开）
-      // 不用 HdsGlassSurface 的系统材质：那层的形状由 HdsTabs 的悬浮 Bar 决定，
-      // 套在小胶囊上时四角会漏出深色残影（深色模式尤其明显）；这里改自绘磨砂，四角干净。
-      Column() {
-        this.capsulePlaceholder()
+      // 中间：独立输入胶囊（只放占位文字，点它展开），背板同样用原生材质
+      Stack({ alignContent: Alignment.Center }) {
+        if (this.capsulePillWidth() > 40) {
+          this.nativeGlassBackplate(this.capsulePillWidth(), CAPSULE_HEIGHT, CAPSULE_HEIGHT / 2)
+        }
+        Column() {
+          this.capsulePlaceholder()
+        }
+        .width('100%')
+        .height(CAPSULE_HEIGHT)
+        .padding({ left: 18, right: 18 })
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Start)
       }
       .layoutWeight(1)
       .height(CAPSULE_HEIGHT)
-      .padding({ left: 18, right: 18 })
-      .justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Start)
-      .borderRadius(CAPSULE_HEIGHT / 2)
-      // 沉浸光感玻璃：重模糊 + 对角高光 + 半透明 tint + 1vp 亮边，四角由 borderRadius + clip 裁干净
-      .backdropBlur(this.capsuleBlur())
-      .backgroundBlurStyle(this.capsuleGlass(), { colorMode: this.capsuleColorMode() })
-      .linearGradient({
-        angle: 135,
-        colors: this.capsuleSheen()
-      })
-      .backgroundColor(this.capsuleFill())
-      .border({ width: 1, color: this.capsuleEdge() })
-      .clip(true)
 
       // 右：主圆钮（发送箭头 / 麦克风键盘切换）
       this.composerPrimaryButton(CAPSULE_BUTTON_SIZE)
@@ -2985,45 +2969,56 @@ export struct BotChatPage {
     .alignItems(VerticalAlign.Center)
   }
 
-  /** 收起态胶囊/圆钮的沉浸光感玻璃配方 */
-  private capsuleFill(): string {
-    // 深色：白 12% 的 tint（玻璃厚度感）；浅色：白 70% 的雾面
-    return this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.70)';
+  /** 中间胶囊宽度：整行宽度 - 左右两个圆钮 - 两个 8vp 间距 */
+  private capsulePillWidth(): number {
+    const rowW: number = this.pageW - 2 * (DOCK_SIDE + this.wideInset());
+    return rowW - 2 * CAPSULE_BUTTON_SIZE - 16;
   }
 
-  private capsuleEdge(): string {
-    return this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.88)';
-  }
-
-  /** 玻璃自绘模糊：叠在系统 blurStyle 之上，让背后内容糊得更「厚重」 */
-  private capsuleBlur(): number {
-    return this.isDark ? 34 : 26;
-  }
-
-  /** 对角高光：左上亮、中间透、右下微反光（模拟玻璃折射） */
-  private capsuleSheen(): Array<[ResourceColor, number]> {
-    if (this.isDark) {
-      return [
-        ['rgba(255,255,255,0.14)', 0],
-        ['rgba(255,255,255,0.02)', 0.46],
-        ['rgba(255,255,255,0.07)', 1]
-      ];
+  /**
+   * 原生沉浸光感背板（与工作模式 ConversationPage.hdsGlassBackplate 完全同一套）：
+   * 系统材质只在「底部悬浮 TabBar」合法作用域渲染，所以借 HdsTabs 的悬浮 Bar 出材质，
+   * 尺寸全部用显式 w/h 传进去（不做二次测量），圆角按高度裁 —— 这样四角不会错位出残影。
+   */
+  @Builder
+  nativeGlassBackplate(w: number, h: number, radius: number) {
+    HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
+      TabContent() {
+        Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
+      }
+      .tabBar(this.emptyTabItem())
     }
-    return [
-      ['rgba(255,255,255,0.42)', 0],
-      ['rgba(255,255,255,0.02)', 0.5],
-      ['rgba(255,255,255,0.22)', 1]
-    ];
+    .barMode(BarMode.Fixed)
+    .scrollable(false)
+    .vertical(false)
+    .barOverlap(true)
+    .barFloatingStyle({
+      adaptToHandedness: false,
+      barSideMargin: 0,
+      barBottomMargin: 0,
+      barWidth: { smallWidth: w, mediumWidth: w, largeWidth: w },
+      systemMaterialEffect: {
+        materialType: hdsMaterial.MaterialType.IMMERSIVE,
+        materialLevel: currentGlassMaterialLevel()
+      }
+    })
+    .barHeight(h)
+    .width(w)
+    .height(h)
+    // TabBar 自带一层不透明底色：清掉，否则圆角外会露出直角深色块
+    .barBackgroundColor('#00000000')
+    .borderRadius(radius)
+    .clip(true)
+    .hitTestBehavior(HitTestMode.None)
+    .focusable(false)
+    .enabled(false)
   }
 
-  /** 系统玻璃档位：深色 THICK（背后内容明显糊化但不发白），浅色 REGULAR */
-  private capsuleGlass(): BlurStyle {
-    return this.isDark ? BlurStyle.COMPONENT_THICK : BlurStyle.COMPONENT_REGULAR;
+  @Builder
+  emptyTabItem() {
+    Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
   }
 
-  private capsuleColorMode(): ThemeColorMode {
-    return this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT;
-  }
 
   /** 收起态胶囊里的占位文字区：文字态轻点展开；语音态按住说话 */
   @Builder
