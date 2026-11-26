@@ -714,6 +714,26 @@ export struct BotChatPage {
     });
   }
 
+  /** 轮询等待 Bot 会话空闲（最多 timeoutMs）；返回是否等到 */
+  private waitBotIdle(timeoutMs: number): Promise<boolean> {
+    return new Promise<boolean>((resolve: (idle: boolean) => void) => {
+      const started: number = Date.now();
+      const tick = (): void => {
+        const chat: BotChat | null = this.chat();
+        if (chat === null || !chat.running) {
+          resolve(true);
+          return;
+        }
+        if (Date.now() - started > timeoutMs) {
+          resolve(false);
+          return;
+        }
+        setTimeout(tick, 500);
+      };
+      tick();
+    });
+  }
+
   private async sendWithAttachments(text: string, selected: PickedAttachment[]): Promise<boolean> {
     const images: Object[] = [];
     const files: PickedAttachment[] = [];
@@ -729,6 +749,18 @@ export struct BotChatPage {
         throw new Error('图片处理失败：' + attachment.name);
       }
       files.push(attachment);
+    }
+    // Bot 运行中发图会被排进队列，队列项不保留图片 → 等这一轮结束再发
+    if (images.length > 0) {
+      const chatNow: BotChat | null = this.chat();
+      if (chatNow !== null && chatNow.running) {
+        this.showHint('等待本轮结束再发送图片…');
+        Logger.info('[BOTSEND] waiting bot idle before image send');
+        const idle: boolean = await this.waitBotIdle(120000);
+        if (!idle) {
+          throw new Error('Bot 仍在运行，为避免图片丢失已取消发送，请稍后重试');
+        }
+      }
     }
     const receipts: string[] = [];
     if (files.length > 0) {

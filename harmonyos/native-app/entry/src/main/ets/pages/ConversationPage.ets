@@ -4485,6 +4485,19 @@ export struct ConversationPage {
       }
       Logger.info('[SEND] media plan images=' + imagePayloads.length.toString()
         + ' files=' + fileAttachments.length.toString() + ' picked=' + selected.length.toString());
+      // 主机只在会话空闲时把图片真正写进会话；运行中发送会进队列，队列项只保留文本/预览，
+      // 图片会被丢掉（之后回读就是 Image is not referenced by this session）。
+      // 所以带图片发送时先等本轮结束，再一次性发出去。
+      if (imagePayloads.length > 0 && (sessionBusy || SessionStore.get().isRunning())) {
+        this.attachmentHint = '等待本轮结束再发送图片…';
+        Logger.info('[SEND] waiting session idle before image send');
+        const idle: boolean = await this.waitSessionIdle(180000);
+        if (!idle) {
+          throw new Error('会话仍在运行，为避免图片丢失已取消发送，请稍后重试');
+        }
+        this.attachmentHint = '';
+        Logger.info('[SEND] session idle, continue image send');
+      }
       const uploaded: UploadResult[] = [];
       for (const attachment of fileAttachments) {
         if (client.generation() !== generation || sessionId !== SessionStore.get().currentSessionId()) {
@@ -4615,6 +4628,25 @@ export struct ConversationPage {
       this.sending = false;
       this.sendStartedAt = 0;
     }
+  }
+
+  /** 轮询等待会话空闲（最多 timeoutMs）；返回是否等到 */
+  private waitSessionIdle(timeoutMs: number): Promise<boolean> {
+    return new Promise<boolean>((resolve: (idle: boolean) => void) => {
+      const started: number = Date.now();
+      const tick = (): void => {
+        if (!SessionStore.get().isRunning()) {
+          resolve(true);
+          return;
+        }
+        if (Date.now() - started > timeoutMs) {
+          resolve(false);
+          return;
+        }
+        setTimeout(tick, 500);
+      };
+      tick();
+    });
   }
 
   /** 简单延时（发送请求退避重试用） */
