@@ -51,6 +51,12 @@ export struct FileAttachmentCard {
     return this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.04)';
   }
 
+  /** 副标题：类型 + 大小，对齐 dsh 桌面端（PDF 7.3MB） */
+  private subtitleText(): string {
+    const label: string = this.badgeLabel();
+    return this.sizeText.length > 0 ? label + ' ' + this.sizeText : label;
+  }
+
   aboutToAppear(): void {
     try {
       const raw: string = this.uri.startsWith('file://') ? this.uri.substring(7) : this.uri;
@@ -82,20 +88,19 @@ export struct FileAttachmentCard {
       .borderRadius(8)
       .backgroundColor(this.badgeColor())
 
-      // 文件名 + 大小
+      // 文件名 + 类型/大小（对齐 dsh 桌面端文件卡：PDF 7.3MB）
       Column({ space: 2 }) {
         Text(this.name)
-          .fontSize(12)
+          .fontSize(13)
           .fontWeight(FontWeight.Medium)
           .fontColor(this.ink())
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .constraintSize({ maxWidth: 118 })
-        if (this.sizeText.length > 0) {
-          Text(this.sizeText)
-            .fontSize(10)
-            .fontColor(this.sub())
-        }
+          .constraintSize({ maxWidth: 150 })
+        Text(this.subtitleText())
+          .fontSize(11)
+          .fontColor(this.sub())
+          .maxLines(1)
       }
       .alignItems(HorizontalAlign.Start)
     }
