@@ -10,6 +10,7 @@
 import { pasteboard } from '@kit.BasicServicesKit';
 import { Logger, MarkdownLite } from 'nativecore';
 import { FILE_KIND_MD, FILE_KIND_TXT, FILE_KIND_UNKNOWN, fileKindIcon, fileKindOf } from '../common/FileKind';
+import { highlightCode, CodeToken } from './CodeHighlighter';
 import type { MarkdownBlock, InlineSpan } from 'nativecore';
 
 /** 流式 Markdown 的最小解析间隔：正文越长，单次解析越贵 */
@@ -265,6 +266,23 @@ export struct MarkdownBodyView {
   /** 小程序 --text-2：实色（低透明度在暗底上会糊） */
   private secondaryColor(): string {
     return this.isDark ? '#B9C2D0' : '#4A5160';
+  }
+
+  /** 代码高亮 token 颜色（深浅两套，观感对齐 dsh 端） */
+  private codeTokenColor(kind: string): string {
+    if (kind === 'kw') {
+      return this.isDark ? '#FF7B72' : '#CF222E';
+    }
+    if (kind === 'str') {
+      return this.isDark ? '#CE9178' : '#0A3069';
+    }
+    if (kind === 'num') {
+      return this.isDark ? '#79C0FF' : '#0550AE';
+    }
+    if (kind === 'com') {
+      return this.isDark ? '#8B949E' : '#6E7781';
+    }
+    return this.bodyColor();
   }
 
   /** 小程序 --fill：代码块与行内代码底色 */
@@ -597,11 +615,16 @@ export struct MarkdownBodyView {
         .width('100%')
         .alignItems(VerticalAlign.Center)
         Scroll() {
-          Text(block.text)
-            .fontSize(12)
-            .fontFamily(MONO_FONT)
-            .fontColor(this.bodyColor())
-            .lineHeight(17)
+          // 语法高亮：关键字/字符串/数字/注释着色，对齐 dsh 端观感
+          Text() {
+            ForEach(highlightCode(block.text, block.language), (token: CodeToken, idx: number) => {
+              Span(token.text)
+                .fontFamily(MONO_FONT)
+                .fontSize(12)
+                .fontColor(this.codeTokenColor(token.kind))
+            }, (token: CodeToken, idx: number) => idx.toString() + '_' + token.kind + '_' + this.themeGeneration)
+          }
+          .lineHeight(17)
         }
         .scrollable(ScrollDirection.Horizontal)
         .scrollBar(BarState.Off)
