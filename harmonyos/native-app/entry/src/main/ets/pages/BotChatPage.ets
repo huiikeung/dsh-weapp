@@ -2527,16 +2527,6 @@ export struct BotChatPage {
   @Builder
   messageRow(message: BotChatMessage) {
     Column({ space: 4 }) {
-      // 调试用：把带文件名的消息原文打到 hilog，确认客户端拿到的到底是哪种写法（定位完即删）
-      if (message.text.indexOf('.xlsx') >= 0 || message.text.indexOf('.docx') >= 0) {
-        Text('')
-          .width(0)
-          .height(0)
-          .onAppear(() => {
-            Logger.info('BOTLINKDBG kind=' + message.kind + ' len=' + message.text.length.toString()
-              + ' text=' + message.text.substring(0, 400));
-          })
-      }
       if (this.showSpeaker(message)) {
         Text(message.name)
           .fontSize(12)
@@ -2946,34 +2936,34 @@ export struct BotChatPage {
   @Builder
   composerCapsule() {
     Row({ space: 8 }) {
-      // 左「+」：独立圆钮（玻璃圆盘 + 加号，不加细描边）
+      // 左「+」：独立圆钮
       Stack({ alignContent: Alignment.Center }) {
-        HdsGlassSurface({ radiusRatio: 0.5 }) {
-          Column()
-            .width(CAPSULE_BUTTON_SIZE)
-            .height(CAPSULE_BUTTON_SIZE)
-            .backgroundColor(Color.Transparent)
-        }
         this.plusButton(CAPSULE_BUTTON_SIZE, false)
       }
       .width(CAPSULE_BUTTON_SIZE)
       .height(CAPSULE_BUTTON_SIZE)
+      .borderRadius(CAPSULE_BUTTON_SIZE / 2)
+      .backdropBlur(this.capsuleBlur())
+      .backgroundColor(this.capsuleFill())
+      .border({ width: 1, color: this.capsuleEdge() })
+      .clip(true)
 
       // 中间：独立输入胶囊（只放占位文字，点它展开）
+      // 不用 HdsGlassSurface 的系统材质：那层的形状由 HdsTabs 的悬浮 Bar 决定，
+      // 套在小胶囊上时四角会漏出深色残影（深色模式尤其明显）；这里改自绘磨砂，四角干净。
       Column() {
-        HdsGlassSurface({ radiusRatio: 0.5 }) {
-          Column() {
-            this.capsulePlaceholder()
-          }
-          .width('100%')
-          .height(CAPSULE_HEIGHT)
-          .padding({ left: 18, right: 18 })
-          .justifyContent(FlexAlign.Center)
-          .alignItems(HorizontalAlign.Start)
-        }
+        this.capsulePlaceholder()
       }
       .layoutWeight(1)
       .height(CAPSULE_HEIGHT)
+      .padding({ left: 18, right: 18 })
+      .justifyContent(FlexAlign.Center)
+      .alignItems(HorizontalAlign.Start)
+      .borderRadius(CAPSULE_HEIGHT / 2)
+      .backdropBlur(this.capsuleBlur())
+      .backgroundColor(this.capsuleFill())
+      .border({ width: 1, color: this.capsuleEdge() })
+      .clip(true)
 
       // 右：主圆钮（发送箭头 / 麦克风键盘切换）
       this.composerPrimaryButton(CAPSULE_BUTTON_SIZE)
@@ -2981,6 +2971,19 @@ export struct BotChatPage {
     .width('100%')
     .height(CAPSULE_HEIGHT)
     .alignItems(VerticalAlign.Center)
+  }
+
+  /** 收起态胶囊/圆钮的磨砂配方（与展开卡同一套，只是矮条按胶囊裁圆角） */
+  private capsuleFill(): string {
+    return this.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.62)';
+  }
+
+  private capsuleEdge(): string {
+    return this.isDark ? 'rgba(255,255,255,0.10)' : '#66FFFFFF';
+  }
+
+  private capsuleBlur(): number {
+    return 18;
   }
 
   /** 收起态胶囊里的占位文字区：文字态轻点展开；语音态按住说话 */
