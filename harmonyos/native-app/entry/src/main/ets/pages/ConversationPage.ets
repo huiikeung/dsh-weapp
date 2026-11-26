@@ -4485,19 +4485,11 @@ export struct ConversationPage {
       }
       Logger.info('[SEND] media plan images=' + imagePayloads.length.toString()
         + ' files=' + fileAttachments.length.toString() + ' picked=' + selected.length.toString());
-      // 主机只在会话空闲时把图片真正写进会话；运行中发送会进队列，队列项只保留文本/预览，
-      // 图片会被丢掉（之后回读就是 Image is not referenced by this session）。
-      // 所以带图片发送时先等本轮结束，再一次性发出去。
-      if (imagePayloads.length > 0 && SessionStore.get().isSessionBusy()) {
-        this.attachmentHint = '等待本轮结束再发送图片…';
-        Logger.info('[SEND] waiting session idle before image send');
-        const idle: boolean = await this.waitSessionIdle(180000);
-        if (!idle) {
-          throw new Error('会话仍在运行，为避免图片丢失已取消发送，请稍后重试');
-        }
-        this.attachmentHint = '';
-        Logger.info('[SEND] session idle, continue image send');
-      }
+      // 运行中发图片：主机默认按 queue 处理，队列项不保留图片 → 丢图/无回复/重进消失。
+      // 实测 mode=steer（本轮插话）在运行中也能立即送达且图片正常落库，所以忙的时候带图一律用 steer。
+      const sessionBusyNow: boolean = SessionStore.get().isSessionBusy();
+      const sendMode: string = (sessionBusyNow && imagePayloads.length > 0) ? 'steer' : '';
+      Logger.info('[SEND] busy=' + (sessionBusyNow ? '1' : '0') + ' mode=' + (sendMode.length > 0 ? sendMode : 'queue'));
       const uploaded: UploadResult[] = [];
       for (const attachment of fileAttachments) {
         if (client.generation() !== generation || sessionId !== SessionStore.get().currentSessionId()) {
@@ -4537,7 +4529,7 @@ export struct ConversationPage {
         let lastError: string = '';
         for (let attempt = 0; attempt < 4; attempt++) {
           try {
-            ack = await client.sendUserMessageWithMedia(text, sessionId, imagePayloads, receipts);
+            ack = await client.sendUserMessageWithMedia(text, sessionId, imagePayloads, receipts, sendMode);
             break;
           } catch (sendError) {
             lastError = sendError instanceof Error ? sendError.message : String(sendError);

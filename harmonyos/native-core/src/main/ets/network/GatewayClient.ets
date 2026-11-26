@@ -2576,11 +2576,19 @@ export class GatewayClient {
    * 这样 host 的「按 id 回读附件」才能命中（file 块不在 host 的引用索引里，重进会话就只剩空白）。
    * 文件仍走上传回执 receipts。
    */
-  sendUserMessageWithMedia(text: string, sessionId: string, images: Object[], files: Object[]): Promise<GatewayFrame> {
+  /**
+   * mode 传 'steer' 表示本轮插话：会话正在运行时也能立即送达并保留图片内容；
+   * 不传则主机按 'queue' 处理 —— 队列项不保留图片，运行中发图会丢（无回复、重进消失）。
+   */
+  sendUserMessageWithMedia(text: string, sessionId: string, images: Object[], files: Object[],
+    mode: string = ''): Promise<GatewayFrame> {
     this.requestSeq += 1;
     const requestId: string = 'message-' + this.requestSeq;
     const payload: Record<string, Object> = { 'type': 'message', 'requestId': requestId, 'sessionId': sessionId,
       'text': text, 'images': images, 'attachments': [], 'files': files, 'clientTimeZone': 'Asia/Shanghai' };
+    if (mode.length > 0) {
+      payload['mode'] = mode;
+    }
     return this.request(JSON.stringify(payload), 'sent', 60000);
   }
 
