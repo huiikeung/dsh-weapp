@@ -10941,26 +10941,30 @@ export struct ConversationPage {
       }
       .width('100%')
       .height('100%')
-      // 可视区底边 = 输入框底边：再往下的文字不显示
-      .padding({ bottom: this.timelineClipBottom() })
+      // 与 Bot 对话页同一套：收起态不裁底 —— 正文一直铺到屏幕底部、从胶囊玻璃后面透过去，
+      // 输入框下方没有遮罩层；展开态才把底边裁到输入框底边（正文到卡片下沿消失，保留下方遮罩带）。
+      .padding({ bottom: this.composerExpanded() ? this.timelineClipBottom() : 0 })
       .alignItems(HorizontalAlign.Start)
 
-      // 输入框左右下角防漏：把圆角缺口/边槽里露出的时间线文字挡住（只占底部 28vp，不影响列表滑动）
-      Row() {
-        Column()
-          .width(this.cornerMaskWidth())
-          .height(this.composerCornerRadius())
-          .backgroundColor(this.pageBg())
-        Blank()
-        Column()
-          .width(this.cornerMaskWidth())
-          .height(this.composerCornerRadius())
-          .backgroundColor(this.pageBg())
+      // 输入框左右下角防漏：只有展开态需要（展开时底边被裁到卡片下沿，圆角缺口会漏字）；
+      // 收起态不裁底、也没有遮罩层，这层同步去掉，否则就是用户看到的「输入框底部一层灰罩」。
+      if (this.composerExpanded()) {
+        Row() {
+          Column()
+            .width(this.cornerMaskWidth())
+            .height(this.composerCornerRadius())
+            .backgroundColor(this.pageBg())
+          Blank()
+          Column()
+            .width(this.cornerMaskWidth())
+            .height(this.composerCornerRadius())
+            .backgroundColor(this.pageBg())
+        }
+        .width('100%')
+        .height(this.composerCornerRadius())
+        .margin({ bottom: this.cornerMaskBottomMargin() })
+        .hitTestBehavior(HitTestMode.None)
       }
-      .width('100%')
-      .height(this.composerCornerRadius())
-      .margin({ bottom: this.cornerMaskBottomMargin() })
-      .hitTestBehavior(HitTestMode.None)
 
       if (!this.autoStick && this.entries.length > 0) {
         // 回到底部：圆形按钮，玻璃背板走 HdsTabs 悬浮 Bar（与输入条同一套 systemMaterialEffect），
