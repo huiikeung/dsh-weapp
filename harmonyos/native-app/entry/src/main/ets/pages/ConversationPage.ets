@@ -10864,9 +10864,11 @@ export struct ConversationPage {
       .height('100%')
       .cachedCount(8)
       .scrollBar(BarState.Off)
-      // 列表底边已裁到输入框底边，末尾只留出「最后一条停在输入框上沿」的余量：
-      // 滚到底时最后一条消息完整可见，不用再滑到列表最末尾。
-      .contentEndOffset(this.timelineEndOffset())
+      // 末尾留白：
+      //   展开态 —— 列表底边已裁到输入框底边，末尾只留「最后一条停在输入框上沿」的余量；
+      //   收起态 —— 不再裁底，必须让出**整个输入条实测高度**（含 + 圆钮/胶囊/指标行），
+      //             否则滚到底时最后一条的复制/引用/时间页脚会被输入条盖住。
+      .contentEndOffset(this.composerExpanded() ? this.timelineEndOffset() : this.dockHeight + 8)
       // 运行条放在 List 之外（Stack 底部、列表下方）：以前它是 List 的最后一个 ListItem，
       // 列表任何一次结构变化都会把它卸掉再装回去 —— 表现就是「运行态不显示 / 只有页面在闪」。
       // 现在它独立于列表存在，运行状态一置位就稳定显示，列表怎么重建都不影响。
