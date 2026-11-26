@@ -82,6 +82,13 @@ export class GatewayClient {
   private pending: Map<string, PendingRequest> = new Map();
   private pendingSequence: number = 0;
   private requestSeq: number = 0;
+  /**
+   * 每次启动随机生成的请求 id 盐。
+   * 网关按 requestId 去重：重复的 requestId 会被当成重放，直接回放上一次的 ack、
+   * 但不会再执行一次 —— 表现就是「发送成功、没有回复、重进会话消息消失」。
+   * requestSeq 每次进程重启都从 0 开始，必须带上启动期随机的盐才不会撞上历史 id。
+   */
+  private requestSalt: string = Math.random().toString(36).substring(2, 8);
   private requestLanes: GatewayRequestLanes | null = null;
   private queuedLaneRequests: Map<GatewayRequest, QueuedLaneRequest> = new Map();
   private connectionGeneration: number = 0;
@@ -2565,7 +2572,7 @@ export class GatewayClient {
       store.appendOptimisticUser(text, files.length);
     }
     this.requestSeq += 1;
-    const requestId: string = 'message-' + this.requestSeq;
+    const requestId: string = 'message-' + this.requestSalt + '-' + this.requestSeq.toString();
     const payload: Record<string, Object> = { 'type': 'message', 'requestId': requestId, 'sessionId': sessionId,
       'text': text, 'images': [], 'attachments': [], 'files': files, 'clientTimeZone': 'Asia/Shanghai' };
     return this.request(JSON.stringify(payload), 'sent', 60000);
@@ -2583,7 +2590,7 @@ export class GatewayClient {
   sendUserMessageWithMedia(text: string, sessionId: string, images: Object[], files: Object[],
     mode: string = ''): Promise<GatewayFrame> {
     this.requestSeq += 1;
-    const requestId: string = 'message-' + this.requestSeq;
+    const requestId: string = 'message-' + this.requestSalt + '-' + this.requestSeq.toString();
     const payload: Record<string, Object> = { 'type': 'message', 'requestId': requestId, 'sessionId': sessionId,
       'text': text, 'images': images, 'attachments': [], 'files': files, 'clientTimeZone': 'Asia/Shanghai' };
     if (mode.length > 0) {
