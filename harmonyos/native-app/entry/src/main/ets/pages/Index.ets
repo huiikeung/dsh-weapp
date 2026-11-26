@@ -87,8 +87,25 @@ struct Index {
    * Bot 模式：'1' 时 Navigation 的**根内容**就是 Bot 首页。
    * 以前是 push 一层 bot-home 盖在工作首页上，结果手势返回 / 关闭 App 会先掉回工作首页。
    */
-  @StorageLink('botMode') botModeRoot: string = '0';
+  @StorageLink('botMode') @Watch('onBotModeRootChanged') botModeRoot: string = '0';
   private botModeSeeded: boolean = false;
+  /** 工作首页是否已经挂载过：挂载后常驻，Bot 模式只是盖在它上面，切回来不再重建整页 */
+  @State private homeMounted: boolean = false;
+
+  /**
+   * 从 Bot 模式切回工作模式时，首页不能重新挂载：
+   * 重建会把深海背景的 Canvas、品牌图、会话列表全部重做一遍（真机上黑屏 1 秒多再闪一下），
+   * 所以首页首次显示后就常驻，Bot 首页作为覆盖层挂在同一个 Stack 里。
+   */
+  onBotModeRootChanged(): void {
+    if (this.botModeRoot === '1') {
+      // 首页被盖住：停掉深海背景动效，省电
+      AppStorage.setOrCreate<boolean>('homePageVisible', false);
+      return;
+    }
+    this.homeMounted = true;
+    AppStorage.setOrCreate<boolean>('homePageVisible', true);
+  }
 
   onAgentWorkActive(): void {
     const lifecycle: string = AppStorage.get<string>('appLifecycle') ?? 'foreground';
@@ -128,6 +145,8 @@ struct Index {
       const stored: string = PreferencesStore.get().getString('botMode', this.botModeRoot);
       this.botModeRoot = stored === '1' ? '1' : '0';
     }
+    // 非 Bot 模式启动：首页立刻挂载；Bot 模式启动则等第一次切回工作模式再挂载（不拖慢冷启动）
+    this.homeMounted = this.botModeRoot !== '1';
   }
 
   private openPendingPageRoute(): void {
@@ -383,12 +402,23 @@ struct Index {
   build() {
     Stack() {
       Navigation(this.pageStack) {
-        // 模式即根内容：Bot 模式下根是 Bot 首页，返回手势/关闭 App 都不会先露出工作首页
-        if (this.botModeRoot === '1') {
-          BotHomePage()
-        } else {
-          HomePage()
+        Stack() {
+          // 工作首页：挂载后常驻，Bot 模式下只是隐藏（不是销毁）
+          if (this.homeMounted) {
+            Column() {
+              HomePage()
+            }
+            .width('100%')
+            .height('100%')
+            .visibility(this.botModeRoot === '1' ? Visibility.None : Visibility.Visible)
+          }
+          // Bot 首页：盖在工作首页之上；返回手势/关闭 App 仍然不会先露出工作首页
+          if (this.botModeRoot === '1') {
+            BotHomePage()
+          }
         }
+        .width('100%')
+        .height('100%')
       }
       .navDestination(this.PageMap)
       .hideTitleBar(true)

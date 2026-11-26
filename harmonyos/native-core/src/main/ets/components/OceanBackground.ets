@@ -46,7 +46,14 @@ export struct OceanBackground {
   private flow?: ImageBitmap = undefined;
   private flowBusy: boolean = false;
   private flowLogged: boolean = false;
+  private initialLogged: boolean = false;
   private flowRevision: number = 0;
+  /** 生成流体位图时用的相位：首帧同步图与随后那张异步图必须用同一个相位，否则看起来就是「光带跳了一下」 */
+  private flowPhase: number = 0;
+  /** 首张异步流体是否已经对齐；之后每次更新才跟着 this.phase 走（光带动效） */
+  private flowSynced: boolean = false;
+  /** 当前位图是按宽屏构图还是手机竖构图渲染的：只有这类变化才需要重画 */
+  private flowWide: boolean = false;
   private alive: boolean = false;
   private topInset: number = 0;
   private bottomInset: number = 0;
@@ -104,31 +111,33 @@ export struct OceanBackground {
     }
     this.topInset = top;
     this.bottomInset = bottom;
-    this.flowRevision++;
-    this.flow?.close();
-    this.flow = undefined;
-    if (this.bgReady) {
-      this.drawBackground();
-      this.updateFlow();
-    }
-    if (this.whaleReady) {
-      this.drawWhale();
-    }
+    // 安全区只记录数值，跟流体位图无关（光带是按画布宽高比整张铺满的）。
+    // 以前这里会 close 掉位图再重画：系统区和导航条的 avoidArea 回调各来一次，
+    // 首屏就会出现两次「光带位置变了」，而且每次都要等异步图重新生成。
   }
 
   /** 首帧同步渲染一张低分辨率流体：保证启动第一帧就有光带，不出现「晚出来」 */
   private buildInitialFlow(): ImageBitmap | undefined {
     const w: number = 96;
+    // 尺寸未知（onReady 先于 onAreaChange）时不要渲染：aspect 会算出 0/Infinity，白跑一次还会闪
+    if (this.canvasWidth <= 0 || this.canvasHeight <= 0) {
+      return undefined;
+    }
     const wide: boolean = this.canvasWidth / Math.max(1, this.canvasHeight) > 0.95;
     // 宽屏按手机竖构图渲染，再由绘制层等比放大 —— 这样平板上的光带就是手机光带的放大版
     const artAspect: number = wide ? 0.46 : this.canvasWidth / Math.max(1, this.canvasHeight);
     const h: number = Math.max(1, Math.round(w / artAspect));
     try {
       const aspect: number = artAspect;
-      const buffer = renderBrandFlow(w, h, aspect, 0, false);
+      const buffer = renderBrandFlow(w, h, aspect, this.flowPhase, false);
       const offscreen = new OffscreenCanvas(w, h, LengthMetricsUnit.PX);
       const ctx = offscreen.getContext('2d');
       ctx.putImageData(new ImageData(w, h, new Uint8ClampedArray(buffer), LengthMetricsUnit.PX), 0, 0);
+      this.flowWide = wide;
+      if (!this.initialLogged) {
+        this.initialLogged = true;
+        console.info('OCEAN flow initial ' + w + 'x' + h + ' phase=' + this.flowPhase.toFixed(2));
+      }
       return offscreen.transferToImageBitmap();
     } catch (err) {
       return undefined;
@@ -149,7 +158,7 @@ export struct OceanBackground {
     this.flowBusy = true;
     try {
       const buffer = await taskpool.execute(
-        new taskpool.Task(prepareBrandFlow, fw, fh, aspect, this.phase, false)) as ArrayBuffer;
+        new taskpool.Task(prepareBrandFlow, fw, fh, aspect, this.flowPhase, false)) as ArrayBuffer;
       if (!this.alive || revision !== this.flowRevision) {
         return;
       }
@@ -159,6 +168,8 @@ export struct OceanBackground {
       const next: ImageBitmap = offscreen.transferToImageBitmap();
       this.flow?.close();
       this.flow = next;
+      this.flowSynced = true;
+      this.flowWide = wide;
       if (!this.flowLogged) {
         this.flowLogged = true;
         console.info('OCEAN flow ready ' + fw + 'x' + fh);
@@ -400,7 +411,13 @@ export struct OceanBackground {
         return;
       }
       const now: number = Date.now();
-      this.phase = (this.phase + (now - last) / 1000) % 4096;
+      const delta: number = (now - last) / 1000;
+      this.phase = (this.phase + delta) % 4096;
+      // 流体自己一条相位：等第一张异步图就绪后才开始走（flowSynced），
+      // 这样「首帧同步图 → 异步高清图」两张图的相位完全相同，只是变清晰，不会跳位置。
+      if (this.flowSynced) {
+        this.flowPhase = (this.flowPhase + delta) % 4096;
+      }
       last = now;
       // 省电：鲸鱼 15fps，流体约 2fps；离开首页/后台时直接停
       this.drawWhale();
@@ -467,11 +484,17 @@ export struct OceanBackground {
       }
       this.canvasWidth = w;
       this.canvasHeight = h;
-      this.flowRevision++;
-      this.flow?.close();
-      this.flow = undefined;
-      // 尺寸确定后立刻同步生成一张流体，保证第一次可见就是完整背景
-      this.flow = this.buildInitialFlow();
+      const wideNow: boolean = w / Math.max(1, h) > 0.95;
+      // 只有「构图类别」变了（手机竖构图 ⇄ 平板宽构图）或还没有位图时才重画；
+      // 安全区/键盘带来的尺寸微调保留原位图即可 —— 绘制层本来就是等比铺满，重画反而会让光带跳位。
+      if (this.flow === undefined || wideNow !== this.flowWide) {
+        this.flowRevision++;
+        this.flow?.close();
+        this.flow = undefined;
+        this.flowSynced = false;
+        // 尺寸确定后立刻同步生成一张流体，保证第一次可见就是完整背景
+        this.flow = this.buildInitialFlow();
+      }
       if (this.whaleReady) {
         this.sample();
         this.drawWhale();
