@@ -25,7 +25,7 @@ import { abilityAccessCtrl } from '@kit.AbilityKit';
 import { webview } from '@kit.ArkWeb';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
-import { FileAttachmentCard } from '../components/FileAttachmentCard';
+import { ComposerFileCard } from '../components/ComposerFileCard';
 import { filePreview } from '@kit.PreviewKit';
 import { pdfViewManager, PdfView } from '@kit.PDFKit';
 import { util } from '@kit.ArkTS';
@@ -2335,49 +2335,61 @@ export struct BotChatPage {
     return [Number(match[0]), Number(match[1]), Number(match[2]), alpha];
   }
 
-  /** 已选附件：图片 52×52 缩略图、文件 回形针 + 文件名胶囊，右上角圆形删除钮 */
+  /**
+   * 已选附件（与工作模式对话页输入框逐个对齐）：
+   *   · 图片 → 52×52 缩略图卡
+   *   · 文件 → 整条附件卡（内置 ficon 图标 + 文件名 + 类型/大小 + 右上角 ×）
+   *   · 横向排列可左右滑动，第二张露出一部分
+   */
   @Builder
   attachmentRow() {
-    Scroll() {
-      Row({ space: 8 }) {
-        ForEach(this.pickedAttachments, (attachment: PickedAttachment) => {
-          Stack({ alignContent: Alignment.TopEnd }) {
-            if (this.isImageAttachment(attachment.name)) {
+    List({ space: 10 }) {
+      ForEach(this.pickedAttachments, (attachment: PickedAttachment) => {
+        ListItem() {
+          if (this.isImageAttachment(attachment.name)) {
+            Stack({ alignContent: Alignment.TopEnd }) {
               Image(attachment.uri)
                 .width(52)
                 .height(52)
                 .borderRadius(10)
                 .objectFit(ImageFit.Cover)
                 .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.04)')
-            } else {
-              // 文件与图片同款式卡片：彩色扩展名徽标 + 文件名 + 大小
-              FileAttachmentCard({ name: attachment.name, uri: attachment.uri, isDark: this.isDark })
+              Stack() {
+                Text('×')
+                  .fontSize(11)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor('#FFFFFF')
+              }
+              .width(18)
+              .height(18)
+              .borderRadius(9)
+              .backgroundColor('rgba(0,0,0,0.62)')
+              .alignContent(Alignment.Center)
+              .margin({ top: 2, right: 2 })
+              .onClick(() => {
+                this.removePickedImage(attachment.uri);
+              })
             }
-            // 右上角圆形删除钮（半透明黑底 + 白 ×），向内收避免被 Scroll 裁掉
-            Stack() {
-              Text('×')
-                .fontSize(11)
-                .fontWeight(FontWeight.Bold)
-                .fontColor('#FFFFFF')
-            }
-            .width(18)
-            .height(18)
-            .borderRadius(9)
-            .backgroundColor('rgba(0,0,0,0.62)')
-            .alignContent(Alignment.Center)
-            .margin({ top: 2, right: 2 })
-            .onClick(() => {
-              this.removePickedImage(attachment.uri);
+          } else {
+            ComposerFileCard({
+              name: attachment.name,
+              uri: attachment.uri,
+              isDark: this.isDark,
+              onRemove: () => {
+                this.removePickedImage(attachment.uri);
+              }
             })
           }
-          .height(56)
-          .padding({ right: 4 })
-        }, (attachment: PickedAttachment) => attachment.uri)
-      }
+        }
+      }, (attachment: PickedAttachment) => attachment.uri)
     }
-    .scrollable(ScrollDirection.Horizontal)
-    .scrollBar(BarState.Off)
     .width('100%')
+    .height(68)
+    .padding({ left: 2, right: 2, top: 4, bottom: 2 })
+    .listDirection(Axis.Horizontal)
+    .alignListItem(ListItemAlign.Center)
+    .scrollBar(BarState.Off)
+    .edgeEffect(EdgeEffect.Spring)
     .margin({ bottom: 10 })
   }
 

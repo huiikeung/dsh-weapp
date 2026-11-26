@@ -15,7 +15,7 @@ import { KeyCode } from '@kit.InputKit';
 import { HdsGlassSurface } from './HdsGlassSurface';
 import { Logger } from 'nativecore';
 import type { ModelMenuItem, PickedAttachment } from 'nativecore';
-import { FileAttachmentCard } from './FileAttachmentCard';
+import { ComposerFileCard } from './ComposerFileCard';
 import { MENU_KEEP_DEFAULT, MENU_KEEP_KEY } from '../common/MenuPopupSetting';
 import { COMPOSER_COMPACT_DEFAULT, COMPOSER_COMPACT_KEY } from '../common/ComposerStyleSetting';
 
@@ -79,7 +79,7 @@ export struct ConversationComposer {
   @Prop modelBadge: string = '';
   @Prop effortLabel: string = '';
   @Prop attachmentCount: number = 0;
-  /** 已选附件（图片走缩略图预览、文件走回形针胶囊） */
+  /** 已选附件（图片走缩略图预览、文件走整条附件卡） */
   @Prop attachments: PickedAttachment[] = [];
   /** 点击附件右上角删除钮 */
   onRemoveAttachment: (uri: string) => void = () => {};
@@ -674,12 +674,6 @@ export struct ConversationComposer {
       lower.endsWith('.gif') || lower.endsWith('.bmp');
   }
 
-  /**
-   * 已选附件预览（对齐小程序 composer-images / pending-file，也与 iOS 附件托盘一致）：
-   *   · 图片 → 52×52 缩略图卡（10 圆角）
-   *   · 文件 → 回形针图标 + 文件名胶囊
-   *   · 右上角圆形删除钮
-   */
   /** 引用 chip 的图标：会话=气泡，目录=文件夹，文件=文档 */
   private refChipIcon(kind: string): Resource {
     if (kind === 'quote') {
@@ -810,49 +804,66 @@ export struct ConversationComposer {
     .padding({ left: 2, right: 2, bottom: 4 })
   }
 
+  /**
+   * 已选附件托盘（对齐 Web GUI）：
+   *   · 图片 → 52×52 缩略图卡（10 圆角）
+   *   · 文件 → 整条附件卡：文件图标 + 文件名 + 类型/大小 + 右上角 ×
+   *   · 横向排列可左右滑动，第二张露出一部分
+   */
   @Builder
   attachmentRow() {
-    Scroll() {
-      Row({ space: 8 }) {
-        ForEach(this.attachments, (attachment: PickedAttachment) => {
-          Stack({ alignContent: Alignment.TopEnd }) {
-            if (this.isImageAttachment(attachment.name)) {
+    // 横向排列、可左右滑动：卡片固定宽度，第二张会露出一点边（对齐 Web GUI 的附件托盘）。
+    // 用 List 而不是 Scroll：List 的初始位置稳定在第一个 item，Scroll 在内容晚一帧撑开时会停在末尾。
+    List({ space: 10 }) {
+      ForEach(this.attachments, (attachment: PickedAttachment) => {
+        ListItem() {
+          if (this.isImageAttachment(attachment.name)) {
+            // 图片：52×52 缩略图卡 + 右上角圆形删除钮
+            Stack({ alignContent: Alignment.TopEnd }) {
               Image(attachment.uri)
                 .width(52)
                 .height(52)
                 .borderRadius(10)
                 .objectFit(ImageFit.Cover)
                 .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.04)')
-            } else {
-              // 文件与图片同款式卡片：彩色扩展名徽标 + 文件名 + 大小
-              FileAttachmentCard({ name: attachment.name, uri: attachment.uri, isDark: this.isDark })
+              Stack() {
+                Text('×')
+                  .fontSize(11)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor('#FFFFFF')
+              }
+              .width(18)
+              .height(18)
+              .borderRadius(9)
+              .backgroundColor('rgba(0,0,0,0.62)')
+              .alignContent(Alignment.Center)
+              // 向内收：负 margin 越界会被父级裁掉上半截
+              .margin({ top: 2, right: 2 })
+              .onClick(() => {
+                this.onRemoveAttachment(attachment.uri);
+              })
             }
-            // 右上角圆形删除钮（半透明黑底 + 白 ×）
-            Stack() {
-              Text('×')
-                .fontSize(11)
-                .fontWeight(FontWeight.Bold)
-                .fontColor('#FFFFFF')
-            }
-            .width(18)
-            .height(18)
-            .borderRadius(9)
-            .backgroundColor('rgba(0,0,0,0.62)')
-            .alignContent(Alignment.Center)
-            // 向内收：负 margin 越界会被父级 Scroll 裁掉上半截
-            .margin({ top: 2, right: 2 })
-            .onClick(() => {
-              this.onRemoveAttachment(attachment.uri);
+          } else {
+            // 文件：整条附件卡（文件图标 + 文件名 + 类型/大小 + 右上角 ×）
+            ComposerFileCard({
+              name: attachment.name,
+              uri: attachment.uri,
+              isDark: this.isDark,
+              onRemove: () => {
+                this.onRemoveAttachment(attachment.uri);
+              }
             })
           }
-        }, (attachment: PickedAttachment) => attachment.uri)
-      }
-      .padding({ left: 2, right: 2, top: 4, bottom: 6 })
+        }
+      }, (attachment: PickedAttachment) => attachment.uri)
     }
     .width('100%')
-    .scrollable(ScrollDirection.Horizontal)
+    .height(68)
+    .padding({ left: 2, right: 2, top: 4, bottom: 6 })
+    .listDirection(Axis.Horizontal)
+    .alignListItem(ListItemAlign.Center)
     .scrollBar(BarState.Off)
-    .align(Alignment.Start)
+    .edgeEffect(EdgeEffect.Spring)
   }
 
   @Builder
