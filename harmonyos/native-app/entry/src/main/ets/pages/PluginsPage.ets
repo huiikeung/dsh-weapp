@@ -30,6 +30,7 @@ interface MarketIndex {
 interface EntryRow {
   id: string;
   name: string;
+  description: string;
   enabled: boolean;
 }
 
@@ -70,6 +71,9 @@ export struct PluginsPage {
   @StorageLink('pluginBundles') bundles: PluginItem[] = [];
   @StorageLink('pluginOfficialItems') officialItems: OfficialPluginItem[] = [];
   @StorageLink('pluginManagementAvailable') managementAvailable: boolean = false;
+  /** 实时映射：dsh 端设置/插件变化 → 静默刷新打开中的详情 */
+  @StorageLink('pluginSettingsRevision') @Watch('onSettingsRevChanged') settingsRevision: number = 0;
+  @StorageLink('pluginCatalogRevision') @Watch('onCatalogRevChanged') catalogRevision: number = 0;
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
   @Consume('pageStack') pageStack: NavPathStack;
   @State @Watch('onPluginTabChanged') pluginTab: string = 'installed';
@@ -1094,7 +1098,18 @@ export struct PluginsPage {
                 .fontColor(this.subColor())
               ForEach(this.detailEntries, (entry: EntryRow) => {
                 Row() {
-                  Text(entry.name).fontSize(14).fontColor(this.textColor()).layoutWeight(1)
+                  Column({ space: 2 }) {
+                    Text(entry.name).fontSize(14).fontColor(this.textColor())
+                    if (entry.description.length > 0) {
+                      Text(entry.description)
+                        .fontSize(11)
+                        .fontColor(this.subColor())
+                        .maxLines(2)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    }
+                  }
+                  .alignItems(HorizontalAlign.Start)
+                  .layoutWeight(1)
                   Toggle({ type: ToggleType.Switch, isOn: entry.enabled })
                     .selectedColor(this.accent())
                     .scale({ x: 0.65, y: 0.65 })
@@ -1106,7 +1121,7 @@ export struct PluginsPage {
                 .padding({ left: 12, right: 8, top: 5, bottom: 5 })
                 .borderRadius(10)
                 .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)')
-              }, (entry: EntryRow) => entry.id)
+              }, (entry: EntryRow) => entry.id + '_' + entry.enabled.toString())
             }
             .width('100%')
           }
@@ -1216,10 +1231,19 @@ export struct PluginsPage {
   marketEntryRow(item: MarketEntry, last: boolean) {
     Column() {
       Row({ space: 12 }) {
-        Image($r('app.media.plugin_art_plugin_default')).width(34).height(34).objectFit(ImageFit.Contain)
+        // 图标底板：与「已安装」列表同一款式
+        Stack({ alignContent: Alignment.Center }) {
+          Image($r('app.media.plugin_art_plugin_default')).width(30).height(30).objectFit(ImageFit.Contain)
+        }
+        .width(44)
+        .height(44)
+        .borderRadius(11)
+        .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)' })
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)')
+
         Column({ space: 3 }) {
           Text(item.title.length > 0 ? item.title : item.name)
-            .fontSize(15)
+            .fontSize(14)
             .fontWeight(FontWeight.Medium)
             .fontColor(this.textColor())
             .maxLines(1)
@@ -1233,23 +1257,33 @@ export struct PluginsPage {
               .width('100%')
           }
           if (item.version.length > 0) {
-            Text('v' + item.version).fontSize(11).fontColor(this.subColor())
+            Text(item.version)
+              .fontSize(11)
+              .fontColor(this.subColor())
           }
         }
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
-        Text(item.installLabel.length > 0 ? item.installLabel : '安装')
-          .fontSize(12)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#FFFFFF')
-          .height(30)
-          .padding({ left: 14, right: 14 })
-          .textAlign(TextAlign.Center)
-          .borderRadius(8)
-          .backgroundColor(this.accent())
-          .onClick(() => {
-            this.installMarketEntry(item);
-          })
+
+        if (item.installLabel.length > 0) {
+          Text(item.installLabel)
+            .fontSize(12)
+            .fontColor(this.subColor())
+            .padding({ left: 6, right: 2 })
+        } else {
+          Text('安装')
+            .fontSize(12)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.accent())
+            .height(30)
+            .padding({ left: 14, right: 14 })
+            .textAlign(TextAlign.Center)
+            .borderRadius(8)
+            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' })
+            .onClick(() => {
+              this.installMarketEntry(item);
+            })
+        }
       }
       .width('100%')
       .padding({ left: 16, right: 16, top: 11, bottom: 11 })
@@ -2414,7 +2448,7 @@ export struct PluginsPage {
       this.detailError = '未连接网关';
       return;
     }
-    const updated: EntryRow = { id: entry.id, name: entry.name, enabled: enabled };
+    const updated: EntryRow = { id: entry.id, name: entry.name, description: entry.description, enabled: enabled };
     const list: EntryRow[] = [];
     for (const item of this.detailEntries) {
       list.push(item.id === entry.id ? updated : item);
@@ -2633,13 +2667,89 @@ export struct PluginsPage {
         const id: string = this.strField(entry, 'entryId') || this.strField(entry, 'id');
         const name: string = this.strField(entry, 'name') || id;
         if (id.length > 0) {
-          entries.push({ id: id, name: name, enabled: this.readBool(entry, 'enabled') });
+          entries.push({
+            id: id,
+            name: name,
+            description: this.localizedField(entry, 'description'),
+            enabled: this.readBool(entry, 'enabled')
+          });
         }
       }
       this.detailEntries = entries;
     }).catch((err: Error) => {
       this.detailBusy = false;
       this.detailError = err.message;
+    });
+  }
+
+  /** dsh 端设置变化：详情开着时静默重载当前内置插件的功能选项 */
+  private onSettingsRevChanged(): void {
+    if (!this.detailOpen || this.detailSaving || this.detailFields.length === 0 || this.detailKind.length === 0 || this.detailKind === 'web-search') {
+      return;
+    }
+    const candidates: string[] = this.detailKind === 'shell'
+      ? ['pwsh-sandbox', 'bash-sandbox']
+      : this.detailKind === 'agent-loop' ? ['agent-loop']
+      : this.detailKind === 'subagent' ? ['subagent']
+      : [];
+    if (candidates.length === 0) {
+      return;
+    }
+    this.tryLoadSettingsSilent(this.detailKind, candidates, 0);
+  }
+
+  private tryLoadSettingsSilent(kind: string, candidates: string[], index: number): void {
+    if (index >= candidates.length) {
+      return;
+    }
+    GatewayClient.get().requestPluginSettings(candidates[index]).then((frame) => {
+      const ns: PluginNamespace = parseNamespace(frame);
+      if (!ns.valid) {
+        this.tryLoadSettingsSilent(kind, candidates, index + 1);
+        return;
+      }
+      // 只更新取值，不重置用户正在编辑的输入框状态以外的结构
+      this.detailFields = this.buildFields(kind, candidates[index], ns);
+    }).catch(() => {
+      this.tryLoadSettingsSilent(kind, candidates, index + 1);
+    });
+  }
+
+  /** dsh 端插件变化：详情开着时静默重拉详情（版本/组件/介绍/启停状态） */
+  private onCatalogRevChanged(): void {
+    if (!this.detailOpen || this.detailBusy || this.detailName.length === 0 || this.detailKind.length > 0) {
+      return;
+    }
+    GatewayClient.get().requestPluginDetail(this.detailName, 'zh').then((frame) => {
+      if (!this.detailOpen) {
+        return;
+      }
+      this.detailMarkdown = this.extractMarkdown(frame);
+      const rec: Record<string, Object> = this.asRecord(frame);
+      const version: string = this.strField(rec, 'version');
+      if (version.length > 0) {
+        this.detailVersion = version;
+      }
+      const description: string = this.strField(rec, 'description');
+      if (description.length > 0) {
+        this.detailDescription = description;
+      }
+      const entries: EntryRow[] = [];
+      for (const raw of this.arrField(rec, 'items')) {
+        const entry: Record<string, Object> = this.asRecord(raw);
+        const id: string = this.strField(entry, 'entryId') || this.strField(entry, 'id');
+        const name: string = this.strField(entry, 'name') || id;
+        if (id.length > 0) {
+          entries.push({
+            id: id,
+            name: name,
+            description: this.localizedField(entry, 'description'),
+            enabled: this.readBool(entry, 'enabled')
+          });
+        }
+      }
+      this.detailEntries = entries;
+    }).catch(() => {
     });
   }
 
