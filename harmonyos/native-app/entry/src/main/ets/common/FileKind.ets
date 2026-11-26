@@ -30,6 +30,7 @@ export const FILE_KIND_XLSX: string = 'xlsx';
 export const FILE_KIND_CSV: string = 'csv';
 export const FILE_KIND_PPT: string = 'ppt';
 export const FILE_KIND_PPTX: string = 'pptx';
+export const FILE_KIND_HTML: string = 'html';
 export const FILE_KIND_CODE: string = 'code';
 export const FILE_KIND_IMAGE: string = 'image';
 export const FILE_KIND_SVG: string = 'svg';
@@ -120,6 +121,9 @@ export function fileKindOf(name: string, mediaType: string = ''): string {
   }
   if (ext === 'jar' || ext === 'bin' || ext === 'so' || ext === 'dylib') {
     return FILE_KIND_BINARY;
+  }
+  if (ext === 'html' || ext === 'htm' || ext === 'xhtml') {
+    return FILE_KIND_HTML;
   }
   const codeExtensions: string = ' c cpp cc cxx h hpp csharp java kt swift m py ipynb js jsx ts tsx '
     + 'html css scss less vue svelte go rs dart rb php sh ps1 sql json jsonl yaml yml xml toml ini '
@@ -227,6 +231,9 @@ export function fileKindIcon(kind: string): Resource {
   }
   if (kind === FILE_KIND_PPTX) {
     return $r('app.media.ficon_pptx');
+  }
+  if (kind === FILE_KIND_HTML) {
+    return $r('app.media.ficon_html');
   }
   if (kind === FILE_KIND_IMAGE) {
     return $r('app.media.ficon_image');

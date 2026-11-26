@@ -4,6 +4,7 @@ import { filePreview } from '@kit.PreviewKit';
 import { pdfViewManager, PdfView } from '@kit.PDFKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { image } from '@kit.ImageKit';
+import { webview } from '@kit.ArkWeb';
 import { util } from '@kit.ArkTS';
 import { curves, display, KeyboardAvoidMode, uiMaterial, window as arkWindow } from '@kit.ArkUI';
 import { wideSideInset } from '../common/Responsive';
@@ -25,7 +26,10 @@ import type { SpeechLimits } from 'nativecore';
 import type { DownloadResult, GatewayImageAttachment, UploadResult } from 'nativecore';
 import type { GatewayPendingQuestionRequest, GatewayQuestion, GatewayQuestionAnswer, GatewayQuestionOption } from 'nativecore';
 import { currentGlassLevel, ensureGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
+import { ensureMenuKeepKeyboard } from '../common/MenuPopupSetting';
+import { COMPOSER_COMPACT_DEFAULT, COMPOSER_COMPACT_KEY, ensureComposerCompact } from '../common/ComposerStyleSetting';
 import { ConversationRowView } from '../components/ConversationRowView';
+import { MarkdownBodyView } from '../components/MarkdownBodyView';
 import { ConversationComposer, MetricMenuPair, RefChipItem, RefDirItem, RefSessionItem, SkillItem } from '../components/ConversationComposer';
 import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
 import { NavBackButton } from '../components/NavBackButton';
@@ -546,6 +550,11 @@ export struct ConversationPage {
   @State filePdfLoading: boolean = false;
   @State filePdfError: string = '';
   private pdfController: pdfViewManager.PdfController = new pdfViewManager.PdfController();
+  /** HTML 网页预览弹窗：本地文件用 Web 组件在半模态里直接渲染（完整 CSS/JS，不做纯文本展示） */
+  @State htmlPreviewOpen: boolean = false;
+  @State htmlPreviewTitle: string = '';
+  @State htmlPreviewUrl: string = '';
+  private htmlWebController: webview.WebviewController = new webview.WebviewController();
   @State fileDiffLines: string[] = [];
   @State fileDiffNote: string = '';
   /** 正文蓝色链接 → 文件内容预览（底部弹窗）：路径 / 标题 / 内容 / 加载态 */
@@ -742,6 +751,10 @@ export struct ConversationPage {
   aboutToAppear(): void {
     // 玻璃材质档位：把设置页存的档位灌回 AppStorage，所有 HdsGlassSurface 一起生效
     ensureGlassLevel();
+    // 输入条菜单弹出方式（原生玻璃菜单 / 保持输入法的自绘弹层）
+    ensureMenuKeepKeyboard();
+    // 输入条样式（现有玻璃胶囊 / 新版左圆钮布局）
+    ensureComposerCompact();
     // 诊断：确认设备是否支持 IMMERSIVE（液态玻璃）材质
     try {
       Logger.info('GLASSDIAG immersiveSupported=' + uiMaterial.isImmersiveMaterialSupported().toString());
@@ -1415,7 +1428,7 @@ export struct ConversationPage {
     for (const file of entry.files) {
       const path: string = file.path === undefined ? '' : file.path;
       const name: string = file.name.length > 0 ? file.name : (path.split('/').pop() ?? path);
-      const display: string = path.length > 0 ? path : name;
+      const display: string = name.length > 0 ? name : path;
       if (path.length === 0 && name.length === 0) {
         continue;
       }
@@ -1439,9 +1452,10 @@ export struct ConversationPage {
     }
     for (const file of list) {
       const path: string = file.path === undefined ? '' : file.path;
-      const name: string = file.name === undefined || file.name.length === 0
-        ? (path.split('/').pop() ?? path) : file.name;
-      const display: string = path.length > 0 ? path : name;
+      const rawName: string = file.name === undefined ? '' : file.name;
+      // Windows 路径用反斜杠：两种分隔符都要认，否则 name 会变成整条 C:\... 路径
+      const name: string = rawName.length > 0 ? rawName : this.fileNameOf(path);
+      const display: string = name.length > 0 ? name : path;
       const hasCounts: boolean = file.added !== undefined || file.deleted !== undefined;
       const added: string = (file.added ?? 0).toString();
       const deleted: string = (file.deleted ?? 0).toString();
@@ -1481,7 +1495,8 @@ export struct ConversationPage {
     }
     try {
       const context = getContext(this) as common.UIAbilityContext;
-      const result: DownloadResult = await downloadAttachment(context, GatewayClient.get(), sessionId, path);
+      const resolvedPath: string = await this.resolveDownloadPath(sessionId, path);
+      const result: DownloadResult = await downloadAttachment(context, GatewayClient.get(), sessionId, resolvedPath);
       const mime: string = mediaType.length > 0 ? mediaType : result.mediaType;
       if (mime.indexOf('image/') === 0) {
         // 图片附件：应用内弹窗预览（之前直接交给系统看图器，用户看到的是「跳出 App」）
@@ -1493,6 +1508,12 @@ export struct ConversationPage {
       if (this.isPdfFile(title)) {
         // PDF：应用内半模态用 PDFKit 渲染
         this.openPdfPreview(result.localPath, title);
+        return;
+      }
+      const attachTitle: string = result.name.length > 0 ? result.name : name;
+      if (this.isHtmlFile(attachTitle)) {
+        // 网页：半模态 Web 组件渲染完整 HTML（CSS/JS 生效、可交互），不再交给系统查看器
+        this.openHtmlPreview(result.localPath, attachTitle);
         return;
       }
       const safeMime: string = mime.length > 0 ? mime : 'application/octet-stream';
@@ -1767,7 +1788,9 @@ export struct ConversationPage {
     }
     try {
       const context = getContext(this) as common.UIAbilityContext;
-      const result: DownloadResult = await downloadAttachment(context, GatewayClient.get(), sessionId, path);
+      // DSH 主机给的多是绝对路径（D:\...），先让网关解析成工作区相对路径再下载
+      const resolvedPath: string = await this.resolveDownloadPath(sessionId, path);
+      const result: DownloadResult = await downloadAttachment(context, GatewayClient.get(), sessionId, resolvedPath);
       const mime: string = mediaType.length > 0 ? mediaType : result.mediaType;
       const lower: string = (result.name.length > 0 ? result.name : name).toLowerCase();
       if (mime.indexOf('image/') === 0) {
@@ -1780,6 +1803,11 @@ export struct ConversationPage {
       if (this.isPdfFile(docTitle)) {
         // PDF：应用内半模态用 PDFKit 渲染（与 Bot 聊天页同一套）
         this.openPdfPreview(result.localPath, docTitle);
+        return;
+      }
+      if (this.isHtmlFile(docTitle)) {
+        // 网页：半模态里用 Web 组件直接渲染（保留完整 CSS/JS，可交互），不再当纯文本展示
+        this.openHtmlPreview(result.localPath, docTitle);
         return;
       }
       const isText: boolean = mime.startsWith('text/') || mime.indexOf('json') >= 0
@@ -1804,7 +1832,9 @@ export struct ConversationPage {
 
   /** 路径里的文件名（链接标题缺失时兜底） */
   private fileNameOf(path: string): string {
-    const index: number = path.lastIndexOf('/');
+    const slash: number = path.lastIndexOf('/');
+    const backslash: number = path.lastIndexOf('\\');
+    const index: number = slash > backslash ? slash : backslash;
     return index >= 0 && index + 1 < path.length ? path.substring(index + 1) : path;
   }
 
@@ -1853,9 +1883,16 @@ export struct ConversationPage {
       return;
     }
     const lower: string = target.toLowerCase();
-    if (lower.startsWith('#') || lower.startsWith('http://') || lower.startsWith('https://')
-      || lower.startsWith('mailto:') || lower.startsWith('tel:') || lower.startsWith('data:')) {
+    if (target.startsWith('#') || lower.startsWith('mailto:') || lower.startsWith('tel:')
+      || lower.startsWith('data:')) {
+      // 页内锚点 / 邮件 / 电话等：保持原来的复制弹窗
       this.showWebLinkDialog(text.trim(), target);
+      return;
+    }
+    if (lower.startsWith('http://') || lower.startsWith('https://')) {
+      // 网页：底部弹窗里用 Web 组件直接渲染（与本地 html 同一套），不再跳浏览器、也不只弹复制
+      const title: string = text.trim().length > 0 && text.trim() !== target ? text.trim() : this.webHostOf(target);
+      this.openHtmlPreview(target, title);
       return;
     }
     let path: string = target;
@@ -1877,6 +1914,14 @@ export struct ConversationPage {
     const requested: string = path.trim();
     if (requested.length === 0) {
       this.showWebLinkDialog(text.trim(), target);
+      return;
+    }
+    // html / pdf / 图片 / Office：直接走文件预览弹窗（各格式有自己的渲染方式），
+    // 不再落进「只支持文本」的提示里
+    const ext: string = this.extOfPath(requested);
+    if (this.isRichPreviewExt(ext)) {
+      const richTitle: string = text.trim().length > 0 ? text.trim() : this.fileNameOf(requested);
+      await this.openFileContent(richTitle, requested, '');
       return;
     }
     this.linkPreviewTitle = text.trim().length > 0 ? text.trim() : this.fileNameOf(requested);
@@ -1972,6 +2017,71 @@ export struct ConversationPage {
     return name.toLowerCase().endsWith('.pdf');
   }
 
+  /** 网页文件：半模态里用 Web 组件渲染而不是当纯文本列出来 */
+  private isHtmlFile(name: string): boolean {
+    return /\.(html?|xhtml)$/i.test(name.trim());
+  }
+
+  /** 打开网页预览弹窗：本地文件转 file://，http(s) 直接交给 Web 组件 */
+  private openHtmlPreview(target: string, title: string): void {
+    if (target.length === 0) {
+      return;
+    }
+    const lower: string = target.toLowerCase();
+    const url: string = (lower.startsWith('file://') || lower.startsWith('http://') || lower.startsWith('https://'))
+      ? target : 'file://' + target;
+    this.htmlPreviewTitle = title;
+    this.htmlPreviewUrl = url;
+    this.htmlPreviewOpen = true;
+  }
+
+  /** 网页链接的兜底标题：取域名 */
+  private webHostOf(target: string): string {
+    const start: number = target.indexOf('//');
+    const rest: string = start >= 0 ? target.substring(start + 2) : target;
+    const slash: number = rest.indexOf('/');
+    return slash > 0 ? rest.substring(0, slash) : rest;
+  }
+
+  /**
+   * 把正文里的路径解析成网关能下载的路径：
+   * DSH 主机给的常是绝对路径（D:\\...、/tmp/...），先让网关换成工作区相对路径；
+   * 解析不出来就按原样继续（可能本来就是相对路径）。
+   */
+  private async resolveDownloadPath(sessionId: string, requested: string): Promise<string> {
+    try {
+      const frame: GatewayFrame = await GatewayClient.get().resolveFile(sessionId, requested);
+      const resolved: string | undefined = str(frame, 'path');
+      if (resolved !== undefined && resolved.length > 0) {
+        return resolved;
+      }
+    } catch (err) {
+    }
+    return requested;
+  }
+
+  /** 扩展名（小写，不含点） */
+  private extOfPath(path: string): string {
+    const normalized: string = path.replace(/\\/g, '/');
+    const cut: number = normalized.lastIndexOf('/');
+    const base: string = cut >= 0 ? normalized.substring(cut + 1) : normalized;
+    const dot: number = base.lastIndexOf('.');
+    return dot >= 0 ? base.substring(dot + 1).toLowerCase() : '';
+  }
+
+  /** 需要按格式在弹窗里渲染的类型（html / pdf / 图片 / Office），不走纯文本预览 */
+  private isRichPreviewExt(ext: string): boolean {
+    if (ext === 'html' || ext === 'htm' || ext === 'xhtml' || ext === 'pdf') {
+      return true;
+    }
+    if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif' || ext === 'webp'
+      || ext === 'svg' || ext === 'bmp' || ext === 'heic') {
+      return true;
+    }
+    return ext === 'doc' || ext === 'docx' || ext === 'xls' || ext === 'xlsx' || ext === 'ppt'
+      || ext === 'pptx';
+  }
+
   /** 下载完的 PDF：在应用内半模态里用 PdfView 渲染（不跳系统预览） */
   private openPdfPreview(localPath: string, title: string): void {
     this.filePdfName = title;
@@ -2048,6 +2158,62 @@ export struct ConversationPage {
     .width('100%')
     .height('100%')
     .padding({ left: 16, right: 16, top: 4, bottom: 16 })
+  }
+
+  /** 网页预览弹窗：半模态 + 沉浸玻璃，内容交给 Web 组件渲染本地 HTML（完整 CSS/JS） */
+  @Builder
+  htmlPreviewSheet() {
+    Column() {
+      Row() {
+        Column()
+          .width(36)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.28)' : 'rgba(16,19,24,0.18)')
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.Center)
+      .padding({ top: 8, bottom: 2 })
+
+      Row({ space: 8 }) {
+        // 与文件卡片同一枚网页图标，弹窗标题行保持一致
+        Image($r('app.media.ficon_html'))
+          .width(22)
+          .height(22)
+          .objectFit(ImageFit.Contain)
+        Text(this.htmlPreviewTitle)
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.textColor())
+          .layoutWeight(1)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text('关闭')
+          .fontSize(14)
+          .fontColor('#2E6BE6')
+          .onClick(() => {
+            this.htmlPreviewOpen = false;
+          })
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 12, bottom: 8 })
+
+      if (this.htmlPreviewUrl.length > 0) {
+        Web({ src: this.htmlPreviewUrl, controller: this.htmlWebController })
+          .width('100%')
+          .layoutWeight(1)
+          // 本地 HTML 需要文件访问权限；同时放开脚本与本地存储，页面里的交互与缓存才生效
+          .fileAccess(true)
+          .javaScriptAccess(true)
+          .domStorageAccess(true)
+          .backgroundColor(Color.Transparent)
+          .borderRadius(12)
+          .clip(true)
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .padding({ left: 12, right: 12, top: 4, bottom: 16 })
   }
 
   /** 文件差异弹窗内容：原生沉浸玻璃半模态（与工作区文件/切换主机同款系统材质） */
@@ -4103,6 +4269,26 @@ export struct ConversationPage {
     this.hint = body.length > 240 ? body.substring(0, 240) + '…' : body;
   }
 
+  /** 会话正文/用户气泡字号档位（设置页「字号大小」），弹窗里与正文保持一致 */
+  @StorageProp('contentFontSize') contentFontSizeMode: string = '标准';
+  /** 弹窗正文用 Markdown 渲染时的图片代次（与正文同一套缓存） */
+  private imageRevisionForSheet: number = 0;
+
+  /** 正文字号（与 ConversationRowView.contentSize 同一套档位映射） */
+  private bodyFontSize(): number {
+    const mode: string = this.contentFontSizeMode;
+    if (mode === '小') {
+      return 13;
+    }
+    if (mode === '大') {
+      return 16;
+    }
+    if (mode === '特大') {
+      return 17;
+    }
+    return 14;
+  }
+
   /** 长按回复文本 → 底部弹窗：正文可长按选中，右上角一键复制全文 */
   @Builder
   replySheet() {
@@ -4146,12 +4332,19 @@ export struct ConversationPage {
         .padding({ left: 20, right: 20, bottom: 10 })
 
       Scroll() {
-        Text(this.replySheetText)
-          .fontSize(15)
-          .lineHeight(23)
-          .fontColor(this.textColor())
-          .copyOption(CopyOptions.LocalDevice)
-          .width('100%')
+        // 按原回复的样式渲染（Markdown：标题/列表/代码块/粗体/行内代码等），
+        // 不再统一压成一段纯文本；字号与正文一致。
+        Column() {
+          MarkdownBodyView({
+            text: this.replySheetText,
+            fontSize: this.bodyFontSize(),
+            imageRevision: this.imageRevisionForSheet,
+            // 弹窗里要能长按选中文字再复制（正文行长按是打开本弹窗的手势，那边保持默认关闭）
+            selectable: true
+          })
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
       }
       .layoutWeight(1)
       .width('100%')
@@ -6725,6 +6918,12 @@ export struct ConversationPage {
   private keyboardHeightCallback: ((height: number) => void) | null = null;
   /** 键盘高度归 0 后的确认定时器（过滤过渡期的瞬时 0） */
   private keyboardCollapseTimer: number = -1;
+  /** 键盘高度变化计数：传给输入条，用来关掉「保持输入法」弹层 */
+  @State menuCloseSignal: number = 0;
+  /** 输入条自绘弹层是否打开：打开时收起键盘，输入条不折叠 */
+  private composerMenuOpen: boolean = false;
+  /** 输入条新版布局（设置开关）：三个独立玻璃块，不再用整体胶囊背板 */
+  @StorageLink(COMPOSER_COMPACT_KEY) composerCompactStyle: boolean = COMPOSER_COMPACT_DEFAULT;
   /** 最近一次手指落在输入条内部的时间：这类触摸不该触发任何折叠 */
   private lastInsideComposerTouchAt: number = 0;
   /**
@@ -6754,6 +6953,8 @@ export struct ConversationPage {
     let lastHeight: number = 0;
     const cb = (height: number): void => {
       const wasShown: boolean = lastHeight > 0;
+      // 弹层开着时收起键盘：只关弹层，输入条保持展开（不折叠）
+      const menuWasOpen: boolean = this.composerMenuOpen;
       lastHeight = height;
       if (height > 0) {
         if (this.keyboardCollapseTimer >= 0) {
@@ -6771,9 +6972,16 @@ export struct ConversationPage {
       }
       this.keyboardCollapseTimer = setTimeout(() => {
         this.keyboardCollapseTimer = -1;
-        if (lastHeight <= 0) {
-          this.collapseComposer();
+        if (lastHeight > 0) {
+          return;
         }
+        // 弹层刚才开着：只关弹层（信号），输入条保持展开，不折叠
+        if (menuWasOpen) {
+          this.menuCloseSignal = this.menuCloseSignal + 1;
+          this.composerFocused = true;
+          return;
+        }
+        this.collapseComposer();
       }, 60);
     };
     this.keyboardHeightCallback = cb;
@@ -6956,6 +7164,10 @@ export struct ConversationPage {
           }
           ConversationComposer({
             isDark: this.isDark,
+            menuCloseSignal: this.menuCloseSignal,
+            onMenuVisibilityChange: (open: boolean) => {
+              this.composerMenuOpen = open;
+            },
             draft: this.draft,
             placeholder: this.composerPlaceholder(),
             connected: this.connection === 'connected',
@@ -7308,7 +7520,8 @@ export struct ConversationPage {
       // 只在收起态显示：展开态用修改前那张卡片（半透明底 + 细亮边），
       // 两个轮廓叠在一起会在卡片圆角处露出胶囊的弧线。
       Column() {
-        if (this.sessionTab === 0) {
+        // 新版布局（设置开关）三块各自出玻璃，不再要这层整体胶囊背板
+        if (this.sessionTab === 0 && !this.composerCompactStyle) {
           this.dockAsFloatingGlass()
         }
       }
@@ -7417,6 +7630,24 @@ export struct ConversationPage {
             } catch (ignored) {
             }
             this.filePdfError = '';
+          }
+        })
+
+      // 网页预览弹窗：同款系统半模态，Web 组件渲染本地 HTML（完整 CSS/JS）
+      Column()
+        .width(1)
+        .height(1)
+        .opacity(0.01)
+        .bindSheet($$this.htmlPreviewOpen, this.htmlPreviewSheet(), {
+          height: '92%',
+          dragBar: false,
+          showClose: false,
+          preferType: SheetType.BOTTOM,
+          backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
+          systemMaterial: this.teamSheetMaterial(),
+          onDisappear: () => {
+            this.htmlPreviewUrl = '';
+            this.htmlPreviewTitle = '';
           }
         })
 

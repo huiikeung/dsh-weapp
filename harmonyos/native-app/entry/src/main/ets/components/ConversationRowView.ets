@@ -389,6 +389,26 @@ export struct ConversationRowView {
     return index < parts.length ? parts[index] : '';
   }
 
+  /** 路径最后一段（Windows 的 \\ 与 / 都认） */
+  private fileShortName(path: string): string {
+    const normalized: string = path.replace(/\\/g, '/');
+    const cut: number = normalized.lastIndexOf('/');
+    const base: string = cut >= 0 ? normalized.substring(cut + 1) : normalized;
+    return base.length > 0 ? base : normalized;
+  }
+
+  /** 卡片标题用的文件名：chip 里的 name 缺失或本身就是整条路径时，退回路径最后一段 */
+  private fileTitleOf(chip: string): string {
+    const name: string = this.fileAt(chip, 1);
+    if (name.length === 0 || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 || name.indexOf(':') >= 0) {
+      const path: string = this.filePathOf(chip);
+      if (path.length > 0) {
+        return this.fileShortName(path);
+      }
+    }
+    return name;
+  }
+
   private filePathOf(chip: string): string {
     return this.fileAt(chip, 0).length > 0 ? this.fileAt(chip, 0) : this.fileAt(chip, 2);
   }
@@ -426,7 +446,7 @@ export struct ConversationRowView {
   /** 卡片标题：单文件「已编辑 xxx.ets」，多文件「已编辑 N 个文件」（对齐小程序 decorateChanges） */
   private filesTitle(): string {
     if (this.fileCards.length === 1) {
-      return '已编辑 ' + this.fileAt(this.fileCards[0], 1);
+      return '已编辑 ' + this.fileTitleOf(this.fileCards[0]);
     }
     return '已编辑 ' + this.fileCards.length.toString() + ' 个文件';
   }
@@ -481,17 +501,17 @@ export struct ConversationRowView {
       .flexShrink(0)
 
       Column({ space: 3 }) {
-        Text(this.fileAt(chip, 1).length > 0 ? this.fileAt(chip, 1) : this.filePathOf(chip))
-          .fontSize(17)
-          .lineHeight(22)
+          Text(this.fileTitleOf(chip))
+          .fontSize(this.contentSize())
+          .lineHeight(this.contentSize() + 4)
           .fontWeight(FontWeight.Medium)
           .fontColor(this.primaryText())
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
         Text(this.deliverableSubtitle(chip))
-          .fontSize(14)
-          .lineHeight(19)
+          .fontSize(this.contentSize() - 2)
+          .lineHeight(this.contentSize() + 2)
           .fontColor(this.secondaryText())
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -540,6 +560,9 @@ export struct ConversationRowView {
     }
     if (kind === 'txt') {
       return '文本文件';
+    }
+    if (kind === 'html') {
+      return '网页';
     }
     if (kind === 'code') {
       return '代码文件';
@@ -669,7 +692,7 @@ export struct ConversationRowView {
                       .objectFit(ImageFit.Contain)
                       .flexShrink(0)
                     Column({ space: this.rpx(4) }) {
-                      Text(this.fileAt(chip, 1))
+                    Text(this.fileTitleOf(chip))
                         .fontSize(this.rpx(26))
                         .lineHeight(this.rpx(26) * 1.5)
                         .fontColor(this.primaryText())
@@ -874,16 +897,16 @@ export struct ConversationRowView {
 
       Column({ space: 3 }) {
         Text(this.attachmentName(chip))
-          .fontSize(17)
-          .lineHeight(22)
+          .fontSize(this.contentSize())
+          .lineHeight(this.contentSize() + 4)
           .fontWeight(FontWeight.Medium)
           .fontColor(this.primaryText())
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
         Text(this.sentFileSubtitle(chip))
-          .fontSize(14)
-          .lineHeight(19)
+          .fontSize(this.contentSize() - 2)
+          .lineHeight(this.contentSize() + 2)
           .fontColor(this.secondaryText())
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -924,16 +947,16 @@ export struct ConversationRowView {
 
       Column({ space: 3 }) {
         Text(this.attachmentName(chip))
-          .fontSize(17)
-          .lineHeight(22)
+          .fontSize(this.contentSize())
+          .lineHeight(this.contentSize() + 4)
           .fontWeight(FontWeight.Medium)
           .fontColor(this.primaryText())
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
         Text(this.fileReferenceSubtitle(chip))
-          .fontSize(14)
-          .lineHeight(19)
+          .fontSize(this.contentSize() - 2)
+          .lineHeight(this.contentSize() + 2)
           .fontColor(this.secondaryText())
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -1013,6 +1036,9 @@ export struct ConversationRowView {
     if (kind === 'txt') {
       return '文本文件';
     }
+    if (kind === 'html') {
+      return '网页';
+    }
     if (kind === 'code') {
       return '代码文件';
     }
@@ -1049,9 +1075,18 @@ export struct ConversationRowView {
     return parts.length > 5 ? parts[5] : '';
   }
 
+  /** 附件文件名：name 字段缺失或就是路径时，退回路径最后一段（避免标题显示整条 C:\\...） */
   private attachmentName(chip: string): string {
     const parts: string[] = chip.split('\u0001');
-    return parts.length > 1 ? parts[1] : chip;
+    const name: string = parts.length > 1 ? parts[1] : '';
+    const path: string = parts.length > 2 ? parts[2] : '';
+    if (name.length > 0 && name.indexOf('/') < 0 && name.indexOf('\\') < 0 && name.indexOf(':') < 0) {
+      return name;
+    }
+    if (path.length > 0) {
+      return this.fileShortName(path);
+    }
+    return name.length > 0 ? name : chip;
   }
 
   private attachmentPath(chip: string): string {
