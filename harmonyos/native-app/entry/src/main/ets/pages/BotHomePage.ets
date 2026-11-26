@@ -1597,10 +1597,18 @@ export struct BotHomePage {
       }
       .width('100%')
       .justifyContent(FlexAlign.Center)
-      .padding({ top: 8, bottom: 14 })
+      // 标题上提：拖动条下方少留一点，标题与「关闭」同一行
+      .padding({ top: 6, bottom: 8 })
 
-      // 工具条：关闭固定在左上角（与角色名片弹窗一致）
+      // 工具条：左「定时任务」标题 + 右「关闭」（关闭固定在右上角）
       Row() {
+        Text('定时任务')
+          .fontSize(22)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.ink())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Blank()
         Row() {
           Text('关闭')
             .fontSize(13)
@@ -1619,59 +1627,55 @@ export struct BotHomePage {
         .onClick(() => {
           this.scheduleOpen = false;
         })
-        Blank()
       }
       .width('100%')
-      .height(40)
+      .height(44)
       .alignItems(VerticalAlign.Center)
-
-      Row() {
-        Text('定时任务')
-          .fontSize(22)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.ink())
-        Blank()
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-      .margin({ top: 2 })
 
       Text('让助理按时替你做事。')
         .fontSize(15)
         .fontColor(this.secondaryText())
         .width('100%')
-        .margin({ top: 4, bottom: 18 })
+        .margin({ top: 2, bottom: 16 })
 
-      if (this.state.schedules.length === 0) {
-        Column() {
-          Text(this.scheduleStateText())
-            .fontSize(15)
-            .fontColor(this.secondaryText())
-            .width('100%')
+      // 中间内容撑满剩余高度：底部那句「完成后…」才会一直贴在弹窗页面底部
+      Column() {
+        if (this.state.schedules.length === 0) {
+          Column() {
+            Text(this.scheduleStateText())
+              .fontSize(15)
+              .fontColor(this.secondaryText())
+              .width('100%')
+          }
+          .width('100%')
+          .padding(16)
+          .backgroundColor(this.cardSolid())
+          .borderRadius(20)
+          .border({ width: 1, color: this.rimColor() })
+        } else {
+          List({ space: 12 }) {
+            ForEach(this.state.schedules, (task: BotSchedule) => {
+              ListItem() {
+                this.scheduleRow(task)
+              }
+            }, (task: BotSchedule) => task.id)
+          }
+          .width('100%')
+          .height('100%')
+          .scrollBar(BarState.Off)
         }
-        .width('100%')
-        .padding(16)
-        .backgroundColor(this.cardSolid())
-        .borderRadius(20)
-        .border({ width: 1, color: this.rimColor() })
-      } else {
-        List({ space: 12 }) {
-          ForEach(this.state.schedules, (task: BotSchedule) => {
-            ListItem() {
-              this.scheduleRow(task)
-            }
-          }, (task: BotSchedule) => task.id)
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .scrollBar(BarState.Off)
       }
+      .width('100%')
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
 
+      // 底部说明（固定在弹窗页面底部）
       Text('完成后，' + this.chiefName() + ' 会在聊天里告诉你。')
         .fontSize(12)
         .fontColor(this.secondaryText())
         .width('100%')
-        .margin({ top: 16 })
+        .textAlign(TextAlign.Center)
+        .margin({ top: 12 })
     }
     .width('100%')
     .height('100%')
