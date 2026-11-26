@@ -432,7 +432,12 @@ export class MarkdownLite {
     }
     MarkdownLite.push(spans, buffer, 'plain', '');
     // 裸的本地网页路径（不带 http/https）单独切成 htmlpath 片段：正文里按普通文字 + 背景卡片渲染
-    return MarkdownLite.splitLocalHtmlPaths(MarkdownLite.autoLinkFiles(spans));
+    // 只按「源码里真的写了链接」渲染可点：
+    //   · `[文字](地址)` / `[文件名.xlsx]` → link
+    //   · 裸文件名（哪怕加粗）→ 纯文字
+    // 桌面端就是这样：正文里黑体的文件名是普通文字，能点的只有真正带了链接的；
+    // 之前这里还会把裸文件名自动转成 link，结果和上面的「文档卡片」重复，还点得出预览。
+    return MarkdownLite.splitLocalHtmlPaths(spans);
   }
 
 
