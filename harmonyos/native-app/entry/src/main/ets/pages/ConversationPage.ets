@@ -4428,6 +4428,7 @@ export struct ConversationPage {
       refPrefix += chip.token + ' ';
     }
     const text: string = (refPrefix + typed).trim();
+    this.sendDiag('ENTER sending=' + (this.sending ? '1' : '0') + ' textLen=' + text.length.toString());
     Logger.info('[SEND] enter sending=' + (this.sending ? '1' : '0') + ' textLen=' + text.length.toString()
       + ' picked=' + this.pickedAttachments.length.toString());
     // 上一次发送如果卡在发图转码（无超时）会一直占着 sending，导致此后每次点发送都静默返回、
@@ -4490,6 +4491,8 @@ export struct ConversationPage {
       const sessionBusyNow: boolean = SessionStore.get().isSessionBusy();
       const sendMode: string = (sessionBusyNow && imagePayloads.length > 0) ? 'steer' : '';
       Logger.info('[SEND] busy=' + (sessionBusyNow ? '1' : '0') + ' mode=' + (sendMode.length > 0 ? sendMode : 'queue'));
+      this.sendDiag('PLAN images=' + imagePayloads.length.toString() + ' receipts=' + fileAttachments.length.toString()
+        + ' busy=' + (sessionBusyNow ? '1' : '0') + ' mode=' + (sendMode.length > 0 ? sendMode : 'queue'));
       const uploaded: UploadResult[] = [];
       for (const attachment of fileAttachments) {
         if (client.generation() !== generation || sessionId !== SessionStore.get().currentSessionId()) {
@@ -4543,6 +4546,7 @@ export struct ConversationPage {
         if (ack === undefined) {
           throw new Error(lastError.length > 0 ? lastError : '发送超时');
         }
+        this.sendDiag('ACK kind=' + ack.kind + ' mode=' + (ack.mode ?? ''));
         Logger.info('[SEND] media send ack kind=' + ack.kind + ' mode=' + (ack.mode ?? '')
           + ' session=' + (ack.sessionId ?? '').slice(-8));
         if (ack.sessionId !== sessionId) {
@@ -4570,6 +4574,7 @@ export struct ConversationPage {
       }
       // 乐观回显（对齐小程序 store.appendLocalUserRow）：发送成功即本地插入用户气泡，
       // 真实 user/message 到达时由 adoptOptimisticUser 交棒；排队消息由队列行呈现，不重复插。
+      this.sendDiag('OK sid=' + sessionId.slice(-8) + ' len=' + text.length.toString());
       Logger.info('[SEND] ok sid=' + sessionId.slice(-8) + ' running=' + (sessionBusy ? '1' : '0')
         + ' optimistic=' + (!sessionBusy ? '1' : '0') + ' len=' + text.length.toString());
       // 这次发送带图时先记下本地图片 uri：如果主机把它排进队列（运行中/忙），
@@ -5079,6 +5084,7 @@ export struct ConversationPage {
       const localized: PickedAttachment[] = this.localizePickedImages(picked);
       this.pickedAttachments = localized;
       Logger.info('[PICK] images attached n=' + localized.length.toString());
+      this.sendDiag('PICK images n=' + localized.length.toString());
       this.attachmentHint = localized.length > 0 ? '已选择 ' + localized.length + ' 张图片' : '';
       if (localized.length === 0) {
         this.pickerToast('没有选到图片');
@@ -5142,6 +5148,28 @@ export struct ConversationPage {
     return out;
   }
 
+  /**
+   * 发图/发文件链路的持久化诊断日志（hilog 缓冲秒级滚动，抓不到现场）。
+   * 写到 cacheDir/send-diag.log，可用 hdc 直接拉出来看。
+   */
+  private sendDiag(line: string): void {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const path: string = context.cacheDir + '/send-diag.log';
+      const stamp: string = new Date().toISOString().substring(11, 23);
+      const text: string = stamp + ' ' + line + '\n';
+      let file: fileIo.File | undefined = undefined;
+      try {
+        file = fileIo.openSync(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.APPEND);
+      } catch (openError) {
+        file = fileIo.openSync(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+      }
+      fileIo.writeSync(file.fd, text);
+      fileIo.closeSync(file);
+    } catch (error) {
+    }
+  }
+
   /** 选择器相关的轻提示：失败必须可见，否则用户只会觉得「点了没反应」 */
   private pickerToast(message: string): void {
     try {
@@ -5155,6 +5183,7 @@ export struct ConversationPage {
       const context = getContext(this) as common.UIAbilityContext;
       Logger.info('[PICK] docs start');
       const picked: PickedAttachment[] = await pickDocuments(context, 4);
+      this.sendDiag('PICK docs n=' + picked.length.toString());
       Logger.info('[PICK] docs returned n=' + picked.length.toString()
         + (picked.length > 0 ? ' first=' + picked[0].name + ' uri=' + picked[0].uri.substring(0, 40) : ''));
       this.pickedAttachments = picked;
