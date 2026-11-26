@@ -1,7 +1,7 @@
 import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 import { uiMaterial } from '@kit.ArkUI';
-import { GatewayClient, OfficialPluginItem, PluginItem, parseNamespace } from 'nativecore';
+import { GatewayClient, Logger, OfficialPluginItem, PluginItem, parseNamespace } from 'nativecore';
 import { MarkdownBodyView } from '../components/MarkdownBodyView';
 import type { PluginNamespace } from 'nativecore';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
@@ -23,6 +23,8 @@ interface MarketIndex {
   label: string;
   url: string;
   error: string;
+  /** 主机索引元数据里的描述（对齐 dsh 端：标题 + 描述） */
+  description: string;
 }
 
 interface EntryRow {
@@ -91,6 +93,11 @@ export struct PluginsPage {
   @State registryMenuOpen: boolean = false;
   @State registryLoading: boolean = false;
   @State registryError: string = '';
+  // 发现页：索引源管理弹层（对齐小程序 sources dialog）
+  @State sourcesOpen: boolean = false;
+  @State sourceDraft: string = '';
+  @State sourceSaving: boolean = false;
+  @State marketMenuOpen: boolean = false;
   @State addEnableAfter: boolean = true;
   @State addBusy: boolean = false;
   @State addStatus: string = '';
@@ -113,8 +120,13 @@ export struct PluginsPage {
   @State detailEnabled: boolean = false;
   @State detailEntries: EntryRow[] = [];
   @State detailBusy: boolean = false;
+  @State detailUpdating: boolean = false;
   @State detailError: string = '';
   @State detailUpdateAvailable: boolean = false;
+  /** 版本更新状态机：''=未检查 checking latest available updating done error */
+  @State detailCheckState: string = '';
+  @State detailNewVersion: string = '';
+  @State detailUpdateNote: string = '';
   @State detailMarkdown: string = '';
   @State detailKind: string = '';
   @State detailFields: PluginField[] = [];
@@ -495,10 +507,17 @@ export struct PluginsPage {
         this.addStatus = '';
         this.loadRegistryOptions();
       })
+      // 「添加插件」文字与右侧箭头之间的竖向分隔线（对齐 dsh 桌面端的拆分按钮）
+      Column()
+        .width(1)
+        .height(14)
+        .backgroundColor(this.isDark ? 'rgba(143,180,242,0.35)' : 'rgba(46,107,230,0.28)')
       Row() {
+        // 展开菜单，箭头朝下（资源默认朝右）
         Image($r('app.media.ic_dir_chevron_mist'))
           .width(10)
           .height(10)
+          .rotate({ angle: 90 })
           .colorFilter(this.iconTint(this.accent()))
       }
       .width(28)
@@ -870,6 +889,46 @@ export struct PluginsPage {
               .width('100%')
           }
 
+          // 版本更新卡（对齐 dsh 端详情：检查更新 / 已是最新 / 可更新到 x / 更新）
+          if (this.detailKind === '') {
+            Column({ space: 8 }) {
+              Row() {
+                Column({ space: 2 }) {
+                  Text('版本更新').fontSize(14).fontColor(this.textColor())
+                  Text(this.updateStateText())
+                    .fontSize(11)
+                    .fontColor(this.detailCheckState === 'error' ? '#FF3B30' : this.subColor())
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+                if (this.detailUpdating || this.detailCheckState === 'checking') {
+                  LoadingProgress().width(18).height(18).color(this.subColor())
+                } else if (this.detailCheckState === 'available') {
+                  Text('更新')
+                    .fontSize(13)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(this.accent())
+                    .onClick(() => {
+                      this.runDetailUpdate();
+                    })
+                } else {
+                  Text('检查更新')
+                    .fontSize(13)
+                    .fontColor(this.accent())
+                    .onClick(() => {
+                      this.checkDetailUpdate();
+                    })
+                }
+              }
+              .width('100%')
+              .alignItems(VerticalAlign.Center)
+            }
+            .width('100%')
+            .padding(12)
+            .borderRadius(12)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)')
+          }
+
           if (this.detailKind === 'web-search') {
             Column({ space: 10 }) {
               Row() {
@@ -1214,47 +1273,17 @@ export struct PluginsPage {
             .fontSize(12)
             .fontColor(this.subColor())
             .textAlign(TextAlign.Center)
-          Row({ space: 8 }) {
-            if (this.marketSourceOpen) {
-              TextInput({ text: this.marketSourceInput, placeholder: 'https://example.com/index.json' })
-                .fontSize(13)
-                .fontColor(this.textColor())
-                .placeholderColor(this.subColor())
-                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)')
-                .borderRadius(8)
-                .height(38)
-                .layoutWeight(1)
-                .onChange((value: string) => {
-                  this.marketSourceInput = value;
-                })
-              Text('添加')
-                .fontSize(13)
-                .fontColor('#FFFFFF')
-                .height(38)
-                .padding({ left: 12, right: 12 })
-                .textAlign(TextAlign.Center)
-                .borderRadius(8)
-                .backgroundColor(this.accent())
-                .onClick(() => {
-                  this.addMarketSource();
-                })
-            } else {
-              Text('＋ 添加索引源')
-                .fontSize(13)
-                .fontColor(this.accent())
-                .height(38)
-                .padding({ left: 14, right: 14 })
-                .textAlign(TextAlign.Center)
-                .borderRadius(8)
-                .backgroundColor(this.isDark ? 'rgba(46,107,230,0.18)' : 'rgba(46,107,230,0.10)')
-                .onClick(() => {
-                  this.marketSourceOpen = true;
-                })
-            }
-          }
-          .width('100%')
-          .padding({ left: 24, right: 24 })
-          .justifyContent(FlexAlign.Center)
+          Text('＋ 添加索引源')
+            .fontSize(13)
+            .fontColor(this.accent())
+            .height(38)
+            .padding({ left: 14, right: 14 })
+            .textAlign(TextAlign.Center)
+            .borderRadius(8)
+            .backgroundColor(this.isDark ? 'rgba(46,107,230,0.18)' : 'rgba(46,107,230,0.10)')
+            .onClick(() => {
+              this.sourcesOpen = true;
+            })
         }
         .width('100%')
         .padding({ top: 40, bottom: 40 })
@@ -1278,10 +1307,14 @@ export struct PluginsPage {
           .borderRadius(8)
           .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)')
           .onClick(() => {
-            this.marketSelected = '';
-            this.marketLabel = '';
-            this.marketEntries = [];
-            this.loadMarketIndexes();
+            this.marketMenuOpen = !this.marketMenuOpen;
+          })
+          // 切换市场 + 管理索引源（对齐小程序 market picker menu）
+          .bindMenu(this.marketMenuOpen, this.marketMenuBuilder(), {
+            placement: Placement.BottomLeft,
+            onDisappear: () => {
+              this.marketMenuOpen = false;
+            }
           })
           TextInput({ text: this.marketQuery, placeholder: '搜索插件' })
             .fontSize(13)
@@ -1481,6 +1514,18 @@ export struct PluginsPage {
         .scrollBar(BarState.Off)
         // 平板/宽屏：与其它设置页一致，插件列表居中一栏（对齐 iOS iPad）
         .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
+        // 索引源管理弹层（对齐小程序 sources dialog）
+        .bindSheet($$this.sourcesOpen, this.sourcesSheetContent(), {
+          height: '62%',
+          dragBar: false,
+          showClose: false,
+          preferType: SheetType.BOTTOM,
+          backgroundColor: this.sheetMaterial() !== undefined ? Color.Transparent : (this.isDark ? '#1C1C1E' : '#F7F8FA'),
+          systemMaterial: this.sheetMaterial(),
+          onDisappear: () => {
+            this.sourcesOpen = false;
+          }
+        })
         .align(Alignment.Top)
         .bindSheet($$this.detailOpen, this.detailSheetContent(), {
           height: '85%',
@@ -1541,9 +1586,12 @@ export struct PluginsPage {
       const list: MarketIndex[] = [];
       // 网关实际形状：{ kind, requestId, result: [{ url, title: {en,zh}, description: {en,zh}, error? }] }
       // （兼容老形状 result.indexes / sources，以及纯字符串数组）
+      // 兼容三种形态：整帧 {result:[…]}、已解包的数组、{indexes:[…]}/{sources:[…]}
       const resultValue: Object = rec['result'];
       let rows: Object[] = [];
-      if (Array.isArray(resultValue)) {
+      if (Array.isArray(frame)) {
+        rows = frame as Object[];
+      } else if (Array.isArray(resultValue)) {
         rows = resultValue as Object[];
       } else if (resultValue !== undefined && resultValue !== null) {
         const nested: Record<string, Object> = this.asRecord(resultValue);
@@ -1556,7 +1604,7 @@ export struct PluginsPage {
         if (typeof raw === 'string') {
           const plain: string = raw as string;
           if (plain.length > 0) {
-            list.push({ label: plain, url: plain, error: '' });
+            list.push({ label: plain, url: plain, error: '', description: '' });
           }
           continue;
         }
@@ -1564,15 +1612,26 @@ export struct PluginsPage {
         const url: string = this.strField(item, 'url');
         if (url.length > 0) {
           const title: string = this.localizedField(item, 'title');
+          const description: string = this.localizedField(item, 'description');
           const error: string = this.localizedField(item, 'error');
-          list.push({ label: title.length > 0 ? title : url, url: url, error: error });
+          list.push({
+            label: title.length > 0 ? title : url,
+            url: url,
+            error: error,
+            description: description
+          });
         }
       }
       for (const raw of this.arrField(rec, 'sources')) {
         const item: Record<string, Object> = this.asRecord(raw);
         const url: string = this.strField(item, 'url');
         if (url.length > 0 && list.filter((x: MarketIndex) => x.url === url).length === 0) {
-          list.push({ label: this.strField(item, 'label'), url: url, error: this.strField(item, 'error') });
+          list.push({
+            label: this.strField(item, 'label'),
+            url: url,
+            error: this.strField(item, 'error'),
+            description: ''
+          });
         }
       }
       this.marketIndexes = list;
@@ -1597,7 +1656,10 @@ export struct PluginsPage {
     GatewayClient.get().searchMarket(this.marketSelected, this.marketQuery.trim(), '', cursor, 30).then((frame) => {
       const rec: Record<string, Object> = this.asRecord(frame);
       // 网关实际形状：{ result: { url, title, description, entries: [...], total, nextOffset } }
-      const result: Record<string, Object> = this.asRecord(rec['result']);
+      // 兼容整帧 {result:{entries}} 与已解包的 {entries}
+      const unwrapped: Object = rec['result'];
+      const result: Record<string, Object> = unwrapped !== undefined && !Array.isArray(unwrapped)
+        ? this.asRecord(unwrapped) : rec;
       const entries: MarketEntry[] = [];
       for (const raw of this.arrField(result, 'entries')) {
         const item: Record<string, Object> = this.asRecord(raw);
@@ -1807,6 +1869,229 @@ export struct PluginsPage {
     }
     .width(260)
     .padding({ top: 4, bottom: 4 })
+  }
+
+  /** 从索引源列表移除一条（保留其余，按 urls 数组回写） */
+  private removeMarketSource(url: string): void {
+    const urls: string[] = [];
+    for (const item of this.marketIndexes) {
+      if (item.url !== url) {
+        urls.push(item.url);
+      }
+    }
+    this.sourceSaving = true;
+    GatewayClient.get().setMarketIndexes(urls).then(() => {
+      this.sourceSaving = false;
+      this.marketSelected = '';
+      this.marketEntries = [];
+      this.loadMarketIndexes();
+    }).catch((err: Error) => {
+      this.sourceSaving = false;
+      this.marketError = err.message;
+    });
+  }
+
+  /** 管理弹层里添加索引源 */
+  private addSourceFromDraft(): void {
+    const url: string = this.sourceDraft.trim();
+    if (url.length === 0) {
+      return;
+    }
+    this.marketSourceInput = url;
+    this.addMarketSource();
+    this.sourceDraft = '';
+  }
+
+  /** 市场选择菜单：已添加的索引源 + 管理索引源（对齐小程序 market menu） */
+  @Builder
+  marketMenuBuilder() {
+    Column() {
+      ForEach(this.marketIndexes, (item: MarketIndex) => {
+        Row({ space: 8 }) {
+          Text(item.label.length > 0 ? item.label : item.url)
+            .fontSize(14)
+            .fontColor(item.url === this.marketSelected ? this.accent() : this.textColor())
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          if (item.url === this.marketSelected) {
+            Text('✓').fontSize(14).fontColor(this.accent())
+          }
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+        .onClick(() => {
+          this.marketSelected = item.url;
+          this.marketLabel = item.label.length > 0 ? item.label : item.url;
+          this.marketMenuOpen = false;
+          this.loadMarketEntries('');
+        })
+      }, (item: MarketIndex) => item.url)
+      Divider().color(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)')
+      Text('管理索引源…')
+        .fontSize(14)
+        .fontColor(this.textColor())
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+        .onClick(() => {
+          this.marketMenuOpen = false;
+          this.sourcesOpen = true;
+        })
+      Text('＋ 添加索引源')
+        .fontSize(14)
+        .fontColor(this.accent())
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+        .onClick(() => {
+          this.marketMenuOpen = false;
+          this.sourcesOpen = true;
+        })
+    }
+    .width(260)
+    .padding({ top: 4, bottom: 4 })
+  }
+
+  /** 索引源管理弹层：标题 + 列表（名称/URL/错误 + 删除）+ 添加表单 + 信任提示 */
+  @Builder
+  sourcesSheetContent() {
+    Column() {
+      Column()
+        .width(36)
+        .height(4)
+        .borderRadius(2)
+        .margin({ top: 8, bottom: 6 })
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(0,0,0,0.18)')
+
+      Row() {
+        Text('索引源').fontSize(17).fontWeight(FontWeight.Medium).fontColor(this.textColor())
+        Blank()
+        Text('×')
+          .fontSize(20)
+          .fontColor(this.subColor())
+          .width(36)
+          .height(36)
+          .textAlign(TextAlign.Center)
+          .onClick(() => {
+            this.sourcesOpen = false;
+          })
+      }
+      .width('100%')
+      .padding({ left: 18, right: 12, bottom: 4 })
+
+      Text('插件市场以一个索引文件的 URL 提供，「发现」从这里列出的索引浏览插件')
+        .fontSize(12)
+        .fontColor(this.subColor())
+        .width('100%')
+        .padding({ left: 18, right: 18, bottom: 12 })
+
+      Scroll() {
+        Column({ space: 8 }) {
+          ForEach(this.marketIndexes, (item: MarketIndex) => {
+            Row({ space: 10 }) {
+              Column({ space: 3 }) {
+                Text(item.label.length > 0 ? item.label : item.url)
+                  .fontSize(14)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(this.textColor())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                if (item.description.length > 0) {
+                  Text(item.description)
+                    .fontSize(11)
+                    .fontColor(this.subColor())
+                    .maxLines(2)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                }
+                Text(item.url)
+                  .fontSize(11)
+                  .fontColor(this.subColor())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                if (item.error.length > 0) {
+                  Text(item.error).fontSize(11).fontColor('#FF3B30')
+                }
+              }
+              .alignItems(HorizontalAlign.Start)
+              .layoutWeight(1)
+              Text('🗑')
+                .fontSize(15)
+                .fontColor(this.subColor())
+                .width(32)
+                .height(32)
+                .textAlign(TextAlign.Center)
+                .opacity(this.sourceSaving ? 0.4 : 1)
+                .onClick(() => {
+                  if (!this.sourceSaving) {
+                    this.removeMarketSource(item.url);
+                  }
+                })
+            }
+            .width('100%')
+            .padding({ left: 12, right: 8, top: 10, bottom: 10 })
+            .borderRadius(10)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)')
+            .alignItems(VerticalAlign.Center)
+          }, (item: MarketIndex) => item.url)
+        }
+        .width('100%')
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .padding({ left: 18, right: 18 })
+      .scrollBar(BarState.Off)
+      .align(Alignment.Top)
+
+      Row({ space: 8 }) {
+        TextInput({ text: this.sourceDraft, placeholder: 'https://example.com/index.json' })
+          .fontSize(13)
+          .fontColor(this.textColor())
+          .placeholderColor(this.subColor())
+          .backgroundColor('rgba(0,0,0,0)')
+          .borderRadius(8)
+          .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.12)' })
+          .height(40)
+          .layoutWeight(1)
+          .onChange((value: string) => {
+            this.sourceDraft = value;
+          })
+        Text(this.sourceSaving ? '保存中…' : '＋ 添加')
+          .fontSize(13)
+          .fontColor('#FFFFFF')
+          .height(40)
+          .padding({ left: 14, right: 14 })
+          .textAlign(TextAlign.Center)
+          .borderRadius(8)
+          .backgroundColor(this.accent())
+          .opacity(this.sourceSaving || this.sourceDraft.trim().length === 0 ? 0.5 : 1)
+          .onClick(() => {
+            if (!this.sourceSaving) {
+              this.addSourceFromDraft();
+            }
+          })
+      }
+      .width('100%')
+      .padding({ left: 18, right: 18, top: 10 })
+
+      Row({ space: 8 }) {
+        Text('!')
+          .fontSize(11)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.isDark ? '#FFB05C' : '#B26A00')
+        Text('索引由第三方提供。只添加你信任的来源：其中的插件安装后以你的权限运行')
+          .fontSize(11)
+          .lineHeight(16)
+          .fontColor(this.isDark ? '#FFB05C' : '#B26A00')
+          .layoutWeight(1)
+      }
+      .width('calc(100% - 36vp)')
+      .margin({ left: 18, right: 18, top: 12, bottom: 16 })
+      .padding(10)
+      .borderRadius(10)
+      .backgroundColor(this.isDark ? 'rgba(255,149,0,0.12)' : 'rgba(255,149,0,0.10)')
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(this.pageBg())
   }
 
   private runInstall(): void {
@@ -2170,6 +2455,9 @@ export struct PluginsPage {
     this.detailDescription = item.description;
     this.detailEnabled = item.enabled;
     this.detailUpdateAvailable = item.updateAvailable;
+    this.detailCheckState = '';
+    this.detailNewVersion = '';
+    this.detailUpdateNote = '';
     this.detailEntries = [];
     this.detailError = '';
     this.detailSaved = '';
@@ -2206,6 +2494,126 @@ export struct PluginsPage {
     }).catch((err: Error) => {
       this.detailBusy = false;
       this.detailError = err.message;
+    });
+  }
+
+  /** 版本状态文案（对齐 dsh 端详情：检查更新 / 已是最新 / 可更新到 x / 正在更新） */
+  private updateStateText(): string {
+    if (this.detailCheckState === 'checking') {
+      return '正在检查更新…';
+    }
+    if (this.detailCheckState === 'latest') {
+      return '已是最新版本';
+    }
+    if (this.detailCheckState === 'available') {
+      return '可更新到 v' + this.detailNewVersion;
+    }
+    if (this.detailCheckState === 'updating') {
+      return this.detailUpdateNote.length > 0 ? this.detailUpdateNote : '正在更新…';
+    }
+    if (this.detailCheckState === 'done') {
+      return this.detailUpdateNote;
+    }
+    if (this.detailCheckState === 'error') {
+      return this.detailUpdateNote;
+    }
+    return '检查是否有新版本';
+  }
+
+  private compareVersions(a: string, b: string): number {
+    const pa: string[] = a.split('-')[0].split('.');
+    const pb: string[] = b.split('-')[0].split('.');
+    const len: number = Math.max(pa.length, pb.length);
+    for (let i = 0; i < len; i++) {
+      const x: number = i < pa.length ? parseInt(pa[i], 10) : 0;
+      const y: number = i < pb.length ? parseInt(pb[i], 10) : 0;
+      const na: number = isNaN(x) ? 0 : x;
+      const nb: number = isNaN(y) ? 0 : y;
+      if (na > nb) return 1;
+      if (na < nb) return -1;
+    }
+    return 0;
+  }
+
+  /** 检查更新（plugin-versions）：与当前版本比较，出现更高版本时给出「更新」入口 */
+  private checkDetailUpdate(): void {
+    if (!GatewayClient.get().isConnected()) {
+      this.detailError = '未连接网关';
+      return;
+    }
+    this.detailCheckState = 'checking';
+    this.detailNewVersion = '';
+    GatewayClient.get().requestPluginVersions(this.detailName).then((frame) => {
+      const rec: Record<string, Object> = this.asRecord(frame);
+      const raw: Object | undefined = rec['result'];
+      const result: Record<string, Object> | undefined = this.asRecord(raw);
+      const versions: string[] = [];
+      let list: Object[] = [];
+      if (Array.isArray(raw)) {
+        list = raw as Object[];
+      } else if (result !== undefined && Array.isArray(result['versions'])) {
+        list = result['versions'] as Object[];
+      }
+      for (const item of list) {
+        if (typeof item === 'string') {
+          versions.push(item as string);
+          continue;
+        }
+        const one = this.asRecord(item);
+        if (one !== undefined) {
+          const v: string = this.strField(one, 'version');
+          if (v.length > 0) {
+            versions.push(v);
+          }
+        }
+      }
+      let newest: string = this.detailVersion;
+      for (const v of versions) {
+        if (this.compareVersions(v, newest) > 0) {
+          newest = v;
+        }
+      }
+      if (versions.length === 0) {
+        this.detailCheckState = 'error';
+        const refused: string = result !== undefined ? this.strField(result, 'error') ?? this.strField(result, 'message') ?? '' : '';
+        this.detailUpdateNote = refused.length > 0 ? refused : '无法检查更新';
+        return;
+      }
+      if (this.compareVersions(newest, this.detailVersion) > 0) {
+        this.detailNewVersion = newest;
+        this.detailCheckState = 'available';
+      } else {
+        this.detailCheckState = 'latest';
+      }
+    }).catch((err: Error) => {
+      this.detailCheckState = 'error';
+      this.detailUpdateNote = err.message.length > 0 ? err.message : '无法检查更新';
+    });
+  }
+
+  /** 执行更新（plugin-update）：完成后刷新目录，dsh 端会同步收到变化 */
+  private runDetailUpdate(): void {
+    if (this.detailNewVersion.length === 0 || this.detailUpdating) {
+      return;
+    }
+    if (!GatewayClient.get().isConnected()) {
+      this.detailError = '未连接网关';
+      return;
+    }
+    const to: string = this.detailNewVersion;
+    this.detailCheckState = 'updating';
+    this.detailUpdateNote = '正在更新到 v' + to + '，期间插件可能短暂停止';
+    this.detailUpdating = true;
+    GatewayClient.get().updatePlugin(this.detailName, to).then(() => {
+      this.detailUpdating = false;
+      this.detailVersion = to;
+      this.detailCheckState = 'done';
+      this.detailUpdateNote = '已更新到 v' + to;
+      this.refresh();
+    }).catch((err: Error) => {
+      this.detailUpdating = false;
+      this.detailCheckState = 'error';
+      this.detailUpdateNote = err.message.length > 0 ? err.message : '更新失败，请重试';
     });
   }
 

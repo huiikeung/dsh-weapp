@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "com.flukit.app",
     "vendor": "whaletail",
-    "versionCode": 1000108,
-    "versionName": "1.1.8",
+    "versionCode": 1000109,
+    "versionName": "1.1.9",
     "icon": "$media:app_icon",
     "label": "$string:app_name"
   }
