@@ -666,19 +666,35 @@ export struct BotChatPage {
   private onSend(): void {
     const text: string = this.draft.trim();
     const selected: PickedAttachment[] = this.pickedAttachments.slice();
-    if ((text.length === 0 && selected.length === 0) || this.sending) {
+    // 先把上一次可能卡死的发送解锁（必须在下面的 sending 判断之前，
+    // 否则上一张图卡住后 sending 永远是 true，之后每次点发送都静默 return —— 就是「点了没反应」）
+    if (this.sending && this.sendStartedAt > 0 && Date.now() - this.sendStartedAt > 60000) {
+      Logger.warn('[BOTSEND] stuck sending reset after '
+        + Math.round((Date.now() - this.sendStartedAt) / 1000).toString() + 's');
+      this.sending = false;
+      this.sendStartedAt = 0;
+    }
+    if (text.length === 0 && selected.length === 0) {
+      return;
+    }
+    if (this.sending) {
+      Logger.info('[BOTSEND] bail sending=1');
       return;
     }
     // 发消息 = 回到底部看新回复
     this.autoStick = true;
-    // 上一次卡死（超过 60s）先解锁，否则点发送永远没反应
-    if (this.sending && this.sendStartedAt > 0 && Date.now() - this.sendStartedAt > 60000) {
-      this.sending = false;
-      this.sendStartedAt = 0;
-    }
     this.sending = true;
     this.sendStartedAt = Date.now();
-    this.sendWithAttachments(text, selected).then((ok: boolean) => {
+    Logger.info('[BOTSEND] start images=' + selected.filter((one: PickedAttachment) => this.isImageAttachment(one.name)).length.toString()
+      + ' all=' + selected.length.toString());
+    // 兜底超时：任何一段（转码/上传/等主机回执）卡住都不能让 sending 一直占着
+    const sendTimeout: Promise<boolean> = new Promise<boolean>((resolve: (ok: boolean) => void) => {
+      setTimeout(() => {
+        Logger.warn('[BOTSEND] timeout 90s');
+        resolve(false);
+      }, 90000);
+    });
+    Promise.race([this.sendWithAttachments(text, selected), sendTimeout]).then((ok: boolean) => {
       this.sending = false;
       this.sendStartedAt = 0;
       if (ok) {
@@ -688,12 +704,13 @@ export struct BotChatPage {
         this.hint = '';
       } else {
         // 发送被拒/超时也要可见，不能静默变成"点了没反应"
-        this.showHint('发送失败：请检查连接后重试');
+        this.showDockToast('发送失败：请检查连接后重试', true);
       }
     }).catch((error: Error) => {
+      Logger.warn('[BOTSEND] failed: ' + error.message);
       this.sending = false;
       this.sendStartedAt = 0;
-      this.showHint('发送失败：' + error.message);
+      this.showDockToast('发送失败：' + error.message, true);
     });
   }
 

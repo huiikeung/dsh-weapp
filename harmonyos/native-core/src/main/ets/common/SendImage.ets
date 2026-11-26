@@ -59,7 +59,59 @@ function rawPathOf(uri: string): string {
   return uri.startsWith('file://') ? uri.substring(7) : uri;
 }
 
-function readBase64(raw: string, name: string): SendImagePayload | undefined {
+/**
+ * 读文件头判断「真实」图片格式。
+ * 网关会用 magic 校验 mediaType，声明与字节不符就回 session/attachment-invalid
+ * （「Declared image type does not match its bytes.」）——之前按文件扩展名声明，
+ * 相册里扩展名和真实编码不一致的图（HEIC 存成 .jpg、PNG 改名等）必然发送失败。
+ */
+function detectMediaType(raw: string): string {
+  let file: fileIo.File | undefined = undefined;
+  try {
+    file = fileIo.openSync(raw, fileIo.OpenMode.READ_ONLY);
+    const head: ArrayBuffer = new ArrayBuffer(32);
+    const read: number = fileIo.readSync(file.fd, head);
+    if (read <= 0) {
+      return '';
+    }
+    const b: Uint8Array = new Uint8Array(head, 0, read);
+    if (b.length >= 3 && b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) {
+      return 'image/jpeg';
+    }
+    if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) {
+      return 'image/png';
+    }
+    if (b.length >= 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) {
+      return 'image/gif';
+    }
+    if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46
+      && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) {
+      return 'image/webp';
+    }
+    if (b.length >= 2 && b[0] === 0x42 && b[1] === 0x4D) {
+      return 'image/bmp';
+    }
+    if (b.length >= 12) {
+      const brand: string = String.fromCharCode(b[8], b[9], b[10], b[11]);
+      if (brand === 'heic' || brand === 'heix' || brand === 'hevc' || brand === 'mif1' || brand === 'msf1') {
+        return 'image/heic';
+      }
+    }
+    return '';
+  } catch (err) {
+    Logger.warn('[SendImage] detect failed ' + (err instanceof Error ? err.message : String(err)));
+    return '';
+  } finally {
+    if (file !== undefined) {
+      try {
+        fileIo.closeSync(file);
+      } catch (ignored) {
+      }
+    }
+  }
+}
+
+function readBase64(raw: string, name: string, mediaType: string): SendImagePayload | undefined {
   let file: fileIo.File | undefined = undefined;
   try {
     file = fileIo.openSync(raw, fileIo.OpenMode.READ_ONLY);
@@ -70,7 +122,7 @@ function readBase64(raw: string, name: string): SendImagePayload | undefined {
     const buffer: ArrayBuffer = new ArrayBuffer(size);
     fileIo.readSync(file.fd, buffer);
     const encoded: string = new util.Base64Helper().encodeToStringSync(new Uint8Array(buffer));
-    return { mediaType: gatewayMediaTypeOf(name), data: encoded, name: name };
+    return { mediaType: mediaType, data: encoded, name: name };
   } catch (err) {
     Logger.warn('[SendImage] read failed ' + name + ' ' + (err instanceof Error ? err.message : String(err)));
     return undefined;
@@ -156,18 +208,25 @@ export async function buildSendImagePayload(uri: string, name: string): Promise<
   } catch (err) {
     size = 0;
   }
-  if (size > 0 && size <= FAST_PATH_MAX_BYTES && isGatewayImageName(name)) {
-    const fast: SendImagePayload | undefined = readBase64(raw, name);
+  // 以文件头为准声明 mediaType（网关按 magic 校验，扩展名不可信）
+  const detected: string = detectMediaType(raw);
+  const supported: string[] = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+  const passthrough: boolean = supported.indexOf(detected) >= 0;
+  Logger.info('[SendImage] ' + name + ' size=' + size.toString() + ' detected=' + (detected.length > 0 ? detected : 'unknown'));
+  if (passthrough && size > 0 && size <= FAST_PATH_MAX_BYTES) {
+    const fast: SendImagePayload | undefined = readBase64(raw, name, detected);
     if (fast !== undefined) {
       return fast;
     }
   }
+  // 其它格式（HEIC/BMP/未知）或体积偏大：统一转 JPEG（顺带把尺寸压到 MAX_SIDE）
   const packed: SendImagePayload | undefined = await transcodeJpeg(raw, name);
   if (packed !== undefined) {
     return packed;
   }
-  if (size > 0 && size <= FALLBACK_RAW_MAX_BYTES && isGatewayImageName(name)) {
-    return readBase64(raw, name);
+  if (passthrough && size > 0 && size <= FALLBACK_RAW_MAX_BYTES) {
+    return readBase64(raw, name, detected);
   }
+  Logger.warn('[SendImage] unsupported image ' + name + ' detected=' + (detected.length > 0 ? detected : 'unknown'));
   return undefined;
 }
