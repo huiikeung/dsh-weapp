@@ -5,6 +5,8 @@ import { AttachmentCache, AttachmentImageCache, PreferencesStore, SessionStore, 
 import { NavBackButton } from '../components/NavBackButton';
 import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
+import { appGlassBlur, appGlassBorderColor, appGlassFill, appGlassShadow } from '../common/AppGlass';
+import { immersiveSheetSupported, sheetFallbackColor, sheetSystemMaterial } from '../common/SheetMaterial';
 
 /** 存储空间分类（对齐小程序 storage-usage CATEGORIES） */
 interface StorageCategoryItem {
@@ -20,21 +22,29 @@ interface StorageCategoryItem {
 
 /**
  * 存储空间（设置 → 存储空间）：iOS 分组卡片风格的二级页面。
- * 列表页：环形图 + 本机缓存总量 + 四类缓存行；点分类进入详情页可单独清理。
+ * 列表页：占比圆环（中心总量）+ 四类图例行；点分类弹出原生玻璃底部弹窗，可单独清理。
  * 对齐小程序 pages/settings 的 StorageSpaceView（四类：聊天记录 / 图片 / 文件预览 / 临时文件）。
  */
 @Component
 export struct StorageSpacePage {
   @Consume('pageStack') pageStack: NavPathStack;
-  @StorageLink('isDark') isDark: boolean = false;
+  @StorageLink('isDark') @Watch('onRingInputs') isDark: boolean = false;
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
+  @StorageLink('safeBottomVp') safeBottomStorage: number = 0;
   @State loading: boolean = true;
   @State busy: boolean = false;
   @State detailKey: string = '';
-  @State chatsBytes: number = 0;
-  @State imagesBytes: number = 0;
-  @State filesBytes: number = 0;
-  @State tempBytes: number = 0;
+  /** 分类详情：原生沉浸玻璃底部弹窗 */
+  @State sheetOpen: boolean = false;
+  @State @Watch('onRingInputs') chatsBytes: number = 0;
+  @State @Watch('onRingInputs') imagesBytes: number = 0;
+  @State @Watch('onRingInputs') filesBytes: number = 0;
+  @State @Watch('onRingInputs') tempBytes: number = 0;
+  /** 图例排序：'size'（默认，按大小降序）/ 'name' */
+  @State sortMode: string = 'size';
+  /** 自绘圆环的画布上下文（DataPanel 画不出 0.3° 的小段，改自绘并给每段最小角度） */
+  private ringCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
+  private ringReady: boolean = false;
   @State hint: string = '';
 
   aboutToAppear(): void {
@@ -94,6 +104,62 @@ export struct StorageSpacePage {
     }
     const gb: number = Math.round(mb / 102.4) / 10;
     return gb.toString() + ' GB';
+  }
+
+  /** 圆环输入变化（主题 / 字节量）：画布就绪后重画 */
+  onRingInputs(): void {
+    this.drawRing();
+  }
+
+  /**
+   * 画占比圆环：轨道圆 + 各分类弧段。
+   * 每个非零分类先保证 minA（~8°）的最小角度，剩余角度再按字节量比例分配，
+   * 这样 232 KB / 94 KB 的小段也能看见；段间留 gap（~1.7°）细缝。
+   */
+  private drawRing(): void {
+    if (!this.ringReady) {
+      return;
+    }
+    const ctx: CanvasRenderingContext2D = this.ringCtx;
+    const size: number = 168;
+    const stroke: number = 14;
+    const c: number = size / 2;
+    const radius: number = (size - stroke) / 2;
+    const tau: number = Math.PI * 2;
+    ctx.clearRect(0, 0, size, size);
+    ctx.lineCap = 'butt';
+    ctx.lineWidth = stroke;
+    ctx.beginPath();
+    ctx.arc(c, c, radius, 0, tau);
+    ctx.strokeStyle = this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.06)';
+    ctx.stroke();
+    const items: StorageCategoryItem[] = [];
+    let total: number = 0;
+    for (const item of this.categories()) {
+      if (item.bytes > 0) {
+        items.push(item);
+        total += item.bytes;
+      }
+    }
+    const n: number = items.length;
+    if (n === 0 || total <= 0) {
+      return;
+    }
+    const gap: number = n > 1 ? 0.03 : 0;
+    let minA: number = 0.14;
+    if (n * minA + n * gap > tau) {
+      minA = (tau - n * gap) / n;
+    }
+    const spare: number = tau - n * gap - n * minA;
+    let start: number = -Math.PI / 2;
+    for (const item of items) {
+      const angle: number = minA + spare * (item.bytes / total);
+      ctx.beginPath();
+      ctx.arc(c, c, radius, start, start + angle);
+      ctx.strokeStyle = item.color;
+      ctx.stroke();
+      start += angle + gap;
+    }
   }
 
   private category(key: string, title: string, detail: string, color: string, icon: Resource,
@@ -224,6 +290,7 @@ export struct StorageSpacePage {
     this.filesBytes = files;
     this.tempBytes = temporary;
     this.loading = false;
+    this.drawRing();
   }
 
   private async clearCategory(): Promise<void> {
@@ -259,28 +326,7 @@ export struct StorageSpacePage {
     this.busy = false;
   }
 
-  /** 有占用的分类（分段条只画非零段） */
-  private activeCategories(): StorageCategoryItem[] {
-    const out: StorageCategoryItem[] = [];
-    for (const item of this.categories()) {
-      if (item.bytes > 0) {
-        out.push(item);
-      }
-    }
-    return out;
-  }
-
   // ── UI（对齐 iOS 设置 → 通用 → iPhone 储存空间）──
-
-  /** iOS 分组标题 */
-  @Builder
-  groupTitle(title: string) {
-    Text(title)
-      .fontSize(13)
-      .fontColor(this.subColor())
-      .width('100%')
-      .padding({ left: 2, right: 2, top: 18, bottom: 7 })
-  }
 
   /** iOS 分组 footer 说明 */
   @Builder
@@ -293,31 +339,119 @@ export struct StorageSpacePage {
       .padding({ left: 2, right: 2, top: 8 })
   }
 
-  /**
-   * 占比分段条（iOS 储存空间顶部那条）：按各类字节量 layoutWeight 分宽，
-   * 段间 2vp 缝、整条圆角裁切；没有占用时显示轨道色。
-   */
+  /** 排序后的分类（图例用；默认按大小降序，与 iOS 储存列表一致） */
+  private sortedCategories(): StorageCategoryItem[] {
+    const items: StorageCategoryItem[] = this.categories();
+    if (this.sortMode === 'name') {
+      items.sort((a: StorageCategoryItem, b: StorageCategoryItem): number => a.title.localeCompare(b.title));
+    } else {
+      items.sort((a: StorageCategoryItem, b: StorageCategoryItem): number => b.bytes - a.bytes);
+    }
+    return items;
+  }
+
+  /** 排序菜单（系统 Menu：按大小 / 按名称，当前项带 ✓） */
   @Builder
-  segmentBar() {
-    Row({ space: 2 }) {
-      ForEach(this.activeCategories(), (item: StorageCategoryItem) => {
-        Column()
-          .height(14)
-          .layoutWeight(item.bytes)
-          .borderRadius(3)
-          .backgroundColor(item.color)
-      }, (item: StorageCategoryItem) => item.key)
+  sortMenu() {
+    Column() {
+      this.sortMenuItem('按大小', 'size')
+      this.sortMenuItem('按名称', 'name')
+    }
+  }
+
+  @Builder
+  sortMenuItem(label: string, mode: string) {
+    Row() {
+      Text(label)
+        .fontSize(15)
+        .fontColor(this.textColor())
+      Blank()
+      if (this.sortMode === mode) {
+        SymbolGlyph($r('sys.symbol.checkmark'))
+          .fontSize(14)
+          .fontColor([this.textColor()])
+      }
+    }
+    .width(150)
+    .height(44)
+    .padding({ left: 14, right: 14 })
+    .alignItems(VerticalAlign.Center)
+    .onClick(() => {
+      this.sortMode = mode;
+    })
+  }
+
+  /** 右上角排序胶囊（与弹窗「关闭」同一套玻璃样式） */
+  @Builder
+  sortPill() {
+    Row({ space: 4 }) {
+      Text(this.sortMode === 'size' ? '按大小' : '按名称')
+        .fontSize(13)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.textColor())
+      SymbolGlyph($r('sys.symbol.chevron_down'))
+        .fontSize(11)
+        .fontColor([this.textColor()])
+    }
+    .height(30)
+    .padding({ left: 12, right: 10 })
+    .alignItems(VerticalAlign.Center)
+    .backgroundColor(appGlassFill(this.isDark))
+    .backdropBlur(appGlassBlur(this.isDark))
+    .clip(true)
+    .borderRadius(15)
+    .border({ width: 1, color: appGlassBorderColor(this.isDark) })
+    .shadow(appGlassShadow(this.isDark))
+    .bindMenu(this.sortMenu())
+  }
+
+  /** 图例卡上方的分组标题行：左「缓存分类」、右排序胶囊 */
+  @Builder
+  legendHeader() {
+    Row() {
+      Text('缓存分类')
+        .fontSize(13)
+        .fontColor(this.subColor())
+      Blank()
+      this.sortPill()
     }
     .width('100%')
-    .height(14)
-    .borderRadius(7)
-    .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.06)')
-    .clip(true)
+    .padding({ left: 2, right: 2, top: 18, bottom: 7 })
+    .alignItems(VerticalAlign.Center)
+  }
+
+  /**
+   * 占比圆环（自绘 Canvas）：每个非零分类至少占 ~8°，再按字节量分剩余角度 ——
+   * 232 KB 这种 0.3° 的段用 DataPanel 画出来是看不见的；中心叠「总量 / 本机缓存」。
+   */
+  @Builder
+  usageRing() {
+    Stack({ alignContent: Alignment.Center }) {
+      Canvas(this.ringCtx)
+        .width(168)
+        .height(168)
+        .onReady(() => {
+          this.ringReady = true;
+          this.drawRing();
+        })
+      Column({ space: 2 }) {
+        Text(this.bytesLabel(this.totalBytes()))
+          .fontSize(22)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.textColor())
+        Text('本机缓存')
+          .fontSize(12)
+          .fontColor(this.subColor())
+      }
+      .alignItems(HorizontalAlign.Center)
+    }
+    .width('100%')
+    .padding({ top: 16, bottom: 16 })
   }
 
   /** 图例行：小色块 + 名称 + 大小（iOS 图例不带图标、不带百分比） */
   @Builder
-  legendRow(item: StorageCategoryItem) {
+  legendRow(item: StorageCategoryItem, index: number) {
     Row({ space: 12 }) {
       Column()
         .width(10)
@@ -339,35 +473,19 @@ export struct StorageSpacePage {
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-    .border({ width: { top: 0.5 }, color: this.dividerColor() })
+    .border({ width: { top: index > 0 ? 0.5 : 0 }, color: this.dividerColor() })
     .onClick(() => {
       this.detailKey = item.key;
       this.hint = '';
+      this.sheetOpen = true;
     })
   }
 
-  /** 顶部卡片：总量 + 分段条 + 图例 */
+  /** 卡片一：圆环（与图例拆成两个分组，对齐 iOS） */
   @Builder
-  heroCard() {
+  ringCard() {
     Column() {
-      Column({ space: 8 }) {
-        Text('本机缓存')
-          .fontSize(13)
-          .fontColor(this.subColor())
-          .width('100%')
-        Text(this.bytesLabel(this.totalBytes()))
-          .fontSize(28)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(this.textColor())
-          .width('100%')
-        this.segmentBar()
-      }
-      .width('100%')
-      .alignItems(HorizontalAlign.Start)
-      .padding({ left: 16, right: 16, top: 18, bottom: 18 })
-      ForEach(this.categories(), (item: StorageCategoryItem) => {
-        this.legendRow(item)
-      }, (item: StorageCategoryItem) => item.key)
+      this.usageRing()
     }
     .width('100%')
     .borderRadius(16)
@@ -375,42 +493,97 @@ export struct StorageSpacePage {
     .clip(true)
   }
 
-  /** 详情头部：iOS 应用详情那种「饱和色大圆角图标 + 白色 glyph」，直接放在页面底色上 */
+  /** 卡片二：图例（按 sortMode 排序） */
   @Builder
-  detailHero() {
-    Column({ space: 10 }) {
-      Stack({ alignContent: Alignment.Center }) {
-        Column()
-          .width(64)
-          .height(64)
-          .borderRadius(15)
-          .backgroundColor(this.detailColor())
-        Image(this.detailIcon())
-          .width(32)
-          .height(32)
-          .objectFit(ImageFit.Contain)
-          .fillColor(Color.White)
-      }
-      Text(this.detailTitle())
-        .fontSize(20)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.textColor())
-      Text(this.detailBytesText())
-        .fontSize(15)
-        .fontColor(this.subColor())
-      Text(this.detailDesc())
-        .fontSize(13)
-        .fontColor(this.subColor())
+  legendCard() {
+    Column() {
+      ForEach(this.sortedCategories(), (item: StorageCategoryItem, index: number) => {
+        this.legendRow(item, index)
+      }, (item: StorageCategoryItem) => item.key)
     }
     .width('100%')
-    .padding({ top: 24, bottom: 12 })
-    .alignItems(HorizontalAlign.Center)
+    .borderRadius(16)
+    .backgroundColor(this.cardBg())
+    .clip(true)
   }
-
-  /** 清理按钮（iOS 分组里的红色居中文字行） */
+  /**
+   * 分类详情：原生沉浸玻璃底部弹窗（与首页「定时任务」同一套：拖动条 + 标题行 + 玻璃「关闭」胶囊），
+   * 内容 = 饱和色大图标 + 大小 + 说明 + 红色清理行 + 底部说明。
+   */
   @Builder
-  detailActions() {
+  detailSheet() {
     Column() {
+      // 拖动条（36×4）
+      Row() {
+        Column()
+          .width(36)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.isDark ? 'rgba(216,210,225,0.35)' : 'rgba(92,83,108,0.30)')
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.Center)
+      .padding({ top: 6, bottom: 8 })
+
+      // 标题 + 右上角「关闭」
+      Row() {
+        Text(this.detailTitle())
+          .fontSize(22)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.textColor())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Blank()
+        Row() {
+          Text('关闭')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.textColor())
+        }
+        .height(30)
+        .padding({ left: 14, right: 14 })
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor(appGlassFill(this.isDark))
+        .backdropBlur(appGlassBlur(this.isDark))
+        .clip(true)
+        .borderRadius(15)
+        .border({ width: 1, color: appGlassBorderColor(this.isDark) })
+        .shadow(appGlassShadow(this.isDark))
+        .onClick(() => {
+          this.sheetOpen = false;
+        })
+      }
+      .width('100%')
+      .height(44)
+      .alignItems(VerticalAlign.Center)
+
+      // 图标 + 大小 + 说明
+      Column({ space: 10 }) {
+        Stack({ alignContent: Alignment.Center }) {
+          Column()
+            .width(64)
+            .height(64)
+            .borderRadius(15)
+            .backgroundColor(this.detailColor())
+          Image(this.detailIcon())
+            .width(32)
+            .height(32)
+            .objectFit(ImageFit.Contain)
+            .fillColor(Color.White)
+        }
+        Text(this.detailBytesText())
+          .fontSize(28)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.textColor())
+        Text(this.detailDesc())
+          .fontSize(13)
+          .fontColor(this.subColor())
+      }
+      .width('100%')
+      .padding({ top: 18, bottom: 22 })
+      .alignItems(HorizontalAlign.Center)
+
+      // 清理（iOS 分组里的红色居中文字行；玻璃底上用一层淡白卡托住）
       Row() {
         Text(this.busy ? '清理中…' : '清理本机缓存')
           .fontSize(15)
@@ -420,14 +593,34 @@ export struct StorageSpacePage {
       }
       .width('100%')
       .padding({ top: 14, bottom: 14 })
+      .borderRadius(16)
+      .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.55)')
+      .border({ width: 1, color: this.dividerColor() })
+      .opacity(this.busy ? 0.5 : 1)
       .onClick(() => {
         this.clearCategory();
       })
+
+      if (this.hint.length > 0) {
+        Text(this.hint)
+          .fontSize(12)
+          .fontColor(this.subColor())
+          .width('100%')
+          .textAlign(TextAlign.Center)
+          .margin({ top: 12 })
+      }
+      Text('只清理本机缓存文件；聊天记录与网关数据不受影响。')
+        .fontSize(12)
+        .lineHeight(18)
+        .fontColor(this.subColor())
+        .width('100%')
+        .textAlign(TextAlign.Center)
+        .margin({ top: 12 })
     }
     .width('100%')
-    .borderRadius(16)
-    .backgroundColor(this.cardBg())
-    .opacity(this.busy ? 0.5 : 1)
+    .padding({ left: 20, right: 20, top: 6, bottom: 16 + this.safeBottomStorage })
+    // 面板交给系统沉浸玻璃材质绘制（见 build() 的 bindSheet），这里只排内容
+    .backgroundColor(Color.Transparent)
   }
   private scroller: Scroller = new Scroller();
 
@@ -448,15 +641,10 @@ export struct StorageSpacePage {
             Column({ space: 0 }) {
               // 首屏让出原生标题栏
               Column().width('100%').height((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 56)
-              if (this.detailKey.length === 0) {
-                this.heroCard()
-                this.groupFooter('清理后需要时会重新下载；不会删除网关上的会话、工作区或设备上的原文件。')
-              } else {
-                this.detailHero()
-                this.groupTitle('清理')
-                this.detailActions()
-                this.groupFooter('只清理本机缓存文件；聊天记录与网关数据不受影响。')
-              }
+              this.ringCard()
+              this.legendHeader()
+              this.legendCard()
+              this.groupFooter('清理后需要时会重新下载；不会删除网关上的会话、工作区或设备上的原文件。')
               if (this.hint.length > 0) {
                 Text(this.hint)
                   .fontSize(12)
@@ -479,6 +667,15 @@ export struct StorageSpacePage {
       .width('100%')
       .height('100%')
       .backgroundColor(this.pageBg())
+      // 分类详情：原生沉浸玻璃底部弹窗（系统返回手势会先关弹窗，不会直接退出页面）
+      .bindSheet($$this.sheetOpen, this.detailSheet(), {
+        height: SheetSize.FIT_CONTENT,
+        dragBar: false,
+        showClose: false,
+        preferType: SheetType.BOTTOM,
+        backgroundColor: immersiveSheetSupported() ? Color.Transparent : sheetFallbackColor(this.isDark),
+        systemMaterial: sheetSystemMaterial(this.isDark)
+      })
     }
     .titleBar({
       avoidLayoutSafeArea: true,
