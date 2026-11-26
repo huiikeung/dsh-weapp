@@ -1067,6 +1067,17 @@ export struct BotRoleSheet {
     }
   }
 
+  /** 「与 X 聊聊」卡片右侧角标：overlay 里的内容，不参与卡片尺寸测量 */
+  @Builder
+  chatStatusOverlay() {
+    if (this.chiefHasStatus()) {
+      Row() {
+        this.chiefStatusMark()
+      }
+      .hitTestBehavior(HitTestMode.None)
+    }
+  }
+
   // ==================== 顶栏 / 标题区 ====================
 
   @Builder
@@ -1217,18 +1228,17 @@ export struct BotRoleSheet {
         }
         .justifyContent(FlexAlign.Center)
         .width('100%')
-
-        Row() {
-          if (this.chiefHasStatus()) {
-            this.chiefStatusMark()
-          }
-        }
-        .width('100%')
-        .justifyContent(FlexAlign.End)
+        // 有状态标记时左右让出 64，避免角标压住「与 X 聊聊」（对齐 iOS）
+        .padding({
+          left: this.chiefHasStatus() ? 64 : 22,
+          right: this.chiefHasStatus() ? 64 : 22
+        })
       }
       .width('100%')
       .constraintSize({ minHeight: 46 })
-      .padding({ left: 22, right: 22, top: 10.5, bottom: 10.5 })
+      .padding({ top: 10.5, bottom: 10.5 })
+      // 角标走 overlay：不参与布局测量（否则 height('100%') 会把卡片撑高）
+      .overlay(this.chatStatusOverlay(), { align: Alignment.End, offset: { x: -16, y: 0 } })
       .backgroundColor(Color.Transparent)
       .backdropBlur(10)
       .clip(true)
