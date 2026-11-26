@@ -4551,9 +4551,17 @@ export struct ConversationPage {
         if (ack === undefined) {
           throw new Error(lastError.length > 0 ? lastError : '发送超时');
         }
-        Logger.info('[SEND] media send ack kind=' + ack.kind);
+        Logger.info('[SEND] media send ack kind=' + ack.kind + ' mode=' + (ack.mode ?? '')
+          + ' session=' + (ack.sessionId ?? '').slice(-8));
         if (ack.sessionId !== sessionId) {
           throw new Error('发送确认无效，草稿已保留');
+        }
+        // 主机会把「运行中」的消息排进队列，而队列项不保留图片内容 → 图片实际没送出去，
+        // 界面上却已经当成功处理（气泡出现、随后消失、也没有回复）。这里按 ack.mode 判定：
+        // 带图且被排队，就当失败处理，保留草稿与附件让用户等本轮结束后重发。
+        if (imagePayloads.length > 0 && (ack.mode ?? '') === 'queue') {
+          Logger.warn('[SEND] image send queued by host -> treat as failed');
+          throw new Error('本轮还在运行，图片没有送出（主机排队会丢图），等这轮结束后再发一次');
         }
       } else if (!client.sendUserMessage(text, sessionId)) {
         throw new Error('发送失败，请检查连接');
