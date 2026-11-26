@@ -1986,7 +1986,7 @@ export struct AppSettingsPage {
 
 
             // ── 关于 ──
-            this.groupTitle('关于', '适配基线：0.8.6+；旧版移动网关 0.10.0+。')
+            this.groupTitle('关于', '适配基线：0.8.71+；旧版移动网关 0.10.0+。')
             Column({ space: 0 }) {
               this.row('存储空间', '', true, () => {
                 this.closeSheets();
@@ -2003,7 +2003,7 @@ export struct AppSettingsPage {
               this.row('当前版本', this.appVersion, false, () => {
               })
               this.divider()
-              this.row('要求网关版本', '≥ 0.8.6', false, () => {
+              this.row('要求网关版本', '≥ 0.8.71', false, () => {
               })
               this.divider()
               this.row('已连接网关版本', this.gatewayVersionText(), false, () => {
