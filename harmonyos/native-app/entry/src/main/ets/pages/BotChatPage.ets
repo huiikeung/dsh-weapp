@@ -407,23 +407,6 @@ export struct BotChatPage {
     return activity !== undefined && activity.length > 0;
   }
 
-  /**
-   * 是否是「一行纯文本」（没有 Markdown 块/行内标记）。
-   * 纯文本走 Text 渲染：可以按内容自然收缩；含标记的走 MarkdownBodyView（容器固定宽度换行）。
-   */
-  private isPlainText(text: string): boolean {
-    if (text.indexOf('\n') >= 0) {
-      return false;
-    }
-    const markers: string[] = ['**', '`', '~~', '](', '# ', '> ', '- ', '* ', '|', '1. '];
-    for (const marker of markers) {
-      if (text.indexOf(marker) >= 0) {
-        return false;
-      }
-    }
-    return true;
-  }
-
   /** 群聊里非自己且带名字时显示发言者 */
   private showSpeaker(message: BotChatMessage): boolean {
     const chat: BotChat | null = this.chat();
@@ -441,7 +424,43 @@ export struct BotChatPage {
         }
       }
     }
-    return this.chat();
+    // 主机回包经常不带 botId：群聊里回落「按发言者名字在名册里找」，
+    // 私聊才回落到当前聊天本身。不这么做时群聊所有发言者都拿群聊自己的头像/颜色。
+    const chat: BotChat | null = this.chat();
+    if (chat !== null && chat.room && message.name.length > 0) {
+      for (const candidate of this.state.chats) {
+        if (!candidate.room && candidate.name === message.name) {
+          return candidate;
+        }
+      }
+    }
+    return chat;
+  }
+
+  /**
+   * 助手气泡底色：按发言者在 §8.7 色板里取色。
+   * 主机回包经常不带 botId —— 之前直接把 undefined 丢给调色板，全部落到「兜底色」，
+   * 所以每个 Bot 的气泡看起来都是一个颜色。这里补齐：
+   *   · 私聊 → 用当前聊天自己的 id（一个私聊就是一个 Bot，颜色随 Bot 变）；
+   *   · 群聊 → 按发言者名字在名册里匹配（匹配不到才用兜底色，不猜）。
+   */
+  private bubbleColor(message: BotChatMessage): string {
+    const own: string = message.botId ?? '';
+    if (own.length > 0) {
+      return this.palette.rgb(own, this.isDark);
+    }
+    const chat: BotChat | null = this.chat();
+    if (chat !== null && !chat.room) {
+      return this.palette.rgb(chat.id, this.isDark);
+    }
+    if (message.name.length > 0) {
+      for (const candidate of this.state.chats) {
+        if (!candidate.room && candidate.name === message.name) {
+          return this.palette.rgb(candidate.id, this.isDark);
+        }
+      }
+    }
+    return this.palette.rgb('', this.isDark);
   }
 
   private hasImage(chat: BotChat): boolean {
@@ -1339,7 +1358,7 @@ export struct BotChatPage {
       this.fileGlyph(this.fileNameOf(file))
       Column({ space: 4 }) {
         Text(this.fileNameOf(file))
-          .fontSize(17)
+          .fontSize(15)
           .fontWeight(FontWeight.Medium)
           .fontColor(this.ink())
           .maxLines(2)
@@ -1348,7 +1367,7 @@ export struct BotChatPage {
         Text(file.description !== undefined && file.description.length > 0
           ? file.description
           : this.fileKindLabel(this.fileKindOf(this.fileNameOf(file))))
-          .fontSize(13)
+          .fontSize(11.5)
           .fontColor(this.subColor())
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -1368,6 +1387,60 @@ export struct BotChatPage {
     })
   }
 
+
+  /**
+   * 点正文里的文件链接（蓝色下划线）：
+   * 图片 / 文本 / PDF → 底部弹窗预览；docx/xlsx/pptx 等 → 下载后交给系统 PreviewKit 全屏预览。
+   * 非文件链接（http 等）保持原来的「复制链接」行为。
+   */
+  private onMarkdownFileLink(text: string, href: string): void {
+    let target: string = href.trim();
+    if (target.length === 0) {
+      return;
+    }
+    const lower: string = target.toLowerCase();
+    if (lower.startsWith('http://') || lower.startsWith('https://') || lower.startsWith('mailto:')
+      || lower.startsWith('tel:') || lower.startsWith('#')) {
+      this.showHint('已复制链接');
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, target);
+      pasteboard.getSystemPasteboard().setData(data).catch((err: Error) => {
+        Logger.warn('BOT_LINK copy failed ' + err.message);
+      });
+      return;
+    }
+    if (target.startsWith('file://')) {
+      target = target.substring('file://'.length);
+    }
+    try {
+      target = decodeURIComponent(target);
+    } catch (err) {
+    }
+    const hashIndex: number = target.indexOf('#');
+    if (hashIndex >= 0) {
+      target = target.substring(0, hashIndex);
+    }
+    const queryIndex: number = target.indexOf('?');
+    if (queryIndex >= 0) {
+      target = target.substring(0, queryIndex);
+    }
+    const path: string = target.trim();
+    if (path.length === 0) {
+      return;
+    }
+    const name: string = this.baseNameOf(path);
+    const file: BotPresentedFile = { name: name, path: path };
+    this.onOpenFile(file);
+  }
+
+  /** 路径最后一段作为文件名（兼容 / 与 \\） */
+  private baseNameOf(path: string): string {
+    let cut: number = path.lastIndexOf('/');
+    const win: number = path.lastIndexOf('\\');
+    if (win > cut) {
+      cut = win;
+    }
+    return cut >= 0 ? path.substring(cut + 1) : path;
+  }
   /** 没有 description 时的兜底副标题（文档/图片/表格…） */
   private fileKindLabel(kind: string): string {
     if (kind === 'pdf') return 'PDF 文档';
@@ -2406,17 +2479,6 @@ export struct BotChatPage {
                 .borderRadius(BUBBLE_RADIUS)
                 .border({ width: this.isDark ? 0 : 0.7, color: 'rgba(46,107,230,0.08)' })
                 .textAlign(TextAlign.Start)
-            } else if (message.text.length > 0 && this.isPlainText(message.text)) {
-              // 纯文本按内容收缩（§4.3：短消息按内容收缩），换行由最大宽控制
-              Text(message.text)
-                .fontSize(this.contentSize())
-                .lineHeight(this.contentSize() * 1.45)
-                .fontColor(this.ink())
-                .padding({ left: BUBBLE_PAD_H, right: BUBBLE_PAD_H, top: BUBBLE_PAD_V, bottom: BUBBLE_PAD_V })
-                .backgroundColor(this.palette.rgb(message.botId, this.isDark))
-                .borderRadius(BUBBLE_RADIUS)
-                .constraintSize({ maxWidth: this.bubbleMaxWidth() })
-                .textAlign(TextAlign.Start)
             } else if (message.text.length > 0) {
               // Markdown 正文：内部各块是 width 100%，必须给容器一个确定宽度，
               // 否则百分比会按最大约束先算再被外层裁剪（文字左右被切掉）
@@ -2431,12 +2493,17 @@ export struct BotChatPage {
                     if (src.length > 0) {
                       this.openImagePreview(src);
                     }
+                  },
+                  // 正文里的文件路径（蓝色下划线）点了直接走文件预览：图片 / 文本 / PDF 弹窗，其它文档交给系统预览
+                  linkTapEnabled: true,
+                  onLinkTap: (text: string, href: string) => {
+                    this.onMarkdownFileLink(text, href);
                   }
                 })
               }
               .width(this.bubbleMaxWidth())
               .padding({ left: BUBBLE_PAD_H, right: BUBBLE_PAD_H, top: BUBBLE_PAD_V, bottom: BUBBLE_PAD_V })
-              .backgroundColor(this.palette.rgb(message.botId, this.isDark))
+              .backgroundColor(this.bubbleColor(message))
               .borderRadius(BUBBLE_RADIUS)
               .clip(true)
             }
