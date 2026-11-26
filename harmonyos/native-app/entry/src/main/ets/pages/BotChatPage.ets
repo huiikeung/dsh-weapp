@@ -2943,7 +2943,8 @@ export struct BotChatPage {
       .width(CAPSULE_BUTTON_SIZE)
       .height(CAPSULE_BUTTON_SIZE)
       .borderRadius(CAPSULE_BUTTON_SIZE / 2)
-      .backdropBlur(this.capsuleBlur())
+      // 系统玻璃（不是 HdsGlassSurface 的悬浮 Bar 材质，那个会在四角漏深色残影）
+      .backgroundBlurStyle(this.capsuleGlass(), { colorMode: this.capsuleColorMode() })
       .backgroundColor(this.capsuleFill())
       .border({ width: 1, color: this.capsuleEdge() })
       .clip(true)
@@ -2960,7 +2961,8 @@ export struct BotChatPage {
       .justifyContent(FlexAlign.Center)
       .alignItems(HorizontalAlign.Start)
       .borderRadius(CAPSULE_HEIGHT / 2)
-      .backdropBlur(this.capsuleBlur())
+      // 系统玻璃背景（模糊 + 半透明 tint + 细亮边），四角由 borderRadius + clip 裁干净
+      .backgroundBlurStyle(this.capsuleGlass(), { colorMode: this.capsuleColorMode() })
       .backgroundColor(this.capsuleFill())
       .border({ width: 1, color: this.capsuleEdge() })
       .clip(true)
@@ -2982,8 +2984,13 @@ export struct BotChatPage {
     return this.isDark ? 'rgba(255,255,255,0.10)' : '#66FFFFFF';
   }
 
-  private capsuleBlur(): number {
-    return 18;
+  /** 系统玻璃档位：深色用 THICK（背后内容明显糊化但不发白），浅色用 REGULAR */
+  private capsuleGlass(): BlurStyle {
+    return this.isDark ? BlurStyle.COMPONENT_THICK : BlurStyle.COMPONENT_REGULAR;
+  }
+
+  private capsuleColorMode(): ThemeColorMode {
+    return this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT;
   }
 
   /** 收起态胶囊里的占位文字区：文字态轻点展开；语音态按住说话 */
@@ -3437,8 +3444,9 @@ export struct BotChatPage {
             }
             .width('100%')
             .height('100%')
-            // 可视区底边 = 输入框底边：再往下的正文不显示
-            .padding({ bottom: this.timelineClipBottom() })
+            // 收起态：不裁底，正文一直铺到屏幕底部、从胶囊玻璃后面透过去（没有遮罩层）；
+            // 展开态：底边裁到输入框底边，正文到卡片下沿就消失 —— 展开时输入框下方保留遮罩带。
+            .padding({ bottom: this.composerExpanded() ? this.timelineClipBottom() : 0 })
           }
         }
         .width('100%')
