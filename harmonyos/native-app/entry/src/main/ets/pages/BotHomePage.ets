@@ -201,20 +201,13 @@ export struct BotHomePage {
   }
 
   /**
-   * 离开 Bot 模式并进入某个工作模式目的地（抽屉里的插件/自动化任务/连接器/设置）：
-   * 先把模式写回工作模式、弹出 Bot 首页，再压入目标页，避免目标页叠在 Bot 首页之上。
+   * 抽屉里的插件 / 自动化任务 / 连接器 / 设置：**不切换模式**，直接压在 Bot 首页之上打开，
+   * 返回时回到 Bot 首页。
+   * 以前这里会先把 botMode 写回工作模式再 pop，所以「设置 → 返回」直接落到工作模式首页。
    */
   private exitToRoute(route: string): void {
-    AppStorage.setOrCreate<string>('botMode', '0');
-    try {
-      PreferencesStore.get().putString('botMode', '0');
-    } catch (ignored) {
-    }
     this.drawerOpen = false;
-    this.pageStack.pop(false);
-    setTimeout(() => {
-      this.pageStack.pushPathByName(route, null);
-    }, 40);
+    this.pageStack.pushPathByName(route, null);
   }
 
   private iconTint(color: string): number[] {
