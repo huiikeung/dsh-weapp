@@ -2695,6 +2695,10 @@ export class GatewayClient {
         this.requestPlugins();
       }, 600);
     }
+    if (frame.kind === 'plugins-changed') {
+      // dsh 端插件变化实时推送：目录自动刷新（手机侧改动同样会让 dsh 端收到 plugins-changed）
+      this.requestPlugins();
+    }
     this.settlePending(frame);
     if (frame.kind === 'session-created' || frame.kind === 'session-renamed' || frame.kind === 'session-archived') {
       this.send(GatewayRequests.sessions());
