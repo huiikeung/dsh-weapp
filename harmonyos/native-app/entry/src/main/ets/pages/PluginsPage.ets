@@ -3018,7 +3018,8 @@ export struct PluginsPage {
       this.detailCheckState = 'available';
     }
     this.detailExperimental = item.experimental;
-    this.detailEntries = [];
+    // 包含的组件：静态 rows × 实时组件状态（目录帧实时推送，dsh 端变化自动跟随）
+    this.detailEntries = this.buildEntriesFor(item);
     this.detailError = '';
     this.detailSaved = '';
     this.detailMarkdown = '';

@@ -55,7 +55,7 @@ export {
 } from './src/main/ets/common/ScheduleFormat';
 export type { ScheduleDraft, ScheduleRuleOption } from './src/main/ets/common/ScheduleFormat';
 export { PluginStore } from './src/main/ets/state/PluginStore';
-export type { PluginItem, OfficialPluginItem } from './src/main/ets/state/PluginStore';
+export type { PluginItem, OfficialPluginItem, CatalogEntry, CatalogRow } from './src/main/ets/state/PluginStore';
 export { EventProjector } from './src/main/ets/state/EventProjector';
 export type { ProjTurn, ProjStep, ProjTool, TraceRow, TraceBand, TraceOverview } from './src/main/ets/state/EventProjector';
 export { CredentialStore } from './src/main/ets/state/CredentialStore';

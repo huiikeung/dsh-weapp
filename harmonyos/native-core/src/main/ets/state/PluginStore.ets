@@ -24,6 +24,27 @@ export interface PluginItem {
   sourceSpec: string;
   /** 只读原因（运行档案类 bundle 等不可操作时给出说明） */
   readOnlyReason: string;
+  /** 静态运行条目行（bundle.rows，对齐 weapp parseBundle.rows） */
+  rows: CatalogRow[];
+}
+
+/** 目录帧里的实时组件状态（frame.plugins，对齐 weapp parseEntry） */
+export interface CatalogEntry {
+  entryId: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  fiberPhase: string;
+  moduleName: string;
+}
+
+/** 静态运行条目行（bundle.rows） */
+export interface CatalogRow {
+  rowId: string;
+  entryId: string;
+  name: string;
+  description: string;
+  moduleName: string;
 }
 
 /** 内置插件配置项（对齐小程序 officialItems）。 */
@@ -76,6 +97,7 @@ function errorText(raw: Object): string {
 export class PluginStore {
   private static instance: PluginStore = new PluginStore();
   private bundles: PluginItem[] = [];
+  private entries: CatalogEntry[] = [];
   private managementAvailable: boolean = false;
 
   static get(): PluginStore {
@@ -136,6 +158,28 @@ export class PluginStore {
       const description: string = (meta !== undefined ? localized(meta['description']) : '')
         || (str(raw, 'description') ?? '');
       const icon: string = meta !== undefined ? (str(meta, 'icon') ?? '') : '';
+      const rows: CatalogRow[] = [];
+      if (Array.isArray(record['rows'])) {
+        for (const rawRow of record['rows'] as Object[]) {
+          const rr: Record<string, Object> | undefined = asRec(rawRow);
+          if (rr === undefined) {
+            continue;
+          }
+          const rrMeta = asRec(rr['meta']);
+          const rowId: string = str(rr, 'rowId') ?? (str(rr, 'entryId') ?? '');
+          const rowEntryId: string = str(rr, 'entryId') ?? rowId;
+          if (rowId.length === 0 && rowEntryId.length === 0) {
+            continue;
+          }
+          rows.push({
+            rowId: rowId,
+            entryId: rowEntryId,
+            name: (rrMeta !== undefined ? localized(rrMeta['title']) : '') || rowEntryId,
+            description: rrMeta !== undefined ? localized(rrMeta['description']) : '',
+            moduleName: str(rr, 'moduleName') ?? ''
+          });
+        }
+      }
       items.push({
         name: name,
         title: title,
@@ -154,11 +198,40 @@ export class PluginStore {
         installSpec: installTarget !== undefined ? (str(installTarget, 'spec') ?? '') : '',
         installTargetVersion: targetVersion,
         sourceSpec: str(raw, 'source') ?? '',
-        readOnlyReason: str(raw, 'readOnlyReason') ?? ''
+        readOnlyReason: str(raw, 'readOnlyReason') ?? '',
+        rows: rows
       });
     }
     this.bundles = items;
     AppStorage.setOrCreate<PluginItem[]>('pluginBundles', items.slice());
+
+    // 实时组件状态（frame.plugins）：包含的组件行据此显示 运行中/空闲/已停用
+    const catalogEntries: CatalogEntry[] = [];
+    let rawPlugins: Object[] = frame.plugins !== undefined ? frame.plugins : [];
+    if (rawPlugins.length === 0 && resultRec !== undefined && Array.isArray(resultRec['plugins'])) {
+      rawPlugins = resultRec['plugins'] as Object[];
+    }
+    for (const rawEntry of rawPlugins) {
+      const rec2 = asRec(rawEntry);
+      if (rec2 === undefined) {
+        continue;
+      }
+      const entryId: string = str(rec2, 'entryId') ?? (str(rec2, 'id') ?? '');
+      if (entryId.length === 0) {
+        continue;
+      }
+      const eMeta = asRec(rec2['meta']);
+      catalogEntries.push({
+        entryId: entryId,
+        name: (eMeta !== undefined ? localized(eMeta['title']) : '') || (str(rec2, 'name') ?? '') || entryId,
+        description: eMeta !== undefined ? localized(eMeta['description']) : '',
+        enabled: bool(rec2, 'enabled') === true,
+        fiberPhase: str(rec2, 'fiberPhase') ?? '',
+        moduleName: str(rec2, 'moduleName') ?? ''
+      });
+    }
+    this.entries = catalogEntries;
+    AppStorage.setOrCreate<CatalogEntry[]>('pluginCatalogEntries', catalogEntries.slice());
 
     const officialItems: OfficialPluginItem[] = [];
     let rawOfficial: Object[] = frame.officialItems !== undefined ? frame.officialItems : [];
