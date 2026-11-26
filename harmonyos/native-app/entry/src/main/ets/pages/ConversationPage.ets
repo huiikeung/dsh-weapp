@@ -4488,7 +4488,7 @@ export struct ConversationPage {
       // 主机只在会话空闲时把图片真正写进会话；运行中发送会进队列，队列项只保留文本/预览，
       // 图片会被丢掉（之后回读就是 Image is not referenced by this session）。
       // 所以带图片发送时先等本轮结束，再一次性发出去。
-      if (imagePayloads.length > 0 && (sessionBusy || SessionStore.get().isRunning())) {
+      if (imagePayloads.length > 0 && SessionStore.get().isSessionBusy()) {
         this.attachmentHint = '等待本轮结束再发送图片…';
         Logger.info('[SEND] waiting session idle before image send');
         const idle: boolean = await this.waitSessionIdle(180000);
@@ -4687,7 +4687,7 @@ export struct ConversationPage {
     return new Promise<boolean>((resolve: (idle: boolean) => void) => {
       const started: number = Date.now();
       const tick = (): void => {
-        if (!SessionStore.get().isRunning()) {
+        if (!SessionStore.get().isSessionBusy()) {
           resolve(true);
           return;
         }

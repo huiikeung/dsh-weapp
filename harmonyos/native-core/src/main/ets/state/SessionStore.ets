@@ -1878,6 +1878,21 @@ export class SessionStore {
   }
 
   /**
+   * 发送前的「会话是否真的忙」综合判定：本地 running ∪ 主机列表状态 ∪ 刚收到过事件。
+   * 带图片的消息一旦在运行中发出，会进主机队列（队列不保留图片内容）→ 无回复、重进即消失，
+   * 所以发图前要用这个更保守的判定等到真正空闲。
+   */
+  isSessionBusy(): boolean {
+    if (this.running) {
+      return true;
+    }
+    if (this.listSaysRunning()) {
+      return true;
+    }
+    return this.lastEventAt > 0 && Date.now() - this.lastEventAt < 3000;
+  }
+
+  /**
    * 会话列表里当前会话是否在运行中（主机权威状态）。
    * 实测：运行途中 this.running 会因漏帧/turn 判定等原因变 false，
    * 而列表仍是「运行中」。这会让 50ms 刷新器停掉 —— 之后鲸尾用时照跳（页面自己算的），
