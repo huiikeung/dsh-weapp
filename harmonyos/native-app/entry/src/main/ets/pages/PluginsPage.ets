@@ -1184,6 +1184,7 @@ export struct PluginsPage {
           }
           .width('100%')
           .padding({ left: 24, right: 24 })
+          .justifyContent(FlexAlign.Center)
         }
         .width('100%')
         .padding({ top: 40, bottom: 40 })
@@ -1265,30 +1266,6 @@ export struct PluginsPage {
             Column().width('100%').height((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 56)
             if (!this.showingMore) {
               Row({ space: 8 }) {
-                Text('安装、启用和配置插件').fontSize(11).fontColor(this.subColor()).layoutWeight(1)
-                if (this.pluginTab === 'installed') {
-                  Row() {
-                    this.addEntry()
-                  }
-                  .bindPopup(this.addMenuOpen, {
-                    builder: this.addMenuBuilder(),
-                    placement: Placement.BottomRight,
-                    popupColor: Color.Transparent,
-                    enableArrow: false,
-                    autoCancel: true,
-                    radius: 14,
-                    systemMaterial: this.sheetMaterial(),
-                    onStateChange: (event) => {
-                      if (!event.isVisible) {
-                        this.addMenuOpen = false;
-                      }
-                    }
-                  })
-                }
-              }
-              .width('100%')
-              .alignItems(VerticalAlign.Center)
-
               Row({ space: 3 }) {
                 Text('已安装')
                   .fontSize(14)
@@ -1323,6 +1300,32 @@ export struct PluginsPage {
               .padding(3)
               .borderRadius(10)
               .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)')
+                Text('安装、启用和配置插件')
+                  .fontSize(11)
+                  .fontColor(this.subColor())
+                  .layoutWeight(1)
+                if (this.pluginTab === 'installed') {
+                  Row() {
+                    this.addEntry()
+                  }
+                  .bindPopup(this.addMenuOpen, {
+                    builder: this.addMenuBuilder(),
+                    placement: Placement.BottomRight,
+                    popupColor: Color.Transparent,
+                    enableArrow: false,
+                    autoCancel: true,
+                    radius: 14,
+                    systemMaterial: this.sheetMaterial(),
+                    onStateChange: (event) => {
+                      if (!event.isVisible) {
+                        this.addMenuOpen = false;
+                      }
+                    }
+                  })
+                }
+              }
+              .width('100%')
+              .alignItems(VerticalAlign.Center)
             }
 
             if (this.connection !== 'connected') {
