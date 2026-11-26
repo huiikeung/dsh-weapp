@@ -10620,6 +10620,22 @@ export struct ConversationPage {
         .zIndex(1)
       } else if (this.entries.length === 0) {
         // 空会话：整块在时间线区域内垂直居中（对齐 spec §1.6 的空会话态）
+  /**
+   * 「回到底部」按钮的右边距：让它与输入条右下角蓝色主按钮**中心对齐**（按钮自身 40）。
+   *   新版布局 · 收起态：蓝钮 46 贴 dock 右边（14）→ 中心距右 37 → 右边距 17；
+   *   新版布局 · 展开态：蓝钮 36 在磨砂卡内（卡内边距 14）→ 中心距右 46 → 右边距 26；
+   *   旧布局：保持原来的 14（胶囊内 34 蓝钮 + 8 内边距，视觉上已基本居中）。
+   */
+  private scrollBottomRightInset(): number {
+    if (!this.composerCompactStyle) {
+      return 14;
+    }
+    if (this.composerExpanded()) {
+      return 26 + this.wideInset();
+    }
+    return 17 + this.wideInset();
+  }
+
         Column({ space: 8 }) {
           // 空会话态：品牌硬币（可拖动翻转），放在标题上方
           FluKeCoin({ diameter: 64 })
@@ -10933,7 +10949,8 @@ export struct ConversationPage {
         }
         .width('100%')
         // 回到底部按钮同样避让底部 dock，显示在输入框上方
-        .padding({ bottom: this.dockHeight + 10, right: 14 })
+        // 横向：与右下角蓝色主按钮中心对齐（新版布局 17+wideInset，旧布局 14）
+        .padding({ bottom: this.dockHeight + 10, right: this.scrollBottomRightInset() })
         .justifyContent(FlexAlign.End)
       }
     }

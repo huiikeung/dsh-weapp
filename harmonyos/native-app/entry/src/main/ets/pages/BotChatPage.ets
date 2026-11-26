@@ -120,6 +120,10 @@ export struct BotChatPage {
   @State composerFocused: boolean = false;
   /** 输入区实测高度：时间线底部留白（内容滚到玻璃后面，对齐工作模式） */
   @State dockHeight: number = 96;
+  /** 是否跟随底部：用户往上翻时关掉（显示「回到底部」），点按钮 / 发送 / 滑到底再恢复 */
+  @State autoStick: boolean = true;
+  /** 手指是否按在列表上：只有手指拖着滑离底部才算「用户主动离开」 */
+  private listTouching: boolean = false;
   /** 页面宽度（宽屏限宽 / 气泡最大宽） */
   @State pageW: number = 0;
   /** 实时工作行计时：每秒刷新一次（读它让该行随定时器重绘） */
@@ -299,7 +303,20 @@ export struct BotChatPage {
   }
 
   /** 末条消息 / 交互变化才滚底（流式增量也跟随） */
+  /**
+   * 「回到底部」按钮的右边距：与右下角蓝色主按钮中心对齐（按钮自身 40）。
+   *   收起态：蓝钮 44 贴 dock 右边（DOCK_SIDE）→ 中心距右 36 → 右边距 16；
+   *   展开态：蓝钮 36 在磨砂卡内（卡内边距 14）→ 中心距右 46 → 右边距 26。
+   */
+  private scrollBottomRightInset(): number {
+    return this.composerExpanded() ? DOCK_SIDE + 12 + this.wideInset() : DOCK_SIDE + 2 + this.wideInset();
+  }
+
   private scheduleScroll(): void {
+    // 用户正在往上看（已滑离底部）：不跟着新内容滚，等点「回到底部」再恢复
+    if (!this.autoStick) {
+      return;
+    }
     const messages: BotChatMessage[] = this.state.messages;
     let tail: string = messages.length === 0 ? '' : messages[messages.length - 1].id
       + ':' + messages[messages.length - 1].text.length.toString();
@@ -652,6 +669,8 @@ export struct BotChatPage {
     if ((text.length === 0 && selected.length === 0) || this.sending) {
       return;
     }
+    // 发消息 = 回到底部看新回复
+    this.autoStick = true;
     // 上一次卡死（超过 60s）先解锁，否则点发送永远没反应
     if (this.sending && this.sendStartedAt > 0 && Date.now() - this.sendStartedAt > 60000) {
       this.sending = false;
@@ -3630,6 +3649,27 @@ export struct BotChatPage {
         // 语音浮层：波纹特效 + 中间实时文字卡（录音中/识别中），不拦触摸（手指仍压在输入条上）
         if (this.voiceRecording || this.voicePhase === 'transcribing') {
           Stack({ alignContent: Alignment.Center }) {
+            .onTouch((event: TouchEvent) => {
+              if (event.type === TouchType.Down) {
+                this.listTouching = true;
+              } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                this.listTouching = false;
+              }
+            })
+            .onScrollIndex((_start: number, _end: number) => {
+              // 用真实滚动位置判断是否在底部：在底部 → 恢复跟随；手指拖着离开底部 → 关掉跟随（显示「回到底部」）
+              let atEnd: boolean = false;
+              try {
+                atEnd = this.scroller.isAtEnd();
+              } catch (err) {
+                atEnd = false;
+              }
+              if (this.state.messages.length > 0 && atEnd) {
+                this.autoStick = true;
+              } else if (this.listTouching) {
+                this.autoStick = false;
+              }
+            })
             VoiceRipplePanel({
               visible: true,
               cancelArmed: this.voiceCancelArmed,
@@ -3643,6 +3683,41 @@ export struct BotChatPage {
           }
           .width('100%')
           .height('100%')
+        if (this.state.supported && !this.autoStick && this.state.messages.length > 0) {
+          // 回到底部：与工作模式同款（40 玻璃圆钮 + 下箭头），中心与右下角蓝色主按钮对齐（见 scrollBottomRightInset）
+          Row() {
+            Stack({ alignContent: Alignment.Center }) {
+              this.nativeGlassBackplate(40, 40, 20)
+              Button({ type: ButtonType.Circle }) {
+                Row()
+                  .width(8)
+                  .height(8)
+                  .border({
+                    width: { right: 1.8, bottom: 1.8 },
+                    color: this.isDark ? 'rgba(255,255,255,0.86)' : 'rgba(16,19,24,0.72)'
+                  })
+                  .rotate({ angle: 45 })
+                  .translate({ y: -1.5 })
+              }
+              .width(40)
+              .height(40)
+              .buttonStyle(ButtonStyleMode.NORMAL)
+              .backgroundColor('#00000000')
+              .onClick(() => {
+                this.autoStick = true;
+                this.scroller.scrollEdge(Edge.Bottom);
+              })
+            }
+            .width(40)
+            .height(40)
+            .borderRadius(20)
+            .shadow({ radius: 14, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetX: 0, offsetY: 6 })
+          }
+          .width('100%')
+          .padding({ bottom: this.dockHeight + 10, right: this.scrollBottomRightInset() })
+          .justifyContent(FlexAlign.End)
+        }
+
           .hitTestBehavior(HitTestMode.None)
         }
 
@@ -3758,6 +3833,7 @@ export struct BotChatPage {
   roleSheet() {
     BotRoleSheet({
       botId: this.roleBotId,
+      this.autoStick = true;
       onClose: () => {
         this.roleSheetOpen = false;
       }
