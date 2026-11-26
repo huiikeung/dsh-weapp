@@ -3797,16 +3797,23 @@ export struct ConversationPage {
   }
 
   /** 主题切换专用：无条件重载列表，保持当前滚动位置 */
-  /** 回合结束后的整表重载：重建可见行（重新测量完整内容），并保持当前滚动位置 */
+  /**
+   * 回合结束后的整表重载：重建可见行（按完整内容重新测量），并保持滚动位置。
+   * 注意必须用 source.reload()（onDataReloaded）：update(entries) 在「行引用没变」时
+   * 会走纯追加分支，什么都不重建，行高仍是流式期间的半截值 —— 就是「代码块只显示几行、
+   * 退出重进才完整」的成因。
+   */
   private reloadFeedAfterSettle(): void {
     if (!this.pageVisible || this.entries.length === 0) {
       return;
     }
     const yOffset: number = this.scroller.currentOffset().yOffset;
     const stick: boolean = this.autoStick;
-    this.source.update(this.entries);
+    this.source.reload();
     setTimeout(() => {
-      if (!stick) {
+      if (stick) {
+        this.scroller.scrollEdge(Edge.Bottom);
+      } else {
         this.scroller.scrollTo({ xOffset: 0, yOffset: yOffset, animation: false });
       }
     }, 0);
