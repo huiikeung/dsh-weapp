@@ -130,6 +130,10 @@ export struct BotChatPage {
   @State attachMenuOpen: boolean = false;
   /** 输入框上方的轻提示（附件失败等） */
   @State hint: string = '';
+  /** 浮窗气泡：替代原来贴在输入框上方的那行红字/灰字 */
+  @State private dockToast: string = '';
+  @State private dockToastRed: boolean = false;
+  private dockToastTimer: number = -1;
   /** 正文图片/附件图片缓存代次：拉取完成后 +1 触发 Markdown 与图片块重绘 */
   @State imageRevision: number = 0;
   /** 交付文件里的图片：path → 本地缓存路径（imageRevision 变化时重绘） */
@@ -214,7 +218,18 @@ export struct BotChatPage {
     this.stopLiveTimer();
   }
 
+  /** 上一次弹过的错误文本：状态没变就不重复弹气泡 */
+  private lastErrorToast: string = '';
+
   onStateChanged(): void {
+    // 主机错误（如 file-not-found）改成浮窗气泡，不再贴在输入框上方当红字
+    const err: string = this.state.error ?? '';
+    if (err.length > 0 && err !== this.lastErrorToast) {
+      this.lastErrorToast = err;
+      this.showDockToast(err, true);
+    } else if (err.length === 0) {
+      this.lastErrorToast = '';
+    }
     // 消息变化时重建「附件 id → 会话 id」索引，正文里的 /__bot_image__/ 才能解析
     this.rebuildImageIndex();
     // 记下最近一条消息的会话 id：Bot 聊天的 chat.sessionId 常为空，
@@ -1812,18 +1827,26 @@ export struct BotChatPage {
   }
 
   private showHint(message: string): void {
+    this.showDockToast(message, false);
+  }
+
+  /** 输入框上方的浮窗气泡：3 秒自动消失，红色用于错误 */
+  private showDockToast(message: string, red: boolean): void {
     if (message.length === 0) {
       return;
     }
-    if (this.hintTimer >= 0) {
-      clearTimeout(this.hintTimer);
-      this.hintTimer = -1;
+    if (this.dockToastTimer >= 0) {
+      clearTimeout(this.dockToastTimer);
+      this.dockToastTimer = -1;
     }
     this.hint = message;
-    this.hintTimer = setTimeout(() => {
+    this.dockToastRed = red;
+    this.dockToast = message;
+    this.dockToastTimer = setTimeout(() => {
+      this.dockToast = '';
       this.hint = '';
-      this.hintTimer = -1;
-    }, 2600);
+      this.dockToastTimer = -1;
+    }, 3000);
   }
 
   private isImageAttachment(name: string): boolean {
@@ -2563,6 +2586,8 @@ export struct BotChatPage {
             fontSize: 14,
             resolveImage: (src: string): string => this.resolveBotImage(src),
             imageRevision: this.imageRevision,
+            // Bot 模式：长按正文直接选中文字复制（Body 上没有别的手势抢占）
+            selectable: true,
             onImageTap: (src: string) => {
               if (src.length > 0) {
                 this.openImagePreview(src);
@@ -2615,6 +2640,8 @@ export struct BotChatPage {
                   fontSize: this.contentSize(),
                   resolveImage: (src: string): string => this.resolveBotImage(src),
                   imageRevision: this.imageRevision,
+                  // Bot 模式：长按正文直接选中文字复制
+                  selectable: true,
                   onImageTap: (src: string) => {
                     if (src.length > 0) {
                       this.openImagePreview(src);
@@ -3297,20 +3324,6 @@ export struct BotChatPage {
   @Builder
   composerDock() {
     Column({ space: 8 }) {
-      if (this.hint.length > 0) {
-        Text(this.hint)
-          .fontSize(12)
-          .fontColor(this.subColor())
-          .width('100%')
-          .padding({ left: 4, right: 4 })
-      }
-      if (this.state.error !== undefined && this.state.error.length > 0) {
-        Text(this.state.error)
-          .fontSize(12)
-          .fontColor('#D65D64')
-          .width('100%')
-          .padding({ left: 4, right: 4 })
-      }
       // 与工作模式对话页完全同一套分层：
       //   收起态 —— 系统沉浸光感背板（HdsGlassSurface 悬浮胶囊，半径=高度一半）+ 透明内容；
       //   展开态 —— 不再叠背板（两个轮廓相叠会在圆角处露出胶囊弧线），改由 composerCard
@@ -3345,6 +3358,41 @@ export struct BotChatPage {
         .onActionUpdate(() => {
         })
     )
+    // 提示改成浮在输入框上方的气泡：不占布局、不影响输入条高度
+    .bindPopup(this.dockToast.length > 0, {
+      builder: this.dockToastBubble(),
+      placement: Placement.Top,
+      popupColor: Color.Transparent,
+      enableArrow: false,
+      autoCancel: false,
+      focusable: false,
+      mask: false,
+      radius: 14,
+      offset: { x: 0, y: -6 },
+      onStateChange: (event) => {
+        if (!event.isVisible) {
+          this.dockToast = '';
+        }
+      }
+    })
+  }
+
+  /** 浮窗气泡内容：深色胶囊 + 白色文字；错误态用红色文字 */
+  @Builder
+  dockToastBubble() {
+    Column() {
+      Text(this.dockToast)
+        .fontSize(12.5)
+        .lineHeight(18)
+        .fontColor(this.dockToastRed ? '#FFB3AE' : '#FFFFFF')
+        .maxLines(4)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+    }
+    .constraintSize({ maxWidth: 280 })
+    .padding({ left: 14, right: 14, top: 9, bottom: 9 })
+    .backgroundColor('rgba(24,26,32,0.94)')
+    .borderRadius(14)
+    .shadow({ radius: 12, color: 'rgba(0,0,0,0.28)', offsetX: 0, offsetY: 4 })
   }
 
   @Builder

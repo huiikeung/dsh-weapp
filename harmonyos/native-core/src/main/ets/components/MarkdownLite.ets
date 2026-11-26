@@ -11,6 +11,14 @@
 /** 反引号：用字符码构造，避免在源码里出现裸反引号导致工具链混淆。 */
 const TICK: string = String.fromCharCode(96);
 
+/** 会被当成「文件」渲染的扩展名（只用于识别 [文件名.xlsx] 这种方括号写法） */
+const FILE_EXTS: string = '|doc|docx|docm|dot|dotx|wps|xls|xlsx|xlsm|csv|tsv|et|ppt|pptx|pptm|pot|potx|dps|pdf|ofd|txt|md|mdx|rst|rtf|html|htm|epub|mobi|key|pages|numbers|json|jsonl|yaml|yml|toml|xml|sql|db|sqlite|parquet|sh|bat|ps1|ets|ts|tsx|js|jsx|py|ipynb|java|kt|go|rs|c|cpp|h|hpp|cs|swift|rb|php|lua|vue|css|scss|png|jpg|jpeg|gif|webp|svg|bmp|tif|tiff|ico|heic|mp4|mov|avi|mkv|webm|mp3|wav|flac|aac|ogg|m4a|zip|rar|7z|tar|gz|bz2|xz|apk|aab|hap|hsp|ipa|exe|msi|dmg|iso|psd|ai|sketch|fig|xd|dwg|dxf|stl|obj|glb|gltf|ttf|otf|woff|woff2|';
+
+/** 裸 URL 里遇到这些字符就结束（中文标点同样算结束） */
+const URL_STOP: string = '，。；：！？、（）【】《》「」『』<>"`|';
+
+/** URL 结尾允许被吃进来但要剥掉的标点 */
+const URL_TAIL: string = '.,;:!?)]}。，；：！？）】》」';
 export interface InlineSpan {
   text: string;
   /** plain | bold | italic | code | link */
@@ -324,6 +332,18 @@ export class MarkdownLite {
     let index: number = 0;
     while (index < text.length) {
       const rest: string = text.substring(index);
+      // 裸 URL（http/https）：桌面端会渲染成可点链接，这里同样当成 link
+      if (rest.startsWith('http://') || rest.startsWith('https://')) {
+        const urlEnd: number = MarkdownLite.urlEnd(rest);
+        if (urlEnd > 0) {
+          MarkdownLite.push(spans, buffer, 'plain', '');
+          buffer = '';
+          const url: string = rest.substring(0, urlEnd);
+          MarkdownLite.push(spans, url, 'link', url);
+          index += urlEnd;
+          continue;
+        }
+      }
       if (rest.startsWith(TICK)) {
         const end: number = rest.indexOf(TICK, 1);
         if (end > 0) {
@@ -339,7 +359,9 @@ export class MarkdownLite {
         if (end > 0) {
           MarkdownLite.push(spans, buffer, 'plain', '');
           buffer = '';
-          MarkdownLite.push(spans, rest.substring(2, end), 'bold', '');
+          // 粗体里可能还嵌着链接（`**[文件名](路径)**` 是桌面端最常见的写法）：
+          // 递归解析后整体标成 bold —— 之前直接整段塞成 bold 纯文本，包在里面的链接就点不开了。
+          MarkdownLite.pushNested(spans, rest.substring(2, end), 'bold');
           index += end + 2;
           continue;
         }
@@ -349,20 +371,58 @@ export class MarkdownLite {
         if (end > 0) {
           MarkdownLite.push(spans, buffer, 'plain', '');
           buffer = '';
-          MarkdownLite.push(spans, rest.substring(1, end), 'italic', '');
+          MarkdownLite.pushNested(spans, rest.substring(1, end), 'italic');
           index += end + 1;
           continue;
         }
       }
-      if (rest.startsWith('[')) {
-        const close: number = rest.indexOf('](', 1);
+      if (rest.startsWith('[') || rest.startsWith('［')) {
+        // 链接容错：`]` 与 `(` 之间允许空格，`]`、`(`、`)` 半角/全角都认
+        let close: number = -1;
+        for (let k = 1; k < rest.length; k++) {
+          const ch: string = rest.charAt(k);
+          if (ch === ']' || ch === '］') {
+            close = k;
+            break;
+          }
+        }
         if (close > 0) {
-          const end: number = rest.indexOf(')', close + 2);
-          if (end > 0) {
+          let open: number = close + 1;
+          while (open < rest.length && rest.charAt(open) === ' ') {
+            open++;
+          }
+          const paren: string = open < rest.length ? rest.charAt(open) : '';
+          if (paren === '(' || paren === '（') {
+            let end: number = -1;
+            for (let k = open + 1; k < rest.length; k++) {
+              const ch: string = rest.charAt(k);
+              if (ch === ')' || ch === '）') {
+                end = k;
+                break;
+              }
+              if (ch === '\n') {
+                break;
+              }
+            }
+            if (end > open) {
+              const label: string = rest.substring(1, close);
+              const href: string = rest.substring(open + 1, end);
+              if (label.length > 0) {
+                MarkdownLite.push(spans, buffer, 'plain', '');
+                buffer = '';
+                MarkdownLite.push(spans, label, 'link', href.length > 0 ? href : label);
+                index += end + 1;
+                continue;
+              }
+            }
+          }
+          // 只有方括号、内容是文件名：[报告.xlsx] —— 当文件链接
+          const inner: string = rest.substring(1, close);
+          if (MarkdownLite.looksLikeFileName(inner)) {
             MarkdownLite.push(spans, buffer, 'plain', '');
             buffer = '';
-            MarkdownLite.push(spans, rest.substring(1, close), 'link', rest.substring(close + 2, end));
-            index += end + 1;
+            MarkdownLite.push(spans, inner, 'link', inner);
+            index += close + 1;
             continue;
           }
         }
@@ -371,7 +431,231 @@ export class MarkdownLite {
       index++;
     }
     MarkdownLite.push(spans, buffer, 'plain', '');
-    return spans;
+    // 裸的本地网页路径（不带 http/https）单独切成 htmlpath 片段：正文里按普通文字 + 背景卡片渲染
+    return MarkdownLite.splitLocalHtmlPaths(MarkdownLite.autoLinkFiles(spans));
+  }
+
+
+
+  /** 是否像文件名（有已知扩展名、不是网址） */
+  private static looksLikeFileName(value: string): boolean {
+    const name: string = value.trim();
+    if (name.length < 4 || name.length > 200) {
+      return false;
+    }
+    if (name.indexOf('://') >= 0 || name.indexOf(' ') >= 0 || name.indexOf('/') >= 0) {
+      return false;
+    }
+    const lower: string = name.toLowerCase();
+    const dot: number = lower.lastIndexOf('.');
+    if (dot <= 0 || dot === lower.length - 1) {
+      return false;
+    }
+    const ext: string = lower.substring(dot + 1);
+    return FILE_EXTS.indexOf('|' + ext + '|') >= 0;
+  }
+
+  /** 裸 URL 的结束位置：遇到空白或中英文标点就停（括号允许出现在 URL 里时按配对处理） */
+  private static urlEnd(text: string): number {
+    let i: number = 0;
+    while (i < text.length) {
+      const ch: string = text.charAt(i);
+      if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+        break;
+      }
+      if (URL_STOP.indexOf(ch) >= 0) {
+        break;
+      }
+      i++;
+    }
+    // 去掉结尾被吞进来的标点
+    while (i > 0) {
+      const last: string = text.charAt(i - 1);
+      if (URL_TAIL.indexOf(last) >= 0) {
+        i--;
+      } else {
+        break;
+      }
+    }
+    return i;
+  }
+
+  /** 路径词边界：空白与常见中英文标点（ASCII 标点用 charCode 判断，避免转义） */
+  private static isPathBoundary(ch: string): boolean {
+    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+      return true;
+    }
+    const code: number = ch.charCodeAt(0);
+    if (code < 128) {
+      return (code >= 33 && code <= 47) || (code >= 58 && code <= 64)
+        || (code >= 91 && code <= 96) || (code >= 123 && code <= 126);
+    }
+    return '、，。；：！？（）【】「」《》“”‘’'.indexOf(ch) >= 0;
+  }
+
+  /**
+   * 把纯文本片段里的「裸本地网页路径」（结尾 .html/.htm/.xhtml、不含 http(s)://）切成 htmlpath 片段，
+   * 让正文把它画成带底色的卡片，而不是蓝色链接。
+   */
+  private static splitLocalHtmlPaths(spans: InlineSpan[]): InlineSpan[] {
+    const out: InlineSpan[] = [];
+    for (let s = 0; s < spans.length; s++) {
+      const span: InlineSpan = spans[s];
+      if (span.style !== 'plain' || span.text.toLowerCase().indexOf('.htm') < 0) {
+        out.push(span);
+        continue;
+      }
+      const text: string = span.text;
+      const lower: string = text.toLowerCase();
+      let cursor: number = 0;
+      let search: number = 0;
+      while (search < lower.length) {
+        const idx: number = lower.indexOf('.htm', search);
+        if (idx < 0) {
+          break;
+        }
+        search = idx + 4;
+        let end: number = -1;
+        if (lower.startsWith('.html', idx)) {
+          end = idx + 5;
+        } else if (lower.startsWith('.xhtml', idx)) {
+          end = idx + 6;
+        } else if (lower.startsWith('.htm', idx)) {
+          end = idx + 4;
+        }
+        if (end < 0 || end <= cursor) {
+          continue;
+        }
+        if (end < lower.length && !MarkdownLite.isPathBoundary(lower.charAt(end))) {
+          continue;
+        }
+        let start: number = idx;
+        while (start > cursor && !MarkdownLite.isPathBoundary(lower.charAt(start - 1))) {
+          start--;
+        }
+        const token: string = text.substring(start, end);
+        if (token.length === 0 || token.toLowerCase().indexOf('://') >= 0) {
+          continue;
+        }
+        MarkdownLite.push(out, text.substring(cursor, start), 'plain', '');
+        MarkdownLite.push(out, token, 'htmlpath', token);
+        cursor = end;
+      }
+      MarkdownLite.push(out, text.substring(cursor), 'plain', '');
+    }
+    return out;
+  }
+
+
+  /**
+   * 自动把正文里的文件（带扩展名的文件名 / 路径）识别成链接，对齐桌面端：
+   * 这类文字在 dsh 端是可点卡片，手机端也必须可点。
+   */
+  private static autoLinkFiles(spans: InlineSpan[]): InlineSpan[] {
+    const out: InlineSpan[] = [];
+    for (const span of spans) {
+      if (span.style !== 'plain') {
+        out.push(span);
+        continue;
+      }
+      MarkdownLite.splitFileTokens(span.text, out);
+    }
+    return out;
+  }
+
+  /** 按空白切词：是文件的词换成 link 片段，其余原样 */
+  private static splitFileTokens(text: string, out: InlineSpan[]): void {
+    let buffer: string = '';
+    let word: string = '';
+    for (let i = 0; i < text.length; i++) {
+      const ch: string = text.charAt(i);
+      const isSpace: boolean = ch === ' ' || ch === '\t' || ch === '\n';
+      if (isSpace) {
+        if (word.length > 0) {
+          MarkdownLite.pushFileWord(word, out);
+          word = '';
+        }
+        buffer += ch;
+      } else {
+        if (buffer.length > 0) {
+          MarkdownLite.push(out, buffer, 'plain', '');
+          buffer = '';
+        }
+        word += ch;
+      }
+    }
+    if (word.length > 0) {
+      MarkdownLite.pushFileWord(word, out);
+    }
+    MarkdownLite.push(out, buffer, 'plain', '');
+  }
+
+  /** 单个词：前后剥掉标点后若像文件，则输出 link */
+  private static pushFileWord(word: string, out: InlineSpan[]): void {
+    const lead: string = MarkdownLite.trimLead(word);
+    const core: string = word.substring(lead.length);
+    const body: string = MarkdownLite.trimTrail(core);
+    const tail: string = core.substring(body.length);
+    if (body.length > 0 && MarkdownLite.isFilePath(body)) {
+      MarkdownLite.push(out, lead, 'plain', '');
+      MarkdownLite.push(out, body, 'link', body);
+      MarkdownLite.push(out, tail, 'plain', '');
+      return;
+    }
+    MarkdownLite.push(out, word, 'plain', '');
+  }
+
+  /** 去掉开头的括号/引号 */
+  private static trimLead(word: string): string {
+    const marks: string = '([{【《「『"\'“（';
+    let i: number = 0;
+    while (i < word.length && marks.indexOf(word.charAt(i)) >= 0) {
+      i++;
+    }
+    return word.substring(0, i);
+  }
+
+  /** 去掉结尾的标点（含中文），但保留路径里的符号 */
+  private static trimTrail(core: string): string {
+    const marks: string = '.,;:!?)]}>}】》」』"\'”，。；：！？、';
+    let end: number = core.length;
+    while (end > 0 && marks.indexOf(core.charAt(end - 1)) >= 0) {
+      end--;
+    }
+    return core.substring(0, end);
+  }
+
+  /** 是否像文件：有已知扩展名（可带路径），或者是 http(s) 之外的本地路径 */
+  private static isFilePath(value: string): boolean {
+    const name: string = value.trim();
+    if (name.length < 4 || name.length > 300) {
+      return false;
+    }
+    if (name.indexOf('://') >= 0) {
+      return false;
+    }
+    const lower: string = name.toLowerCase();
+    const dot: number = lower.lastIndexOf('.');
+    if (dot <= 0 || dot === lower.length - 1) {
+      return false;
+    }
+    const ext: string = lower.substring(dot + 1);
+    return FILE_EXTS.indexOf('|' + ext + '|') >= 0;
+  }
+
+  /**
+   * 把被 `style`（bold / italic）包裹的内容递归解析后并入 spans：
+   * link / code 片段保留自己的样式（否则粗体里的链接会退化成纯文字点不开），其余统一成 style。
+   */
+  private static pushNested(spans: InlineSpan[], inner: string, style: string): void {
+    const nested: InlineSpan[] = MarkdownLite.inline(inner);
+    for (const span of nested) {
+      if (span.style === 'link' || span.style === 'code') {
+        spans.push(span);
+      } else {
+        MarkdownLite.push(spans, span.text, style, span.href);
+      }
+    }
   }
 
   private static push(spans: InlineSpan[], value: string, style: string, href: string): void {

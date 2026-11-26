@@ -9,6 +9,7 @@
  */
 import { pasteboard } from '@kit.BasicServicesKit';
 import { Logger, MarkdownLite } from 'nativecore';
+import { fileKindIcon, fileKindOf } from '../common/FileKind';
 import type { MarkdownBlock, InlineSpan } from 'nativecore';
 
 /** 流式 Markdown 的最小解析间隔：正文越长，单次解析越贵 */
@@ -32,6 +33,8 @@ export struct MarkdownBodyView {
   @State themeGeneration: number = 0;
   /** 正文字号（助手 16 / 紧凑场景 13） */
   @Prop fontSize: number = 18.5;
+  /** 正文是否可长按选择（默认不可选，交给页面自己挂长按弹窗） */
+  @Prop selectable: boolean = false;
   /** 正文色覆盖：只用于错误态（红色）；空串表示跟随主题 */
   @Prop textColor: string = '';
   /**
@@ -54,6 +57,48 @@ export struct MarkdownBodyView {
   @State private blocks: MarkdownBlock[] = [];
   private parseTimer: number = -1;
   private lastParseAt: number = 0;
+
+
+  /** 文件链接判定的目标：优先 href（[标题](路径.docx) 的标题往往没有扩展名） */
+  static linkTarget(label: string, href: string): string {
+    const value: string = href.trim().length > 0 ? href.trim() : label.trim();
+    return value;
+  }
+
+  /** 目标是否是文件（按扩展名） */
+  static isFileTarget(target: string): boolean {
+    return MarkdownBodyView.isFileLink(target);
+  }
+
+  /** 链接文本是否就是一个文件名（决定用「图标 + 蓝字」还是普通下划线链接） */
+  static isFileLink(text: string): boolean {
+    const name: string = text.trim();
+    if (name.length < 4 || name.length > 260) {
+      return false;
+    }
+    if (name.indexOf('://') >= 0) {
+      return false;
+    }
+    const dot: number = name.lastIndexOf('.');
+    if (dot <= 0 || dot === name.length - 1) {
+      return false;
+    }
+    return name.length - dot <= 6;
+  }
+
+  /**
+   * 本地网页路径（不带 http/https、以 .html/.htm/.xhtml 结尾）：
+   * 正文里按普通文字 + 背景卡片渲染，不再画成蓝色链接（点开仍然是网页预览弹窗）。
+   */
+  static isLocalHtmlLink(text: string): boolean {
+    const value: string = text.trim().toLowerCase();
+    if (value.length === 0 || value.indexOf('://') >= 0) {
+      return false;
+    }
+    return value.endsWith('.html') || value.endsWith('.htm') || value.endsWith('.xhtml');
+  }
+
+
 
   aboutToAppear(): void {
     this.parseNow();
@@ -252,6 +297,76 @@ export struct MarkdownBodyView {
     }
   }
 
+  /** 文件链接前面的图标：与文件卡/桌面端同一套 ficon_*（按扩展名着色：docx 蓝 / xlsx 绿 / pptx 橙 / pdf 红） */
+  @Builder
+  fileIconSpan(name: string, size: number) {
+    ImageSpan(fileKindIcon(fileKindOf(name)))
+      .width(size * 1.05)
+      .height(size * 1.05)
+      .verticalAlign(ImageSpanAlignment.CENTER)
+      .objectFit(ImageFit.Contain)
+  }
+  /** 链接文本是否是 http(s) 地址（决定用地球图标、无下划线） */
+  /** 需要按链接样式处理的片段：markdown 链接与解析出来的裸网页路径 */
+  static isLinkLike(style: string): boolean {
+    return style === 'link' || style === 'htmlpath';
+  }
+
+  /** 目标是否是 http(s) 网页（决定「图标 + 主色文字、无下划线」） */
+  static isWebTarget(target: string): boolean {
+    const value: string = target.trim().toLowerCase();
+    return value.startsWith('http://') || value.startsWith('https://');
+  }
+
+  /** 网页目标按域名挑图标：公众号 / 微信 → 微信图标，其余 → 地球 */
+  static webIcon(target: string): Resource {
+    const value: string = target.trim().toLowerCase();
+    if (value.indexOf('mp.weixin.qq.com') >= 0 || value.indexOf('weixin.qq.com') >= 0
+      || value.indexOf('wechat.com') >= 0) {
+      return $r('app.media.proc_wechat');
+    }
+    return $r('app.media.proc_web');
+  }
+
+  static isUrlLink(text: string): boolean {
+    const value: string = text.trim().toLowerCase();
+    return value.startsWith('http://') || value.startsWith('https://');
+  }
+
+  /** 扩展名 */
+  static extOf(name: string): string {
+    const lower: string = name.trim().toLowerCase();
+    const dot: number = lower.lastIndexOf('.');
+    return dot >= 0 ? lower.substring(dot + 1) : '';
+  }
+
+  static isDocExt(ext: string): boolean {
+    return ext === 'doc' || ext === 'docx' || ext === 'wps' || ext === 'rtf' || ext === 'txt' || ext === 'md' || ext === 'ofd';
+  }
+
+  static isSheetExt(ext: string): boolean {
+    return ext === 'xls' || ext === 'xlsx' || ext === 'csv' || ext === 'tsv' || ext === 'et';
+  }
+
+  static isSlideExt(ext: string): boolean {
+    return ext === 'ppt' || ext === 'pptx' || ext === 'pot' || ext === 'dps';
+  }
+
+  static isImageExt(ext: string): boolean {
+    return ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif' || ext === 'webp' || ext === 'svg' || ext === 'bmp' || ext === 'heic';
+  }
+
+  static isArchiveExt(ext: string): boolean {
+    return ext === 'zip' || ext === 'rar' || ext === '7z' || ext === 'tar' || ext === 'gz' || ext === 'hap' || ext === 'apk';
+  }
+
+  static isCodeExt(ext: string): boolean {
+    return ext === 'json' || ext === 'yaml' || ext === 'yml' || ext === 'toml' || ext === 'xml' || ext === 'ts'
+      || ext === 'tsx' || ext === 'js' || ext === 'ets' || ext === 'py' || ext === 'java' || ext === 'kt' || ext === 'go'
+      || ext === 'rs' || ext === 'c' || ext === 'cpp' || ext === 'h' || ext === 'sh' || ext === 'sql' || ext === 'css'
+      || ext === 'html';
+  }
+
   /**
    * 行内片段渲染：一个 Span 对应一个片段。
    * 粗体加粗、行内代码等宽 + 底色圆角、链接主色下划线、斜体倾斜。
@@ -260,21 +375,41 @@ export struct MarkdownBodyView {
   inline(spans: InlineSpan[], size: number, color: string, weight: FontWeight, lineHeight: number) {
     Text() {
       ForEach(spans, (span: InlineSpan, index: number) => {
+        // 网页目标（公众号 / 普通站点）：按域名给图标，文字保持主色、不加下划线（对齐 dsh 端）
+        if (MarkdownBodyView.isLinkLike(span.style)
+          && MarkdownBodyView.isWebTarget(MarkdownBodyView.linkTarget(span.text, span.href))) {
+          ImageSpan(MarkdownBodyView.webIcon(MarkdownBodyView.linkTarget(span.text, span.href)))
+            .width(size * 0.95)
+            .height(size * 0.95)
+            .verticalAlign(ImageSpanAlignment.CENTER)
+            .objectFit(ImageFit.Contain)
+        } else if (MarkdownBodyView.isLinkLike(span.style)
+          && MarkdownBodyView.isFileLink(MarkdownBodyView.linkTarget(span.text, span.href))) {
+          // 文件链接（标题或 href 带扩展名）：文件图标 + 主色文字，不加下划线（对齐桌面端）
+          this.fileIconSpan(MarkdownBodyView.linkTarget(span.text, span.href), size)
+        }
         Span(span.text)
           .fontSize(span.style === 'code' ? size - 1 : size)
-          .fontColor(span.style === 'link' ? ACCENT : color)
+          .fontColor(MarkdownBodyView.isLinkLike(span.style)
+            ? (MarkdownBodyView.isLocalHtmlLink(span.text) ? color : ACCENT)
+            : color)
           .fontWeight(span.style === 'bold' ? FontWeight.Bold : weight)
           .fontStyle(span.style === 'italic' ? FontStyle.Italic : FontStyle.Normal)
           .fontFamily(span.style === 'code' ? MONO_FONT : BODY_FONT)
           .textBackgroundStyle(span.style === 'code'
             ? { color: this.fillColor(), radius: 6 }
-            : { color: Color.Transparent, radius: 0 })
-          .decoration(span.style === 'link'
+            : ((MarkdownBodyView.isLocalHtmlLink(span.text) || span.style === 'htmlpath')
+              ? { color: this.fillColor(), radius: 6 }
+              : { color: Color.Transparent, radius: 0 }))
+          // 网页目标与文件链接都不画下划线：只有泛链接才加下划线
+          .decoration(MarkdownBodyView.isLinkLike(span.style)
+            && !MarkdownBodyView.isFileLink(MarkdownBodyView.linkTarget(span.text, span.href))
+            && !MarkdownBodyView.isWebTarget(MarkdownBodyView.linkTarget(span.text, span.href))
             ? { type: TextDecorationType.Underline, color: ACCENT }
             : { type: TextDecorationType.None, color: Color.Transparent })
-          // Span 只支持 onClick / onHover 两个通用事件：链接点击后弹窗看完整地址
+          // Span 只支持 onClick / onHover 两个通用事件：链接点击交给页面处理
           .onClick(() => {
-            if (span.style === 'link') {
+            if (MarkdownBodyView.isLinkLike(span.style)) {
               this.handleLink(span.text, span.href);
             }
           })
@@ -286,6 +421,7 @@ export struct MarkdownBodyView {
     .fontWeight(weight)
     .fontFamily(BODY_FONT)
     .lineHeight(lineHeight)
+    .copyOption(this.selectable ? CopyOptions.LocalDevice : CopyOptions.None)
   }
 
   /** 表格单元格：小程序对单元格也走行内 HTML，这里同样按行内片段渲染（宽度由外层 flex 决定） */

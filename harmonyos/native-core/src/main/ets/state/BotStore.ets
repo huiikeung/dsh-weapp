@@ -2754,11 +2754,31 @@ export class BotStore {
       for (const one of (this.optimistic.get(selected) ?? [])) {
         messages.push(one);
       }
+      // 流式回复落库后：历史里已经有同一段文本，这里必须跳过并清掉 streams 里的副本，
+      // 否则「历史一条 + 流式一条」会渲染成两个一模一样的气泡。
+      const history: BotChatMessage[] = this.histories.get(selected) ?? [];
+      const streamKeys: string[] = [];
       this.streams.forEach((one: BotChatMessage, key: string) => {
-        if (one.text.length > 0 && one.sessionId === selected) {
-          messages.push(one);
-        }
+        streamKeys.push(key);
       });
+      for (const key of streamKeys) {
+        const one: BotChatMessage | undefined = this.streams.get(key);
+        if (one === undefined || one.text.length === 0 || one.sessionId !== selected) {
+          continue;
+        }
+        let duplicated: boolean = false;
+        for (const settled of history) {
+          if (settled.kind === one.kind && settled.text === one.text) {
+            duplicated = true;
+            break;
+          }
+        }
+        if (duplicated) {
+          this.streams.delete(key);
+          continue;
+        }
+        messages.push(one);
+      }
     }
     this.state.messages = messages;
     this.state.hasEarlier = selected.length > 0 && this.cursors.has(selected);
