@@ -1054,8 +1054,9 @@ export class BotStore {
     if (kind.length === 0) {
       return null;
     }
-    const files: BotPresentedFile[] = (kind === 'bot' || kind === 'post' || kind === 'file')
-      ? this.presentedFiles(item) : [];
+    // 任何消息类型都可能带交付文件（view/answer 里也会带），统一解析，
+    // 否则 Bot 模式只对 bot/post/file 显示文件卡，工作模式却有卡片 —— 两边不一致。
+    const files: BotPresentedFile[] = this.presentedFiles(item);
     if (kind === 'file' && files.length === 0) {
       return null;
     }
@@ -1363,6 +1364,19 @@ export class BotStore {
     }
   }
 
+  /**
+   * 离开聊天页（含系统手势返回）：只清掉「当前正在看哪个聊天」，不碰消息缓存。
+   * 与 iOS BotModeView 的 navigationDestination(set: openedChat = nil; model.select(nil)) 同一套语义：
+   * 选择不清掉时，首页会把这条聊天的每条新消息都当成「正在看」→ 不计未读 → 「与 X 聊聊」卡片永远不亮红角标。
+   */
+  clearChatSelection(): void {
+    if ((this.state.selectedChatId ?? EMPTY).length === 0) {
+      return;
+    }
+    this.state.selectedChatId = undefined;
+    this.publish();
+  }
+
   private markChatRead(chatId: string | undefined): void {
     if (chatId === undefined || chatId.length === 0) {
       return;
@@ -1403,7 +1417,7 @@ export class BotStore {
     const botId: string = pending.chatId;
     const ref: string = text(obj, 'ref');
     const image: string = text(obj, 'image');
-    if (botId.length === 0 || !image.startsWith('data:image/') || image.length >= 256000) {
+    if (botId.length === 0 || !image.startsWith('data:image/') || image.length >= 1500000) {
       return;
     }
     // 只有「我们登记过 ref 且回包 ref 不一致」才丢弃；
@@ -1477,6 +1491,29 @@ export class BotStore {
     this.publish();
   }
 
+  /**
+   * 强制刷新所有 Bot 头像：清掉「已尝试」记录，逐个重新请求一次。
+   * 用在首页/聊天页展示时（主机重连后头像没跟上、首装时机不对导致的长期兜底头像）。
+   */
+  forceAvatars(): void {
+    this.attemptedAvatars.clear();
+    if (!this.state.connected || !this.state.supported) {
+      return;
+    }
+    let sent: number = 0;
+    for (const chat of this.state.chats) {
+      if (sent >= 6) {
+        break;
+      }
+      if (chat.room) {
+        continue;
+      }
+      const payload: Record<string, Object> = { 'botId': chat.id };
+      if (this.call('avatar', payload, chat.id) !== null) {
+        sent += 1;
+      }
+    }
+  }
   private loadAvatars(): void {
     if (!this.state.connected || !this.state.supported) {
       return;

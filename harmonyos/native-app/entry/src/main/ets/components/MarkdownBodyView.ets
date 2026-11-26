@@ -9,7 +9,7 @@
  */
 import { pasteboard } from '@kit.BasicServicesKit';
 import { Logger, MarkdownLite } from 'nativecore';
-import { fileKindIcon, fileKindOf } from '../common/FileKind';
+import { FILE_KIND_MD, FILE_KIND_TXT, FILE_KIND_UNKNOWN, fileKindIcon, fileKindOf } from '../common/FileKind';
 import type { MarkdownBlock, InlineSpan } from 'nativecore';
 
 /** 流式 Markdown 的最小解析间隔：正文越长，单次解析越贵 */
@@ -35,6 +35,12 @@ export struct MarkdownBodyView {
   @Prop fontSize: number = 18.5;
   /** 正文是否可长按选择（默认不可选，交给页面自己挂长按弹窗） */
   @Prop selectable: boolean = false;
+  /**
+   * 正文是否两端对齐（TextAlign.Justify）。
+   * 默认 false：工作模式正文保持左对齐；Bot 模式气泡传 true。
+   * 注意：中英混排时行内空格会被拉开，短句/末行不受影响。
+   */
+  @Prop justifyText: boolean = false;
   /** 正文色覆盖：只用于错误态（红色）；空串表示跟随主题 */
   @Prop textColor: string = '';
   /**
@@ -70,6 +76,84 @@ export struct MarkdownBodyView {
     return MarkdownBodyView.isFileLink(target);
   }
 
+  /** 是否是 Markdown 文档（优先按扩展名直判，避免落到 unknown 的问号图标） */
+  static isMdName(raw: string): boolean {
+    const name: string = raw.trim().toLowerCase();
+    return name.endsWith('.md') || name.endsWith('.mdx') || name.endsWith('.markdown');
+  }
+
+  /** 图标类型：先清理路径与引号，再按扩展名；md 之类的常见类型做兜底 */
+  static iconKind(raw: string): string {
+    let name: string = raw.trim();
+    if (name.startsWith('file://')) {
+      name = name.substring('file://'.length);
+    }
+    const quote: number = name.lastIndexOf('/') > 0 ? name.lastIndexOf('/') : 0;
+    if (quote > 0) {
+      name = name.substring(quote + 1);
+    }
+    name = name.replace(/[)）。，,;；]+$/, '').trim();
+    const kind: string = fileKindOf(name);
+    if (kind !== FILE_KIND_UNKNOWN) {
+      return kind;
+    }
+    const lower: string = name.toLowerCase();
+    if (lower.endsWith('.md') || lower.endsWith('.markdown')) {
+      return FILE_KIND_MD;
+    }
+    if (lower.endsWith('.txt')) {
+      return FILE_KIND_TXT;
+    }
+    return kind;
+  }
+
+  /** 按「包含扩展名」挑图标（不依赖结尾与编码），兜底走 FileKind */
+  static iconOfName(raw: string): Resource {
+    const low: string = raw.trim().toLowerCase();
+    if (low.indexOf('.md') >= 0 || low.indexOf('.markdown') >= 0 || low.indexOf('.mdx') >= 0) {
+      return $r('app.media.ficon_md');
+    }
+    if (low.indexOf('.docx') >= 0 || low.indexOf('.doc') >= 0) {
+      return $r('app.media.ficon_docx');
+    }
+    if (low.indexOf('.xlsx') >= 0 || low.indexOf('.xls') >= 0) {
+      return $r('app.media.ficon_xlsx');
+    }
+    if (low.indexOf('.pptx') >= 0 || low.indexOf('.ppt') >= 0) {
+      return $r('app.media.ficon_pptx');
+    }
+    if (low.indexOf('.csv') >= 0) {
+      return $r('app.media.ficon_csv');
+    }
+    if (low.indexOf('.pdf') >= 0) {
+      return $r('app.media.ficon_pdf');
+    }
+    if (low.indexOf('.txt') >= 0) {
+      return $r('app.media.ficon_txt');
+    }
+    if (low.indexOf('.html') >= 0 || low.indexOf('.htm') >= 0) {
+      return $r('app.media.ficon_html');
+    }
+    if (low.indexOf('.png') >= 0 || low.indexOf('.jpg') >= 0 || low.indexOf('.jpeg') >= 0
+      || low.indexOf('.gif') >= 0 || low.indexOf('.webp') >= 0 || low.indexOf('.svg') >= 0) {
+      return $r('app.media.ficon_image');
+    }
+    return fileKindIcon(fileKindOf(MarkdownBodyView.bareName(raw)));
+  }
+
+  /** 取路径最后一段，去掉尾部标点 */
+  static bareName(raw: string): string {
+    let name: string = raw.trim();
+    if (name.startsWith('file://')) {
+      name = name.substring('file://'.length);
+    }
+    const slash: number = name.lastIndexOf('/');
+    if (slash >= 0 && slash < name.length - 1) {
+      name = name.substring(slash + 1);
+    }
+    name = name.replace(/[)）。，,;；:：]+$/, '').trim();
+    return name;
+  }
   /** 链接文本是否就是一个文件名（决定用「图标 + 蓝字」还是普通下划线链接） */
   static isFileLink(text: string): boolean {
     const name: string = text.trim();
@@ -297,10 +381,13 @@ export struct MarkdownBodyView {
     }
   }
 
-  /** 文件链接前面的图标：与文件卡/桌面端同一套 ficon_*（按扩展名着色：docx 蓝 / xlsx 绿 / pptx 橙 / pdf 红） */
+  /**
+   * 文件链接前面的图标：先按「包含扩展名」直判（最稳），再退回 FileKind 的彩色映射。
+   * 之前只按结尾判，名字里带引号/标点/编码时会落到 unknown（问号图标）。
+   */
   @Builder
   fileIconSpan(name: string, size: number) {
-    ImageSpan(fileKindIcon(fileKindOf(name)))
+    ImageSpan(MarkdownBodyView.iconOfName(name))
       .width(size * 1.05)
       .height(size * 1.05)
       .verticalAlign(ImageSpanAlignment.CENTER)
@@ -421,6 +508,7 @@ export struct MarkdownBodyView {
     .fontWeight(weight)
     .fontFamily(BODY_FONT)
     .lineHeight(lineHeight)
+    .textAlign(this.justifyText ? TextAlign.JUSTIFY : TextAlign.Start)
     .copyOption(this.selectable ? CopyOptions.LocalDevice : CopyOptions.None)
   }
 

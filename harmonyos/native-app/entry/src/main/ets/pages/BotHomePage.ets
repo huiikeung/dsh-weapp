@@ -912,6 +912,18 @@ export struct BotHomePage {
     }
   }
 
+  /** 「与 X 聊聊」卡片右侧角标：overlay 里的内容，不参与卡片尺寸测量 */
+  @Builder
+  chatStatusOverlay() {
+    if (this.chiefHasStatus()) {
+      Row() {
+        this.chiefStatusMark()
+      }
+      // 只作角标：别挡住卡片点击
+      .hitTestBehavior(HitTestMode.None)
+    }
+  }
+
   // ==================== 顶栏 / 标题区 ====================
 
   @Builder
@@ -1062,26 +1074,19 @@ export struct BotHomePage {
         }
         .justifyContent(FlexAlign.Center)
         .width('100%')
+        // 有状态标记时左右让出 64，避免角标压住「与 X 聊聊」（对齐 iOS）
+        .padding({
+          left: this.chiefHasStatus() ? 64 : 22,
+          right: this.chiefHasStatus() ? 64 : 22
+        })
 
-        // 对齐 iOS：状态标记 trailing 内边距 16（运行中绿点 / 未读红角标）
-        Row() {
-          if (this.chiefHasStatus()) {
-            this.chiefStatusMark()
-          }
-        }
-        .width('100%')
-        .justifyContent(FlexAlign.End)
-        .padding({ right: 16 })
       }
       .width('100%')
       .constraintSize({ minHeight: 46 })
-      // 有状态标记时左右让出 64，避免角标压住「与 X 聊聊」（对齐 iOS）
-      .padding({
-        left: this.chiefHasStatus() ? 64 : 22,
-        right: this.chiefHasStatus() ? 64 : 22,
-        top: 10.5,
-        bottom: 10.5
-      })
+      .padding({ top: 10.5, bottom: 10.5 })
+      // 角标走 overlay：不参与布局测量（否则 height('100%') 会把卡片撑高），
+      // 位置对齐 iOS overlay(alignment: .trailing) + trailing 16
+      .overlay(this.chatStatusOverlay(), { align: Alignment.End, offset: { x: -16, y: 0 } })
       .backgroundColor(Color.Transparent)
       .backdropBlur(10)
       .clip(true)
@@ -1844,6 +1849,17 @@ export struct BotHomePage {
       })
     }
     .hideTitleBar(true)
+    .onShown(() => {
+      // 兜底清掉「上一次聊天」的选择：手势返回不会走聊天页的返回按钮，
+      // 选择留在 store 里会让这条聊天的新回复永远算作已读（「与 X 聊聊」就不出红角标）。
+      const names: string[] = this.pageStack.getAllPathName();
+      const top: string = names.length > 0 ? names[names.length - 1] : '';
+      if (top.length === 0 || top === 'bot-home') {
+        BotStore.get().clearChatSelection();
+      }
+      // 首页每次出现都补一次头像：主机重连/首装时机不对时会长期显示兜底头像
+      BotStore.get().forceAvatars();
+    })
     // 返回：抽屉打开时先收抽屉；否则离开 Bot 模式并写回工作模式
     .onBackPressed(() => {
       if (this.drawerOpen) {
