@@ -5,6 +5,12 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import type { GatewayFrame, ThemeMode, WorkStepOption } from 'nativecore';
 import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
+import {
+  applyMenuKeepKeyboard, ensureMenuKeepKeyboard, MENU_KEEP_DEFAULT, MENU_KEEP_KEY
+} from '../common/MenuPopupSetting';
+import {
+  applyComposerCompact, COMPOSER_COMPACT_DEFAULT, COMPOSER_COMPACT_KEY, ensureComposerCompact
+} from '../common/ComposerStyleSetting';
 import { ensureGlassLevel, glassLevelLabel, GLASS_LEVEL_DEFAULT, GLASS_LEVEL_KEY } from '../common/GlassMaterial';
 import { NodeManageSheet } from '../components/NodeManageSheet';
 import { HostGlyph, ServerGlyph } from '../components/GlyphIcons';
@@ -122,6 +128,10 @@ export struct AppSettingsPage {
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
   /** 沉浸光感材质档位：改这里，所有 HdsGlassSurface（首页两钮、置底按钮、模式按钮、队列/任务/目标面板）一起换 */
   @StorageLink(GLASS_LEVEL_KEY) glassLevel: number = GLASS_LEVEL_DEFAULT;
+  /** 模型菜单弹出方式：关闭 = 原生玻璃菜单；开启 = 自绘弹层（不收起输入法） */
+  @StorageLink(MENU_KEEP_KEY) menuKeepKeyboard: boolean = MENU_KEEP_DEFAULT;
+  /** 对话页输入条样式：关闭 = 现有玻璃胶囊；开启 = 左圆钮 + 输入框 + 右蓝钮新布局 */
+  @StorageLink(COMPOSER_COMPACT_KEY) composerCompact: boolean = COMPOSER_COMPACT_DEFAULT;
   private scroller: Scroller = new Scroller();
   @StorageLink('gatewayVersion') gatewayVersion: string = '';
   /** 网关插件自报版本（hello.gatewayVersion），为空时回落到插件目录 */
@@ -242,6 +252,10 @@ export struct AppSettingsPage {
     const prefs: PreferencesStore = PreferencesStore.get();
     // 玻璃材质档位：把落盘值灌回 AppStorage（所有 HdsGlassSurface 一起生效）
     ensureGlassLevel();
+    // 模型菜单弹出方式：落盘值灌回 AppStorage
+    ensureMenuKeepKeyboard();
+    // 输入条样式：落盘值灌回 AppStorage
+    ensureComposerCompact();
     this.fontSize = prefs.getString('contentFontSize', '标准');
     this.haptics = this.normalizeHaptics(prefs.getString('hapticsLevel', 'medium'));
     const storedMode: string = WorkStepPresentation.ensureDefaultMode(prefs);
@@ -1874,6 +1888,20 @@ export struct AppSettingsPage {
               this.rowDescPref('字号大小', '仅影响会话内容的字号', 'fontsize', () => {
                 this.openFontSizePage();
               })
+              this.divider()
+              // 默认关闭：模型菜单用原生系统玻璃菜单（会抢焦点，输入法收起）
+              this.toggleRow('模型菜单保持输入法', '开启后模型菜单改用自绘弹层，弹出时不收起键盘（外观不再是系统玻璃菜单）',
+                this.menuKeepKeyboard, (value: boolean) => {
+                  this.menuKeepKeyboard = value;
+                  applyMenuKeepKeyboard(value);
+                })
+              this.divider()
+              // 默认开启：左箭头圆钮 + 输入胶囊 + 右蓝钮；点箭头向上弹出三个玻璃圆（+ / 权限 / 模型）
+              this.toggleRow('输入框新版布局', '开启后输入条为左圆钮（箭头）+ 中间输入框 + 右侧蓝色按钮；点箭头向上弹出「+ / 权限 / 模型」三个玻璃圆，再点或点空白处收起',
+                this.composerCompact, (value: boolean) => {
+                  this.composerCompact = value;
+                  applyComposerCompact(value);
+                })
             }
             .width('100%')
             .backgroundColor(this.cardBg())

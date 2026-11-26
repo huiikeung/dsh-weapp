@@ -341,6 +341,25 @@ export struct ConversationPage {
   /** 首屏历史加载中：显示加载骨架，而不是「新建会话」空态 */
   @StorageLink('historyLoading') historyLoading: boolean = false;
   @StorageLink('defaultPermission') defaultPermission: string = '';
+  /** 会话权限表版本号：permission-options 帧更新某个会话的权限时递增，让页面重读 */
+  @StorageLink('permissionRevision') @Watch('onPermissionRevision') permissionRevision: number = 0;
+  // 注意：这是 number，AppStorage 里也存 number
+
+  /** 当前会话的权限：优先取该会话自己上报的值，没有才用全局默认 */
+  private sessionPermission(): string {
+    const sid: string = SessionStore.get().currentSessionId();
+    if (sid.length > 0) {
+      const own: string | undefined = SessionStore.permissionBySession.get(sid);
+      if (own !== undefined && own.length > 0) {
+        return own;
+      }
+    }
+    return this.defaultPermission;
+  }
+
+  private onPermissionRevision(): void {
+    // 表变了：把当前会话的值同步到展示用变量（defaultPermission 是 @StorageLink，不能在这里被覆盖成别人的值）
+  }
   @StorageLink('defaultModel') defaultModel: string = '';
   @StorageLink('defaultEffort') defaultEffort: string = '';
   /** 当前模型的推理等级 id 列表（网关实时下发） */
@@ -919,13 +938,13 @@ export struct ConversationPage {
 
   /** 权限胶囊图标字符（对齐小程序 permissionIcon）。 */
   private permissionIconGlyph(): string {
-    if (this.defaultPermission === 'read-only') {
+    if (this.sessionPermission() === 'read-only') {
       return '◐';
     }
-    if (this.defaultPermission === 'workspace-write') {
+    if (this.sessionPermission() === 'workspace-write') {
       return '✎';
     }
-    if (this.defaultPermission === 'danger-full-access') {
+    if (this.sessionPermission() === 'danger-full-access') {
       return '⚠';
     }
     return '⛨';
@@ -4159,13 +4178,13 @@ export struct ConversationPage {
 
   /** 权限胶囊文案（对齐 spec §4.3 的图标映射文案）。 */
   private permissionTitle(): string {
-    if (this.defaultPermission === 'read-only') {
+    if (this.sessionPermission() === 'read-only') {
       return '只读';
     }
-    if (this.defaultPermission === 'workspace-write') {
+    if (this.sessionPermission() === 'workspace-write') {
       return '工作区写入';
     }
-    if (this.defaultPermission === 'danger-full-access') {
+    if (this.sessionPermission() === 'danger-full-access') {
       return '完全访问';
     }
     return '默认权限';
@@ -6944,6 +6963,12 @@ export struct ConversationPage {
   private composerMenuOpen: boolean = false;
   /** 输入条新版布局（设置开关）：三个独立玻璃块，不再用整体胶囊背板 */
   @StorageLink(COMPOSER_COMPACT_KEY) composerCompactStyle: boolean = COMPOSER_COMPACT_DEFAULT;
+  /** 左侧玻璃圆面板是否打开（页面据此在点空白时一起收起） */
+  @State leftMenuOpen: boolean = false;
+  /** 左侧圆钮的菜单是否打开中（与输入条展开态无关，仅用于阻止失焦折叠） */
+  private sideMenuOpen: boolean = false;
+  /** 关闭左侧面板的信号：递增一次 = 输入条收一次 */
+  @State leftMenuCloseSignal: number = 0;
   /** 最近一次手指落在输入条内部的时间：这类触摸不该触发任何折叠 */
   private lastInsideComposerTouchAt: number = 0;
   /**
@@ -6973,8 +6998,9 @@ export struct ConversationPage {
     let lastHeight: number = 0;
     const cb = (height: number): void => {
       const wasShown: boolean = lastHeight > 0;
-      // 弹层开着时收起键盘：只关弹层，输入条保持展开（不折叠）
-      const menuWasOpen: boolean = this.composerMenuOpen;
+      // 只有「输入条本来就是展开态」时，弹层导致的键盘收起才需要保住展开；
+      // 收起态下点侧边圆弹 bindMenu 也会让键盘高度归零，这时绝不能把输入条撑开。
+      const menuWasOpen: boolean = this.composerMenuOpen && this.composerFocused;
       lastHeight = height;
       if (height > 0) {
         if (this.keyboardCollapseTimer >= 0) {
@@ -7031,6 +7057,11 @@ export struct ConversationPage {
    * 所以输入条一直不收。这里显式清焦点 + 关掉面板，再让 expanded 判定自然回落。
    */
   private collapseComposer(): void {
+    // 左侧玻璃圆面板：点页面任何空白都收起，不受下面的「点在输入条内部」判定影响
+    if (this.leftMenuOpen) {
+      this.leftMenuOpen = false;
+      this.leftMenuCloseSignal = this.leftMenuCloseSignal + 1;
+    }
     // 手指刚落在输入条内部（点空白、点 chip、点文本域）：这次失焦不是「点外面」，不要折叠
     if (Date.now() - this.lastInsideComposerTouchAt < 400) {
       return;
@@ -7185,6 +7216,13 @@ export struct ConversationPage {
           ConversationComposer({
             isDark: this.isDark,
             menuCloseSignal: this.menuCloseSignal,
+            leftMenuCloseSignal: this.leftMenuCloseSignal,
+            onLeftMenuVisible: (open: boolean) => {
+              this.leftMenuOpen = open;
+            },
+            onSideMenuVisible: (open: boolean) => {
+              this.sideMenuOpen = open;
+            },
             onMenuVisibilityChange: (open: boolean) => {
               this.composerMenuOpen = open;
             },
@@ -7215,7 +7253,7 @@ export struct ConversationPage {
             permissionOpen: this.permissionMenuOpen,
             permissionLabels: this.permissionMenuLabels(),
             permissionValues: this.permissionMenuValues(),
-            permissionCurrent: this.defaultPermission,
+            permissionCurrent: this.sessionPermission(),
             modelOpen: this.modelMenuOpen,
             modelMenuItems: this.modelMenuItems(),
             modelProviders: this.modelProviderItems(),
@@ -7275,8 +7313,10 @@ export struct ConversationPage {
             },
             focused: this.composerFocused,
             onFocusChange: (focused: boolean) => {
-              // 输入条弹层开着时不塌回：点弹窗会连带收起键盘并让输入框失焦，这时必须保住 chip 行
-              if (!focused && this.composerSheet.length > 0) {
+              // 输入条弹层 / 权限菜单 / 模型菜单开着时不塌回：
+              // bindMenu 弹出会抢焦点让 TextArea onBlur，此时必须保住展开态，否则 chip 随卡片一起消失、菜单也没了
+              if (!focused && (this.composerSheet.length > 0 || this.permissionMenuOpen || this.modelMenuOpen
+                || this.sideMenuOpen)) {
                 return;
               }
               // 发送后迟到的 focused=true：会把刚收起的胶囊重新撑成大玻璃（竞态），按收起处理
@@ -8049,7 +8089,7 @@ export struct ConversationPage {
 
   private buildPermissionRows(): PermissionRow[] {
     const rows: PermissionRow[] = [];
-    const current: string = this.defaultPermission;
+    const current: string = this.sessionPermission();
     const seen: string[] = [];
     for (const value of this.permissionValues) {
       if (value.length === 0 || seen.indexOf(value) >= 0) {
@@ -8458,7 +8498,9 @@ export struct ConversationPage {
       this.hint = '未连接网关';
       return;
     }
-    this.defaultPermission = value;
+    // 只记到当前会话，不动全局默认（否则别的会话也会跟着变）
+    SessionStore.permissionBySession.set(sessionId, value);
+    SessionStore.bumpPermissionRevision();
     client.requestGateway(GatewayRequestFactory.setPermission(sessionId, value)).catch(() => {
       this.hint = '权限设置失败';
     });
@@ -10578,6 +10620,22 @@ export struct ConversationPage {
     .align(Alignment.Start)
   }
 
+  /**
+   * 「回到底部」按钮的右边距：让它与输入条右下角蓝色主按钮**中心对齐**（按钮自身 40）。
+   *   新版布局 · 收起态：蓝钮 46 贴 dock 右边（14）→ 中心距右 37 → 右边距 17；
+   *   新版布局 · 展开态：蓝钮 36 在磨砂卡内（卡内边距 14）→ 中心距右 46 → 右边距 26；
+   *   旧布局：保持原来的 14（胶囊内 34 蓝钮 + 8 内边距，视觉上已基本居中）。
+   */
+  private scrollBottomRightInset(): number {
+    if (!this.composerCompactStyle) {
+      return 14;
+    }
+    if (this.composerExpanded()) {
+      return 26 + this.wideInset();
+    }
+    return 17 + this.wideInset();
+  }
+
   /** 时间线：LazyForEach + 吸底跟随 + 回到底部。 */
   @Builder
   timeline() {
@@ -10620,22 +10678,6 @@ export struct ConversationPage {
         .zIndex(1)
       } else if (this.entries.length === 0) {
         // 空会话：整块在时间线区域内垂直居中（对齐 spec §1.6 的空会话态）
-  /**
-   * 「回到底部」按钮的右边距：让它与输入条右下角蓝色主按钮**中心对齐**（按钮自身 40）。
-   *   新版布局 · 收起态：蓝钮 46 贴 dock 右边（14）→ 中心距右 37 → 右边距 17；
-   *   新版布局 · 展开态：蓝钮 36 在磨砂卡内（卡内边距 14）→ 中心距右 46 → 右边距 26；
-   *   旧布局：保持原来的 14（胶囊内 34 蓝钮 + 8 内边距，视觉上已基本居中）。
-   */
-  private scrollBottomRightInset(): number {
-    if (!this.composerCompactStyle) {
-      return 14;
-    }
-    if (this.composerExpanded()) {
-      return 26 + this.wideInset();
-    }
-    return 17 + this.wideInset();
-  }
-
         Column({ space: 8 }) {
           // 空会话态：品牌硬币（可拖动翻转），放在标题上方
           FluKeCoin({ diameter: 64 })

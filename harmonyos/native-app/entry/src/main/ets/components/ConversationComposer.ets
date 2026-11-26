@@ -12,7 +12,11 @@
  */
 import { display, LengthMetrics } from '@kit.ArkUI';
 import { KeyCode } from '@kit.InputKit';
+import { HdsGlassSurface } from './HdsGlassSurface';
+import { Logger } from 'nativecore';
 import type { ModelMenuItem, PickedAttachment } from 'nativecore';
+import { MENU_KEEP_DEFAULT, MENU_KEEP_KEY } from '../common/MenuPopupSetting';
+import { COMPOSER_COMPACT_DEFAULT, COMPOSER_COMPACT_KEY } from '../common/ComposerStyleSetting';
 
 /** 指标菜单行（鸿蒙原生 Menu 的 MenuItem：content 在左，labelInfo 数值在右） */
 export interface MetricMenuPair {
@@ -89,6 +93,63 @@ export struct ConversationComposer {
   /** 应用内菜单卡片可见性（样式对齐原系统菜单；不抢焦点，键盘收起仍保持） */
   @State permSheetVisible: boolean = false;
   @State modelSheetVisible: boolean = false;
+  /** 「菜单保持输入法」开启时用的自绘弹层（替代系统菜单） */
+  @StorageLink(MENU_KEEP_KEY) keepMenuKeyboard: boolean = MENU_KEEP_DEFAULT;
+  @State private modelPopupShown: boolean = false;
+  @State private attachPopupShown: boolean = false;
+  @State private permissionPopupShown: boolean = false;
+  @State private permissionMenuShown: boolean = false;
+  /** TextArea 是否允许获得焦点：新版布局里用箭头展开时先关掉，避免系统自动聚焦弹键盘 */
+  @State private draftFocusAllowed: boolean = true;
+  /** 非点击方式获得焦点时是否弹键盘（false = 箭头展开不弹键盘，点输入框仍会弹） */
+  @State private softKeyboardOnFocus: boolean = true;
+  /** 新版输入条：左侧箭头是否已展开成竖排按钮（与整个输入条的展开无关） */
+  @State private leftMenuOpen: boolean = false;
+  /** 页面点空白时递增：强制收起左侧面板 */
+  @Prop @Watch('onLeftMenuCloseSignal') leftMenuCloseSignal: number = 0;
+  /** 把面板开关状态告诉页面（页面点空白时要一起收） */
+  onLeftMenuVisible: (open: boolean) => void = () => {};
+  /** 侧边圆钮菜单是否打开中（页面据此在菜单抢焦点时不折叠输入条） */
+  onSideMenuVisible: (open: boolean) => void = () => {};
+  /**
+   * 左侧三个玻璃圆专用的菜单开关。
+   * 不能复用 attachMenuOpen / permissionMenuShown / modelRootShown：
+   * bindMenu 的第一个参数是布尔表达式，展开态卡片里的 + / 权限 / 模型 chip 绑的是同一组变量，
+   * 共用就会「点圆钮，卡片里的 chip 也跟着弹一次」。
+   */
+  @State private sideAttachOpen: boolean = false;
+  @State private sidePermissionOpen: boolean = false;
+  @State private sideModelOpen: boolean = false;
+  @State private sideModelListShown: boolean = false;
+
+  private onLeftMenuCloseSignal(): void {
+    if (this.leftMenuOpen) {
+      this.leftMenuOpen = false;
+      this.onLeftMenuVisible(false);
+    }
+  }
+  /** 输入条样式：false = 现在的玻璃胶囊（默认）；true = Bot 那种「左圆钮 + 输入框 + 右蓝钮」新布局 */
+  @StorageLink(COMPOSER_COMPACT_KEY) @Watch('onCompactStyleChanged') compactStyle: boolean = COMPOSER_COMPACT_DEFAULT;
+
+  private onCompactStyleChanged(): void {
+    Logger.info('COMPACT style -> ' + this.compactStyle.toString());
+  }
+  /** 键盘高度变化时由页面递增，用来关掉「保持输入法」弹层（否则它会一直挂着） */
+  @Prop @Watch('onMenuCloseSignal') menuCloseSignal: number = 0;
+  /** 把「弹层是否打开」告诉页面：弹层打开时收起键盘，输入条不要自动折叠 */
+  onMenuVisibilityChange: (open: boolean) => void = () => {};
+
+  private onMenuCloseSignal(): void {
+    this.modelPopupShown = false;
+    this.attachPopupShown = false;
+    this.permissionPopupShown = false;
+    this.onMenuVisibilityChange(false);
+  }
+
+  /** 任一自绘弹层是否打开 */
+  private anyMenuPopupOpen(): boolean {
+    return this.modelPopupShown || this.attachPopupShown || this.permissionPopupShown;
+  }
   /** 模型列表菜单展开态 */
   @State modelsShown: boolean = false;
   /** 推理等级 / 提供商列表菜单展开态 */
@@ -831,6 +892,10 @@ export struct ConversationComposer {
         }
       TextArea({ text: this.draftFieldText(), placeholder: this.placeholder })
       .id('composer-draft-area')
+      // 新版布局里用箭头展开时不允许自动聚焦（否则键盘会跟着弹）；点中间胶囊才放开
+      .focusable(this.draftFocusAllowed)
+      // 「非点击方式获得焦点时不弹键盘」：箭头展开时即使焦点落进来，输入法也不会弹出
+      .enableKeyboardOnFocus(this.softKeyboardOnFocus)
       .width('100%')
       // 文字度量对齐小程序 .composer-input：28rpx≈14vp / 字重 350 / 行高 1.4(≈20vp)
       .fontSize(14)
@@ -872,9 +937,17 @@ export struct ConversationComposer {
         // 下一帧就通知（16ms）：和「点空白处」那条路径的时序一致，
         // 只留一帧给「点 chip 弹面板」这种同步 setState 先落地
         setTimeout(() => {
-          if (!this.permissionOpen && !this.modelOpen && !this.modelRootShown && !this.modelListShown) {
-            this.onFocusChange(false);
+          // 任何菜单开着都不算「真的失焦」：
+          //   输入框 chip 的（permissionOpen / modelOpen / modelRootShown / modelListShown）
+          //   左侧圆钮的（sideAttachOpen / sidePermissionOpen / sideModelOpen / sideModelListShown）
+          //   面板本身（leftMenuOpen）
+          // 否则 bindMenu 抢焦点时输入条会先塌回去，菜单跟着 chip 一起消失。
+          if (this.permissionOpen || this.modelOpen || this.modelRootShown || this.modelListShown
+            || this.sideAttachOpen || this.sidePermissionOpen || this.sideModelOpen || this.sideModelListShown
+            || this.leftMenuOpen) {
+            return;
           }
+          this.onFocusChange(false);
         }, 16);
       })
       .onChange((value: string) => {
@@ -928,11 +1001,17 @@ export struct ConversationComposer {
     .opacity(this.connected ? 1 : 0.4)
     .enabled(this.connected)
     .onClick(() => {
-      if (this.connected) {
+      if (!this.connected) {
+        return;
+      }
+      if (this.keepMenuKeyboard) {
+        this.attachPopupShown = !this.attachPopupShown;
+        this.onMenuVisibilityChange(this.anyMenuPopupOpen());
+      } else {
         this.attachMenuOpen = !this.attachMenuOpen;
       }
     })
-    .bindMenu(this.attachMenuOpen, this.attachMenuPanel(), {
+    .bindMenu(!this.keepMenuKeyboard && this.attachMenuOpen, this.attachMenuPanel(), {
       placement: Placement.TopLeft,
       offset: { x: 0, y: 4 },
       outlineColor: this.cardEdge(),
@@ -941,6 +1020,33 @@ export struct ConversationComposer {
         this.attachMenuOpen = false;
       }
     })
+    .bindPopup(this.keepMenuKeyboard && this.attachPopupShown, {
+      builder: this.attachPopupCard(),
+      placement: Placement.Top,
+      popupColor: Color.Transparent,
+      enableArrow: false,
+      autoCancel: true,
+      focusable: false,
+      mask: false,
+      radius: 16,
+      onStateChange: (event) => {
+        if (!event.isVisible) {
+          this.attachPopupShown = false;
+        }
+      }
+    })
+  }
+
+  /** ＋ 弹层卡片：宽度交给 attachMenuPanel 自己的 menuPanelWidth()，否则内容被截断 */
+  @Builder
+  attachPopupCard() {
+    Column() {
+      this.attachMenuPanel()
+    }
+    .constraintSize({ maxHeight: 420 })
+    .backgroundColor(this.isDark ? '#2C2C2E' : '#FFFFFF')
+    .borderRadius(16)
+    .clip(true)
   }
 
   /** 「+」弹层分组标题（对齐小程序 composer 菜单的分组小标题） */
@@ -1342,6 +1448,76 @@ export struct ConversationComposer {
     .padding({ top: 6, bottom: 8 })
   }
 
+  /** 从左侧玻璃圆选了图片/文件/指令：先展开输入条（附件/指令要显示在输入框里），再回调 */
+  private pickFromSide(pick: () => void): void {
+    this.leftMenuOpen = false;
+    this.onLeftMenuVisible(false);
+    this.draftFocusAllowed = true;
+    this.softKeyboardOnFocus = false;   // 展开，但不拉键盘
+    this.onFocusChange(true);
+    // 等输入卡从 Visibility.None 切到 Visible 并完成布局后再选，附件才会落进展开卡片
+    setTimeout(() => {
+      pick();
+    }, 120);
+  }
+
+  /** 左侧玻璃圆专用的「+」菜单：与 attachMenuPanel 同内容，选中后先展开输入条 */
+  @Builder
+  sideAttachMenuPanel() {
+    Column({ space: 0 }) {
+      Scroll() {
+        Column({ space: 0 }) {
+          this.attachMenuSection('添加')
+          this.attachMenuRow($r('app.media.menu_image'), $r('app.media.menu_image'), true, '相册图片', '', '从相册选择', () => {
+            this.pickFromSide(() => {
+              this.onPickImages();
+            });
+          })
+          this.attachMenuRow($r('app.media.menu_external_file'), $r('app.media.menu_external_file'), true, '文件', '', '选择本地文件', () => {
+            this.pickFromSide(() => {
+              this.onPickFiles();
+            });
+          })
+          this.attachMenuRow($r('app.media.cmd_goal'), $r('app.media.cmd_goal_dark'), false, '目标', 'goal', '设置或查看长期任务目标', () => {
+            this.pickFromSide(() => {
+              this.onPickCommand('goal');
+            });
+          })
+          this.attachMenuRow($r('app.media.cmd_plan'), $r('app.media.cmd_plan_dark'), false, '计划', 'plan', '进入或退出计划模式', () => {
+            this.pickFromSide(() => {
+              this.onPickCommand('plan');
+            });
+          })
+          this.attachMenuSection('指令')
+          this.attachMenuRow($r('app.media.cmd_compact'), $r('app.media.cmd_compact_dark'), false, '压缩', 'compact', '压缩以上对话内容', () => {
+            this.pickFromSide(() => {
+              this.onPickCommand('compact');
+            });
+          })
+          this.attachMenuRow($r('app.media.cmd_permission'), $r('app.media.cmd_permission_dark'), false, '权限', 'permission', '切换权限预设', () => {
+            this.pickFromSide(() => {
+              this.onPickCommand('permission');
+            });
+          })
+          this.attachMenuRow($r('app.media.cmd_model'), $r('app.media.cmd_model_dark'), false, '模型', 'model', '选择当前会话的模型', () => {
+            this.pickFromSide(() => {
+              this.onPickCommand('model');
+            });
+          })
+        }
+        .alignItems(HorizontalAlign.Start)
+        .width('100%')
+      }
+      .constraintSize({ maxHeight: 420 })
+      .scrollBar(BarState.Off)
+      .align(Alignment.Top)
+      .width('100%')
+    }
+    .width(this.menuPanelWidth())
+    .alignItems(HorizontalAlign.Start)
+    .padding({ top: 6, bottom: 8 })
+  }
+
   /** 不改变颜色的颜色矩阵（图标自带配色，只在需要跟随主题时才着色） */
   private noTint(): number[] {
     return [
@@ -1381,16 +1557,62 @@ export struct ConversationComposer {
     .borderRadius(15)
     .backgroundColor(this.permissionOpen ? this.chipActiveFill() : Color.Transparent)
     .alignItems(VerticalAlign.Center)
-    // 权限菜单：与顶栏「⋯」同款系统菜单（bindMenu 自带点击弹出，不要再挂 onClick，否则会重复触发）
-    .bindMenu(this.permissionMenu(), {
-      showInSubWindow: false,
-      onDisappear: () => {
-        this.onPermissionMenuVisible(false);
-      },
-      onAppear: () => {
+    // 权限菜单：默认原生系统菜单；开「保持输入法」后改用自绘弹层
+    .onClick(() => {
+      if (this.keepMenuKeyboard) {
+        this.permissionPopupShown = !this.permissionPopupShown;
+        this.onMenuVisibilityChange(this.anyMenuPopupOpen());
+      } else {
+        // 先同步告诉页面「权限菜单要打开了」：bindMenu 会抢焦点让 TextArea onBlur，
+        // 页面的 composerExpanded() 依赖 permissionOpen，等 onAppear 再置就晚了 —— 输入条会先塌下去
         this.onPermissionMenuVisible(true);
+        this.permissionMenuShown = true;
       }
     })
+    .bindMenu(!this.keepMenuKeyboard && this.permissionMenuShown, this.permissionMenu(), {
+      showInSubWindow: false,
+      onDisappear: () => {
+        this.permissionMenuShown = false;
+        this.onPermissionMenuVisible(false);
+      }
+    })
+    .bindPopup(this.keepMenuKeyboard && this.permissionPopupShown, {
+      builder: this.permissionPopupCard(),
+      placement: Placement.Top,
+      popupColor: Color.Transparent,
+      enableArrow: false,
+      autoCancel: true,
+      focusable: false,
+      mask: false,
+      radius: 16,
+      onStateChange: (event) => {
+        if (!event.isVisible) {
+          this.permissionPopupShown = false;
+          this.onPermissionMenuVisible(false);
+        } else {
+          this.onPermissionMenuVisible(true);
+        }
+      }
+    })
+  }
+
+  /** 权限弹层卡片：宽度由行自身 168vp 决定，不写死否则两侧留白过大 */
+  @Builder
+  permissionPopupCard() {
+    Column() {
+      ForEach(this.permissionValues, (value: string, index: number) => {
+        Column() {
+          this.permissionRow(value, this.permissionLabels[index])
+        }
+        .onClick(() => {
+          this.permissionPopupShown = false;
+          this.onPickPermissionOption(value);
+        })
+      }, (value: string) => 'kp-perm-' + value)
+    }
+    .padding({ left: 6, right: 6, top: 6, bottom: 6 })
+    .backgroundColor(this.isDark ? '#2C2C2E' : '#FFFFFF')
+    .borderRadius(16)
   }
 
   /** 权限菜单行（对齐小程序 .opt-row.permission-pop：左图标 + 名称 + EXP + 右侧勾选） */
@@ -1454,6 +1676,50 @@ export struct ConversationComposer {
     }
   }
 
+  /** 左侧权限圆专用：与 permissionMenu 同内容，但选中后先展开输入条再切权限 */
+  @Builder
+  sidePermissionMenu() {
+    Menu() {
+      ForEach(this.permissionValues, (value: string, index: number) => {
+        MenuItem(this.permissionRow(value, this.permissionLabels[index]))
+          .id('side-permission-' + value)
+          .onClick(() => {
+            // 切权限只是改设置：收掉侧边面板即可，不要展开输入条
+            this.sidePermissionOpen = false;
+            if (this.leftMenuOpen) {
+              this.leftMenuOpen = false;
+              this.onLeftMenuVisible(false);
+            }
+            this.onPickPermissionOption(value);
+          })
+      }, (value: string, index: number) => value)
+    }
+  }
+
+  /** 左侧模型圆专用：与 modelRootMenu 同内容，但进入第二层时走侧边锚点 */
+  @Builder
+  sideModelRootMenu() {
+    Menu() {
+      MenuItem(this.modelEntryRow())
+        .id('side-model-entry')
+        .onClick(() => {
+          this.openModelList('model');
+        })
+      MenuItem({ content: '推理等级', labelInfo: (this.effort.length > 0 ? this.effort : 'High') + '  ›' })
+        .id('side-effort-entry')
+        .contentFont({ size: 14, weight: FontWeight.Normal })
+        .labelFont({ size: 13, weight: FontWeight.Normal })
+        .onClick(() => {
+          this.openModelList('effort');
+        })
+      MenuItem(this.teamToggleRow())
+        .id('side-team-entry')
+        .onClick(() => {
+          this.openModelList('team');
+        })
+    }
+  }
+
   /** 模型 chip（小程序 .chip.model-chip：模型名 + 版本徽章 + 推理等级 + ▾） */
   @Builder
   modelChip() {
@@ -1490,11 +1756,19 @@ export struct ConversationComposer {
     .borderRadius(15)
     .backgroundColor(this.modelOpen ? this.chipActiveFill() : Color.Transparent)
     .alignItems(VerticalAlign.Center)
-    // 与权限按钮同一控件：原生系统菜单（bindMenu）。两层各一枚菜单 + 各自隐形锚点
+    // 两种弹出方式：
+    //   默认 = 原生系统菜单（bindMenu，系统玻璃材质，会抢焦点导致输入法收起）
+    //   设置里开「菜单保持输入法」= 自绘弹层（bindPopup + focusable:false，键盘不收起）
     .onClick(() => {
-      this.modelRootShown = true;
+      if (this.keepMenuKeyboard) {
+        this.modelListPane = 'root';
+        this.modelPopupShown = true;
+        this.onMenuVisibilityChange(true);
+      } else {
+        this.modelRootShown = true;
+      }
     })
-    .bindMenu(this.modelRootShown, this.modelRootMenu(), {
+    .bindMenu(!this.keepMenuKeyboard && this.modelRootShown, this.modelRootMenu(), {
       showInSubWindow: false,
       onAppear: () => {
         this.onModelMenuVisible(true);
@@ -1504,25 +1778,70 @@ export struct ConversationComposer {
         this.onModelMenuVisible(false);
       }
     })
+    .bindPopup(this.keepMenuKeyboard && this.modelPopupShown, {
+      builder: this.modelPopupCard(),
+      placement: Placement.Top,
+      popupColor: Color.Transparent,
+      enableArrow: false,
+      autoCancel: true,
+      focusable: false,
+      mask: false,
+      radius: 16,
+      onStateChange: (event) => {
+        if (!event.isVisible) {
+          this.modelPopupShown = false;
+          this.onModelMenuVisible(false);
+        } else {
+          this.onModelMenuVisible(true);
+        }
+      }
+    })
   }
 
   /** 第二层菜单的隐形锚点（模型列表 / 推理等级） */
   @Builder
   modelListAnchor() {
+    this.modelListAnchorFor(false)
+  }
+
+  /**
+   * 第二层菜单的隐形锚点。side=true 是左侧面板里的那一个，绑专用的 sideModelListShown，
+   * 否则和展开态卡片里的锚点共用 modelListShown，会两个一起弹。
+   */
+  @Builder
+  modelListAnchorFor(side: boolean) {
     Stack() {}
       .width(1)
       .height(1)
       .opacity(0.01)
-      .bindMenu(this.modelListShown, this.modelListMenu(), {
+      .bindMenu(side ? this.sideModelListShown : this.modelListShown, this.modelListMenu(), {
         showInSubWindow: false,
         onDisappear: () => {
-          this.modelListShown = false;
+          if (side) {
+            this.sideModelListShown = false;
+          } else {
+            this.modelListShown = false;
+            this.sideModelListShown = false;
+          }
         }
       })
   }
 
   /** 打开第二层：等第一层收起动画结束再弹（两枚不同菜单，不会互相打断） */
   private openModelList(pane: string): void {
+    // 从左侧面板的模型圆点进来（面板开着就是来源）：只动 side* 变量。
+    // 不能再看 sideModelOpen——第一层菜单 onDisappear 已经把它清掉了。
+    if (this.leftMenuOpen) {
+      this.sideModelOpen = false;
+      // 保险：普通那组变量 participates in expanded()，必须保持 false，否则输入条会被撑开
+      this.modelRootShown = false;
+      this.modelListShown = false;
+      this.modelListPane = pane;
+      setTimeout(() => {
+        this.sideModelListShown = true;
+      }, 180);
+      return;
+    }
     this.modelRootShown = false;
     this.modelListPane = pane;
     setTimeout(() => {
@@ -1548,6 +1867,9 @@ export struct ConversationComposer {
         })
       MenuItem(this.teamToggleRow())
         .id('team-entry')
+        .onClick(() => {
+          this.openModelList('team');
+        })
     }
   }
 
@@ -1578,60 +1900,235 @@ export struct ConversationComposer {
     .alignItems(VerticalAlign.Center)
   }
 
-  /** 第一层菜单里的团队协作开关行 */
+  /** 第一层菜单里的团队协作行：只显示「开启/关闭 + 箭头」，点击进入第二层开关卡片 */
   @Builder
   teamToggleRow() {
     Row({ space: 6 }) {
-      Text('启用智能体团队协作')
+      Text('智能体团队协作')
         .fontSize(14)
         .fontColor(this.menuLabelColor())
         .maxLines(1)
-      Text('ⓘ')
-        .fontSize(11)
-        .fontColor(this.mutedText())
-        .padding(4)
-        .onClick(() => {
-          this.teamTipOpen = !this.teamTipOpen;
-        })
-        .bindPopup(this.teamTipOpen, {
-          builder: this.teamTipBuilder(),
-          placement: Placement.Top,
-          popupColor: Color.Transparent,
-          enableArrow: false,
-          autoCancel: true,
-          radius: 10,
-          onStateChange: (event) => {
-            if (!event.isVisible) {
-              this.teamTipOpen = false;
-            }
-          }
-        })
       Blank()
-      Toggle({ type: ToggleType.Switch, isOn: this.teamEnabled })
-        .selectedColor('#2E6BE6')
-        .switchPointColor('#FFFFFF')
-        .width(40)
-        .height(24)
-        .onChange((isOn: boolean) => {
-          this.onToggleTeam(isOn);
-        })
+      Text(this.teamEnabled ? '开启' : '关闭')
+        .fontSize(13)
+        .fontColor(this.mutedText())
+        .maxLines(1)
+      Text('›')
+        .fontSize(14)
+        .fontColor(this.mutedText())
+        .margin({ left: 6 })
     }
-    // 左边文字保持与原生行对齐；开关右移边界与上面箭头右边对齐（右内边距加大 8vp）
     .width(246)
     .height(44)
     .padding({ left: 12, right: 12 })
+    .alignItems(VerticalAlign.Center)
+  }
+
+  /** 模型弹层卡片（保持输入法模式）：root / model / effort / team 四个子页 */
+  @Builder
+  modelPopupCard() {
+    Column() {
+      if (this.modelListPane === 'team') {
+        this.popupBackRow()
+        this.teamSwitchPane()
+      } else if (this.modelListPane === 'effort') {
+        this.popupBackRow()
+        Scroll() {
+          Column() {
+            ForEach(this.effortValues, (value: string, index: number) => {
+              Row() {
+                Text(this.effortLabels[index])
+                  .fontSize(14)
+                  .fontColor(this.menuLabelColor())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .layoutWeight(1)
+                if (this.effortCurrent === value) {
+                  Text('✓').fontSize(14).fontColor(this.menuLabelColor())
+                }
+              }
+              .width('100%')
+              .height(40)
+              .padding({ left: 16, right: 16 })
+              .borderRadius(20)
+              .backgroundColor(this.effortCurrent === value ? this.chipActiveFill() : Color.Transparent)
+              .onClick(() => {
+                this.modelPopupShown = false;
+                this.onPickEffortOption(value);
+              })
+            }, (value: string) => 'kp-effort-' + value)
+          }
+          .width('100%')
+          .padding({ bottom: 6 })
+        }
+        .constraintSize({ maxHeight: 320 })
+        .scrollBar(BarState.Off)
+      } else if (this.modelListPane === 'model') {
+        this.popupBackRow()
+        Scroll() {
+          Column() {
+            ForEach(this.modelMenuItems, (row: ModelMenuItem) => {
+              if (row.isHeader) {
+                Row() {
+                  Text(row.label).fontSize(12).fontColor(this.mutedText())
+                }
+                .width('100%')
+                .height(28)
+                .padding({ left: 16, right: 16 })
+              } else {
+                Row() {
+                  Text(row.label)
+                    .fontSize(14)
+                    .fontColor(this.menuLabelColor())
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .layoutWeight(1)
+                  if (row.current) {
+                    Text('✓').fontSize(14).fontColor(this.menuLabelColor())
+                  }
+                }
+                .width('100%')
+                .height(40)
+                .padding({ left: 16, right: 16 })
+                .borderRadius(20)
+                .backgroundColor(row.current ? this.chipActiveFill() : Color.Transparent)
+                .onClick(() => {
+                  this.modelPopupShown = false;
+                  this.onPickModelOption(row.provider, row.model);
+                })
+              }
+            }, (row: ModelMenuItem) => 'kp-model-' + row.key)
+          }
+          .width('100%')
+          .padding({ bottom: 6 })
+        }
+        .constraintSize({ maxHeight: 320 })
+        .scrollBar(BarState.Off)
+      } else {
+        Row({ space: 6 }) {
+          Text('模型').fontSize(14).fontColor(this.menuLabelColor()).maxLines(1)
+          Blank()
+          Text(this.modelLabel())
+            .fontSize(13)
+            .fontColor(this.mutedText())
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .constraintSize({ maxWidth: 140 })
+          Text('›').fontSize(14).fontColor(this.mutedText()).margin({ left: 6 })
+        }
+        .width('100%')
+        .height(44)
+        .padding({ left: 16, right: 16 })
+        .alignItems(VerticalAlign.Center)
+        .onClick(() => {
+          this.modelListPane = 'model';
+        })
+
+        Row({ space: 6 }) {
+          Text('推理等级').fontSize(14).fontColor(this.menuLabelColor()).maxLines(1)
+          Blank()
+          Text(this.effort.length > 0 ? this.effort : 'High')
+            .fontSize(13)
+            .fontColor(this.mutedText())
+          Text('›').fontSize(14).fontColor(this.mutedText()).margin({ left: 6 })
+        }
+        .width('100%')
+        .height(44)
+        .padding({ left: 16, right: 16 })
+        .alignItems(VerticalAlign.Center)
+        .onClick(() => {
+          this.modelListPane = 'effort';
+        })
+
+        Row({ space: 6 }) {
+          Text('智能体团队协作').fontSize(14).fontColor(this.menuLabelColor()).maxLines(1)
+          Blank()
+          Text(this.teamEnabled ? '开启' : '关闭')
+            .fontSize(13)
+            .fontColor(this.mutedText())
+          Text('›').fontSize(14).fontColor(this.mutedText()).margin({ left: 6 })
+        }
+        .width('100%')
+        .height(44)
+        .padding({ left: 16, right: 16 })
+        .alignItems(VerticalAlign.Center)
+        .onClick(() => {
+          this.modelListPane = 'team';
+        })
+      }
+    }
+    .width(246)
+    .padding({ top: 6, bottom: 6 })
+    .backgroundColor(this.isDark ? '#2C2C2E' : '#FFFFFF')
+    .borderRadius(16)
+  }
+
+  /** 子页顶部「‹ 返回」行 */
+  @Builder
+  popupBackRow() {
+    Row({ space: 4 }) {
+      Text('‹').fontSize(15).fontColor(this.mutedText())
+      Text('返回').fontSize(13).fontColor(this.mutedText())
+    }
+    .width('100%')
+    .height(34)
+    .padding({ left: 14, right: 14 })
+    .alignItems(VerticalAlign.Center)
+    .onClick(() => {
+      this.modelListPane = 'root';
+    })
+  }
+
+  /** 第二层：智能体团队协作开关卡片（标题 + 开关 + 说明） */
+  @Builder
+  teamSwitchPane() {
+    Column({ space: 8 }) {
+      Row({ space: 10 }) {
+        Text('开启智能体团队协作')
+          .fontSize(15)
+          .fontColor(this.menuLabelColor())
+          .maxLines(2)
+          .layoutWeight(1)
+        Toggle({ type: ToggleType.Switch, isOn: this.teamEnabled })
+          .selectedColor('#2E6BE6')
+          .switchPointColor('#FFFFFF')
+          .width(40)
+          .height(24)
+          .onChange((isOn: boolean) => {
+            this.onToggleTeam(isOn);
+          })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      Text('通过共享任务板协调多个智能体的分工与进度，复杂任务表现更佳，token 开销也相应更高。')
+        .fontSize(12)
+        .lineHeight(18)
+        .fontColor(this.mutedText())
+        .width('100%')
+    }
+    .width(246)
+    .alignItems(HorizontalAlign.Start)
+    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
   }
 
   /** 第二层：全部模型按提供商分组（自带滚动、隐藏滑块）/ 推理等级保持原生菜单样式，✓ 放最右 */
   @Builder
   modelListMenu() {
-    if (this.modelListPane === 'effort') {
+    if (this.modelListPane === 'team') {
+      this.teamSwitchPane()
+    } else if (this.modelListPane === 'effort') {
       Menu() {
         ForEach(this.effortValues, (value: string, index: number) => {
           MenuItem(this.effortRow(value, this.effortLabels[index]))
             .id('effort-' + value)
             .onClick(() => {
               this.modelListShown = false;
+              this.sideModelListShown = false;
+              if (this.leftMenuOpen) {
+                this.leftMenuOpen = false;
+                this.onLeftMenuVisible(false);
+              }
               this.onPickEffortOption(value);
             })
         }, (value: string, index: number) => 'effort-' + value)
@@ -1682,6 +2179,12 @@ export struct ConversationComposer {
                 })
                 .onClick(() => {
                   this.modelListShown = false;
+                  this.sideModelListShown = false;
+                  // 选模型/推理等级只是切换设置：收掉侧边面板即可，不要展开输入条
+                  if (this.leftMenuOpen) {
+                    this.leftMenuOpen = false;
+                    this.onLeftMenuVisible(false);
+                  }
                   this.onPickModelOption(row.provider, row.model);
                 })
               }
@@ -2459,8 +2962,382 @@ export struct ConversationComposer {
   // 并用 wx:if 控制 chip 行；如果这里按条件挂载两套子树，TextArea 会被重建 → 丢焦点 → 立刻 onBlur
   // 又塌回折叠态（点击后展不开）。所以下面只做三件事：
   //   ① 卡片 padding/圆角随 expanded 变化；② chip 行与折叠占位分别显示；③ 右侧按钮按需显示。
+
+
+  // ==================== 新版输入条（设置里开关控制） ====================
+
+  /** 圆钮直径：几何对齐 Bot 模式胶囊的圆钮 */
+  private compactButtonSize(): number {
+    return 46;
+  }
+
+  /** 三个玻璃圆的面板总高（3 圆 + 2 间距） */
+  private compactPanelHeight(): number {
+    return this.compactButtonSize() * 3 + 8 * 2;
+  }
+
+  /** 收起态左圆钮：向上箭头 —— 点它只切换左侧三个玻璃圆的显示，输入条不动、不弹键盘 */
+  @Builder
+  compactArrowBody() {
+    Stack() {
+      this.compactChevron()
+    }
+    .width(this.compactButtonSize())
+    .height(this.compactButtonSize())
+    .opacity(this.connected ? 1 : 0.4)
+    .enabled(this.connected)
+    .onClick(() => {
+      this.leftMenuOpen = !this.leftMenuOpen;
+      this.onLeftMenuVisible(this.leftMenuOpen);
+    })
+  }
+
+  /**
+   * 自绘 chevron：右+下两条描边旋转得到箭头。
+   * 注意：@Builder 的参数按值传递、不随状态刷新，所以这里不接参数，直接读 leftMenuOpen，
+   * 否则展开后箭头不会翻转。面板打开 = 朝下（45°），关闭 = 朝上（225°）。
+   */
+  @Builder
+  compactChevron() {
+    Row()
+      .width(10)
+      .height(10)
+      .border({
+        width: { right: 1.8, bottom: 1.8 },
+        color: this.chipIconColor()
+      })
+      .opacity(this.chipIconOpacity())
+      .rotate({ angle: this.leftMenuOpen ? 45 : 225 })
+      .animation({ duration: 200, curve: Curve.EaseOut })
+  }
+
+  /** 竖排面板里的一行内容：图标（染成箭头同色）或文字 + 高度 56 */
+  @Builder
+  compactRowBody(icon: Resource, glyph: string) {
+    Stack() {
+      if (glyph.length > 0) {
+        // 「+」不再套圆环：玻璃圆本身就是边界，再画一圈显得多余
+        Text(glyph)
+          .fontSize(24)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.chipIconColor())
+          .opacity(this.chipIconOpacity())
+      } else {
+        Image(icon)
+          .width(21)
+          .height(21)
+          .objectFit(ImageFit.Contain)
+          .draggable(false)
+          .syncLoad(true)
+          // iconTint 只认 #RRGGBB：传 rgba 会解析失败、落到白色，必须用实色 + 单独透明度
+          .colorFilter(this.iconTint(this.chipIconColor()))
+          .opacity(this.chipIconOpacity())
+      }
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  /** 竖排按钮之间的细横线：不连边 */
+  @Builder
+  compactRowDivider() {
+    Row()
+      .width(26)
+      .height(0.5)
+      .backgroundColor(this.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)')
+  }
+
+  /** 浮层里的一个原生玻璃圆钮：HdsGlassSurface 出材质，尺寸/圆角与箭头钮一致；kind 决定挂哪个原生菜单 */
+  @Builder
+  compactGlassCircle(kind: string) {
+    if (kind === 'plus') {
+      Stack({ alignContent: Alignment.Center }) {
+        HdsGlassSurface({ radiusRatio: 0.5 }) {
+          this.compactRowBody($r('app.media.cmd_model'), '+')
+        }
+        Column()
+          .width(this.compactButtonSize())
+          .height(this.compactButtonSize())
+          .borderRadius(this.compactButtonSize() / 2)
+          .onClick(() => {
+            if (this.connected) {
+              this.sideAttachOpen = !this.sideAttachOpen;
+              this.onSideMenuVisible(this.sideAttachOpen);
+            }
+          })
+      }
+      .width(this.compactButtonSize())
+      .height(this.compactButtonSize())
+      .bindMenu(!this.keepMenuKeyboard && this.sideAttachOpen, this.sideAttachMenuPanel(), {
+        placement: Placement.Top,
+        offset: { x: 0, y: 4 },
+        outlineColor: this.cardEdge(),
+        outlineWidth: 1,
+        onDisappear: () => {
+          this.sideAttachOpen = false;
+          this.onSideMenuVisible(false);
+        }
+      })
+    } else if (kind === 'permission') {
+      Stack({ alignContent: Alignment.Center }) {
+        HdsGlassSurface({ radiusRatio: 0.5 }) {
+          this.compactRowBody($r('app.media.cmd_permission'), '')
+        }
+        Column()
+          .width(this.compactButtonSize())
+          .height(this.compactButtonSize())
+          .borderRadius(this.compactButtonSize() / 2)
+          .onClick(() => {
+            this.sidePermissionOpen = !this.sidePermissionOpen;
+            this.onSideMenuVisible(this.sidePermissionOpen);
+          })
+      }
+      .width(this.compactButtonSize())
+      .height(this.compactButtonSize())
+      .bindMenu(!this.keepMenuKeyboard && this.sidePermissionOpen, this.sidePermissionMenu(), {
+        showInSubWindow: false,
+        placement: Placement.Top,
+        // 同理：侧边菜单不参与输入条展开态判定
+        onDisappear: () => {
+          this.sidePermissionOpen = false;
+          this.onSideMenuVisible(false);
+        }
+      })
+    } else {
+      // 第二层菜单的锚点叠在模型圆自身：bindMenu 的弹出位置跟锚点走，
+      // 放进被 translate 的面板容器里会飘到输入框那边。
+      Stack({ alignContent: Alignment.Center }) {
+        HdsGlassSurface({ radiusRatio: 0.5 }) {
+          this.compactRowBody($r('app.media.cmd_model'), '')
+        }
+        Column()
+          .width(this.compactButtonSize())
+          .height(this.compactButtonSize())
+          .borderRadius(this.compactButtonSize() / 2)
+          .onClick(() => {
+            this.sideModelOpen = !this.sideModelOpen;
+            this.onSideMenuVisible(this.sideModelOpen);
+          })
+        this.modelListAnchorFor(true)
+      }
+      .width(this.compactButtonSize())
+      .height(this.compactButtonSize())
+      .bindMenu(!this.keepMenuKeyboard && this.sideModelOpen, this.sideModelRootMenu(), {
+        showInSubWindow: false,
+        placement: Placement.Top,
+        // 不调 onModelMenuVisible：那会让页面把输入条当成「模型菜单打开中」而撑成展开态
+        onDisappear: () => {
+          this.sideModelOpen = false;
+          if (!this.sideModelListShown) {
+            this.onSideMenuVisible(false);
+          }
+        }
+      })
+    }
+  }
+
+  /** 左侧三个玻璃圆（模型 / 权限 / ＋ 自下而上），与箭头钮同一套 HdsGlassSurface 材质 */
+  @Builder
+  compactLeftPanel() {
+    Column({ space: 8 }) {
+      this.compactGlassCircle('plus')
+      this.compactGlassCircle('permission')
+      this.compactGlassCircle('model')
+    }
+    .alignItems(HorizontalAlign.Center)
+  }
+
+  /** 收起态中间占位文字（点它才拉起键盘） */
+  @Builder
+  compactPlaceholderBody() {
+    Stack({ alignContent: Alignment.Start }) {
+      Text(this.voiceRecording ? this.voiceHint
+        : (this.voiceEnabled && this.voiceMode ? '按住说话' : this.placeholder))
+        .fontSize(15)
+        .fontColor(this.collapsedPlaceholderColor())
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .width('100%')
+      if (this.voiceEnabled) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor('#00000000')
+          .onTouch((event: TouchEvent) => this.onVoiceTouch(event))
+      }
+    }
+    .width('100%')
+    .height(this.compactButtonSize())
+    .padding({ left: 18, right: 18 })
+    .onClick(() => {
+      if (this.voiceHoldConsumed) {
+        this.voiceHoldConsumed = false;
+        return;
+      }
+      if (this.voiceRecording) {
+        return;
+      }
+      if (this.voiceMode) {
+        this.onToggleVoiceMode();
+      }
+      this.draftFocusAllowed = true;
+      this.softKeyboardOnFocus = true;
+      this.leftMenuOpen = false;
+      this.onFocusChange(true);
+      setTimeout(() => {
+        this.getUIContext().getFocusController().requestFocus('composer-draft-area');
+      }, 80);
+      setTimeout(() => {
+        this.getUIContext().getFocusController().requestFocus('composer-draft-area');
+      }, 240);
+    })
+  }
+
+  /** 右侧蓝色主按钮（停止 / 发送 / 语音切换） */
+  @Builder
+  compactPrimaryCircle() {
+    if (this.showStopState()) {
+      Stack() {
+        Rect({ width: 15, height: 15, radius: 3.5 }).fill('#FFFFFF')
+      }
+      .width(this.compactButtonSize())
+      .height(this.compactButtonSize())
+      .borderRadius(this.compactButtonSize() / 2)
+      .backgroundColor('#2E6BE6')
+      .onClick(() => {
+        this.onStop();
+      })
+    } else if (this.canSendNow()) {
+      Stack() {
+        Image($r('app.media.arrow_up_white'))
+          .width(21)
+          .height(21)
+          .objectFit(ImageFit.Contain)
+          .draggable(false)
+      }
+      .width(this.compactButtonSize())
+      .height(this.compactButtonSize())
+      .borderRadius(this.compactButtonSize() / 2)
+      .backgroundColor('#2E6BE6')
+      .onClick(() => {
+        this.onSend();
+      })
+    } else if (this.voiceEnabled) {
+      Stack() {
+        Image(this.voiceMode ? $r('app.media.voice_keyboard') : $r('app.media.voice_wave'))
+          .width(21)
+          .height(21)
+          .objectFit(ImageFit.Contain)
+          .draggable(false)
+          .syncLoad(true)
+      }
+      .width(this.compactButtonSize())
+      .height(this.compactButtonSize())
+      .borderRadius(this.compactButtonSize() / 2)
+      .backgroundColor('#2E6BE6')
+      .accessibilityText(this.voiceMode ? '切换到文字输入' : '切换到语音输入')
+      .onClick(() => {
+        this.onToggleVoiceMode();
+      })
+    }
+  }
+
+  /**
+   * 新版输入条：收起＝三个独立玻璃块；展开＝原来的玻璃卡（按钮仍在输入框内）。
+   * 两态都用 visibility 切换而不是 if/else：TextArea 节点常驻，
+   * 展开时不会因为新建节点被系统自动聚焦（那样点左箭头会连带弹键盘）。
+   */
+  @Builder
+  compactCard() {
+    Column({ space: 8 }) {
+      // 展开态卡片：附件/引用/草稿/chip 行全在卡片内部（与原版布局一致），收起时只隐藏
+      Column({ space: 8 }) {
+        if (this.hasQuote()) {
+          this.quoteCard()
+        }
+        if (this.hasPlainRef()) {
+          this.refChipsRow()
+        }
+        if (this.attachmentCount > 0) {
+          this.attachmentRow()
+        }
+        this.draftField()
+        Row({ space: 0 }) {
+          this.plusButton()
+          this.permissionChip()
+          Blank()
+          this.modelChip()
+          this.modelListAnchor()
+          this.primaryButton()
+        }
+        .width('100%')
+        .height(34)
+        .alignItems(VerticalAlign.Center)
+        .margin({ top: 8 })
+      }
+      .width('100%')
+      .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+      .borderRadius(28)
+      // 自绘磨砂玻璃：backgroundEffect 铺实底色 + 模糊，附件才不会漂在透明框上
+      .backgroundEffect({
+        radius: 22,
+        saturation: 1.2,
+        brightness: 1,
+        color: this.isDark ? 'rgba(30,30,32,0.80)' : 'rgba(255,255,255,0.80)'
+      })
+      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)' })
+      .clip(true)
+      .visibility(this.expanded() ? Visibility.Visible : Visibility.None)
+
+      // 收起态三块：输入条展开时隐藏
+      Row({ space: 8 }) {
+        // 左列：一个 46×46 的格子，箭头圆钉在格子里；三个玻璃圆用 Stack 叠在它正上方
+        // （alignContent Bottom + 向上偏移），格子尺寸恒定 → 输入条/蓝钮一像素不动。
+        Stack({ alignContent: Alignment.Bottom }) {
+          Column() {
+            this.compactLeftPanel()
+          }
+          .visibility(this.leftMenuOpen ? Visibility.Visible : Visibility.None)
+          .translate({ y: -(this.compactPanelHeight() + 8) })
+          .animation({ duration: 200, curve: Curve.EaseOut })
+          HdsGlassSurface({ radiusRatio: 0.5 }) {
+            this.compactArrowBody()
+          }
+        }
+        .width(this.compactButtonSize())
+        .height(this.compactButtonSize())
+        .clip(false)
+        Column() {
+          HdsGlassSurface({ radiusRatio: 0.5 }) {
+            this.compactPlaceholderBody()
+          }
+        }
+        .layoutWeight(1)
+        this.compactPrimaryCircle()
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Top)
+      .height(this.compactButtonSize())
+      .clip(false)
+      .visibility(this.expanded() ? Visibility.None : Visibility.Visible)
+    }
+    .width('100%')
+    .clip(false)
+    .onAreaChange((_old: Area, nw: Area) => {
+      const hgt: number = Number(nw.height);
+      if (hgt > 0 && Math.abs(hgt - this.cardHeight) > 0.5) {
+        this.cardHeight = hgt;
+        this.onCardHeightChange(hgt);
+      }
+    })
+  }
+
   build() {
     Column() {
+      if (this.compactStyle) {
+        // 新版布局（设置里开启）：左圆钮 + 中间输入框 + 右蓝钮
+        this.compactCard()
+      } else {
       // 最外圈白色光圈层：白色包边裹住卡片，外圈再叠一层柔和光晕（参考截图的光圈）
       Column() {
       Column() {
@@ -2667,6 +3544,7 @@ export struct ConversationComposer {
       // 光圈层不要再用白色底：白底会透在卡片下面，把输入框「垫」得比返回按钮更实
       .backgroundColor(Color.Transparent)
       // 光圈环不再投阴影（与输入框一起去阴影）
+      }
 
       // 卡片下方三个指标按钮：折叠/展开都常驻（对齐小程序 composer-metrics）
       Row({ space: 10 }) {

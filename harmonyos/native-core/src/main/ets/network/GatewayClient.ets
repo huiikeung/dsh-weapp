@@ -2053,10 +2053,17 @@ export class GatewayClient {
     return this.sendRequest(GatewayRequestFactory.simple('agent-presets'));
   }
 
-  /** 权限选项。 */
-  requestPermissionOptions(): boolean {
+  /**
+   * 权限选项。带 sessionId 时网关才会顺带返回该会话的 sessionPermissions（当前值），
+   * 不带只回全局目录 —— 进会话时必须传，否则页面只能显示全局默认。
+   */
+  requestPermissionOptions(sessionId?: string): boolean {
     if (!this.isConnected()) {
       return false;
+    }
+    if (sessionId !== undefined && sessionId.trim().length > 0) {
+      const fields: Record<string, Object> = { 'sessionId': sessionId };
+      return this.sendRequest(GatewayRequestFactory.make('permission-options', 'permission-options', fields, sessionId));
     }
     return this.sendRequest(GatewayRequestFactory.simple('permission-options'));
   }

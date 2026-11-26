@@ -151,6 +151,13 @@ export interface SessionRow {
  * 队列 / 轨迹 / 上下文 / 编队等投影后续在此扩展。
  */
 export class SessionStore {
+  /** 会话 id → 该会话当前的权限预设（由 permission-options 帧填充，切换会话时页面各取各的） */
+  static permissionBySession: Map<string, string> = new Map<string, string>();
+  /** 权限表版本号：每次表变化递增，页面通过 @StorageLink('permissionRevision') 感知后重读 */
+  static bumpPermissionRevision(): void {
+    const prev: number | undefined = AppStorage.get<number>('permissionRevision');
+    AppStorage.setOrCreate<number>('permissionRevision', (prev === undefined ? 0 : prev) + 1);
+  }
   private static instance: SessionStore = new SessionStore();
   private rows: SessionRow[] = [];
   /** 运行中每 200ms 重投影一次，保证流式过程实时上屏 */
@@ -734,13 +741,33 @@ export class SessionStore {
       }
       return;
     }
+    if (frame.kind === 'permission') {
+      // 网关确认某个会话的权限已生效（对齐小程序 store.js: sessionState.permission = frame.set）
+      const setPermission: string | undefined = str(frame, 'set');
+      const frameSid: string | undefined = str(frame, 'sessionId');
+      const sid: string = frameSid !== undefined && frameSid.length > 0 ? frameSid : this.currentSessionId();
+      if (setPermission !== undefined && setPermission.length > 0 && sid.length > 0) {
+        SessionStore.permissionBySession.set(sid, setPermission);
+        SessionStore.bumpPermissionRevision();
+      }
+      return;
+    }
     if (frame.kind === 'permission-options') {
-      // 会话级权限当前值（对齐小程序 store.js：sessionPermissions.currentValue）
+      // 会话级权限当前值（对齐小程序 store.js：sessionPermissions.currentValue）。
+      // 注意：这是「某个会话」的值，不能写进全局 defaultPermission —— 那是所有会话页共享的单值，
+      // 写进去就会出现「每个对话都显示同一个权限（如工作区写入）」。按会话 id 记忆，页面各读各的。
       const sessionPermissions = asRec(field(frame, 'sessionPermissions'));
+      Logger.info('permission-options: session=' + (str(frame, 'sessionId') ?? '(global)')
+        + ' current=' + (sessionPermissions !== undefined ? (str(sessionPermissions, 'currentValue') ?? '(empty)') : '-'));
       if (sessionPermissions !== undefined) {
         const currentValue: string = str(sessionPermissions, 'currentValue') ?? str(sessionPermissions, 'preset') ?? '';
         if (currentValue.length > 0) {
-          AppStorage.setOrCreate<string>('defaultPermission', currentValue);
+          const frameSid: string | undefined = str(field(frame, 'sessionId') as Record<string, Object>, '');
+          const sid: string = frameSid !== undefined && frameSid.length > 0 ? frameSid : SessionStore.get().currentSessionId();
+          if (sid.length > 0) {
+            SessionStore.permissionBySession.set(sid, currentValue);
+            SessionStore.bumpPermissionRevision();
+          }
         }
       }
       const names: string[] = [];
@@ -2149,6 +2176,15 @@ export class SessionStore {
     const agentPreset: string = str(item, 'agentPreset') ?? '';
       // 空会话：新建后还没发过消息（host 的 blank）。本机刚发过消息的会话先放行。
       const blank: boolean = bool(item, 'blank') === true && !this.localSent.has(id);
+      // 会话自带的权限预设（小程序 session.js 用的 s.permission）：每个会话各自的值，
+      // 必须按会话 id 记下来，否则进会话时只能显示全局默认。
+      const itemPermission: string | undefined = str(item, 'permission');
+      if (itemPermission !== undefined && itemPermission.length > 0) {
+        if (SessionStore.permissionBySession.get(id) !== itemPermission) {
+          SessionStore.permissionBySession.set(id, itemPermission);
+          SessionStore.bumpPermissionRevision();
+        }
+      }
       // 主机是权威来源，但刚按实时事件改过的状态要压过这份可能更旧的快照。
       let running: boolean = hostRunning;
       const markedAt: number = this.localRunningMarkAt.get(id) ?? 0;
@@ -2706,7 +2742,9 @@ export class SessionStore {
     // 会话级模型目录（带 sessionId 才回 current）与权限选项
     if (this.client !== null) {
       this.client.requestModelsCatalog(sessionId);
-      this.client.requestPermissionOptions();
+      // 必须带 sessionId：网关只有收到它才会回 sessionPermissions（该会话的当前权限），
+      // 不带只回全局目录，输入框就只能显示全局默认值。
+      this.client.requestPermissionOptions(sessionId);
       // 队列 / 任务 / 目标：进入会话就拉一次（对齐小程序 sessionState 初始化）
       this.client.requestQueue(sessionId).catch(() => {});
       this.client.requestTasks(sessionId).catch(() => {});
