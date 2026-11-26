@@ -543,6 +543,8 @@ export struct ConversationPage {
   /** 长按回复正文的底部弹窗：可选中文字、复制全文 */
   @State replySheetOpen: boolean = false;
   @State replySheetText: string = '';
+  /** 长按弹窗是否切成纯文本显示（默认保留 Markdown 样式） */
+  @State replyPlainMode: boolean = false;
   @State fileDiffTitle: string = '';
   /** PDF 预览弹窗（PDFKit 的 PdfView 嵌在半模态里渲染，与 Bot 聊天页同一套） */
   @State filePdfOpen: boolean = false;
@@ -4306,6 +4308,13 @@ export struct ConversationPage {
           .fontWeight(FontWeight.Medium)
           .fontColor(this.textColor())
         Blank()
+        Text(this.replyPlainMode ? '富文本' : '纯文本')
+          .fontSize(13)
+          .fontColor('#2E6BE6')
+          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+          .onClick(() => {
+            this.replyPlainMode = !this.replyPlainMode;
+          })
         Text('复制全文')
           .fontSize(13)
           .fontColor('#2E6BE6')
@@ -4335,13 +4344,24 @@ export struct ConversationPage {
         // 按原回复的样式渲染（Markdown：标题/列表/代码块/粗体/行内代码等），
         // 不再统一压成一段纯文本；字号与正文一致。
         Column() {
-          MarkdownBodyView({
-            text: this.replySheetText,
-            fontSize: this.bodyFontSize(),
-            imageRevision: this.imageRevisionForSheet,
-            // 弹窗里要能长按选中文字再复制（正文行长按是打开本弹窗的手势，那边保持默认关闭）
-            selectable: true
-          })
+          if (this.replyPlainMode) {
+            // 纯文本：不做 Markdown 解析，原样显示（可长按选中）
+            Text(this.replySheetText)
+              .fontSize(this.bodyFontSize())
+              .lineHeight(this.bodyFontSize() + 7)
+              .fontColor(this.textColor())
+              .width('100%')
+              .textAlign(TextAlign.Start)
+              .copyOption(CopyOptions.LocalDevice)
+          } else {
+            MarkdownBodyView({
+              text: this.replySheetText,
+              fontSize: this.bodyFontSize(),
+              imageRevision: this.imageRevisionForSheet,
+              // 弹窗里要能长按选中文字再复制（正文行长按是打开本弹窗的手势，那边保持默认关闭）
+              selectable: true
+            })
+          }
         }
         .width('100%')
         .alignItems(HorizontalAlign.Start)
@@ -7665,6 +7685,7 @@ export struct ConversationPage {
           systemMaterial: this.teamSheetMaterial(),
           onDisappear: () => {
             this.replySheetText = '';
+            this.replyPlainMode = false;
           }
         })
 
@@ -10701,6 +10722,8 @@ export struct ConversationPage {
               },
               onReplyLongPress: (text: string) => {
                 this.replySheetText = text;
+                // 每次打开都从 Markdown 样式开始，用户可手动切纯文本
+                this.replyPlainMode = false;
                 this.replySheetOpen = true;
               },
               onImagePathTap: (path: string) => {
