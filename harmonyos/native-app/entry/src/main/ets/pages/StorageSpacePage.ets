@@ -15,16 +15,8 @@ interface StorageCategoryItem {
   icon: Resource;
   bytes: number;
   bytesText: string;
-  pctText: string;
 }
 
-/** iOS 风格图标白描边矩阵（彩色底上的白色 glyph） */
-const WHITE_TINT: number[] = [
-  0, 0, 0, 0, 1,
-  0, 0, 0, 0, 1,
-  0, 0, 0, 0, 1,
-  0, 0, 0, 1, 0
-];
 
 /**
  * 存储空间（设置 → 存储空间）：iOS 分组卡片风格的二级页面。
@@ -105,25 +97,23 @@ export struct StorageSpacePage {
   }
 
   private category(key: string, title: string, detail: string, color: string, icon: Resource,
-    bytes: number, total: number): StorageCategoryItem {
-    const pctText: string = (total > 0 && bytes > 0) ? Math.round(bytes * 100 / total).toString() + '%' : '';
+    bytes: number): StorageCategoryItem {
     return {
       key: key, title: title, detail: detail, color: color, icon: icon,
-      bytes: bytes, bytesText: this.bytesLabel(bytes), pctText: pctText
+      bytes: bytes, bytesText: this.bytesLabel(bytes)
     };
   }
 
   private categories(): StorageCategoryItem[] {
-    const total: number = this.totalBytes();
     const items: StorageCategoryItem[] = [];
     items.push(this.category('chats', '聊天记录', '会话列表与正文缓存', '#3D7AC7',
-      $r('app.media.cmd_session'), this.chatsBytes, total));
+      $r('app.media.cmd_session'), this.chatsBytes));
     items.push(this.category('images', '图片', '聊天中下载的图片', '#3BA38C',
-      $r('app.media.deliverable_image'), this.imagesBytes, total));
+      $r('app.media.deliverable_image'), this.imagesBytes));
     items.push(this.category('files', '文件预览', '会话中下载的文件', '#DBA347',
-      $r('app.media.attach_file'), this.filesBytes, total));
+      $r('app.media.attach_file'), this.filesBytes));
     items.push(this.category('temporary', '临时文件', '未完成的下载与临时副本', '#A182C2',
-      $r('app.media.menu_ic_folder'), this.tempBytes, total));
+      $r('app.media.menu_ic_folder'), this.tempBytes));
     return items;
   }
 
@@ -269,36 +259,18 @@ export struct StorageSpacePage {
     this.busy = false;
   }
 
-  // ── UI ──
-  @Builder
-  navBar() {
-    Row() {
-      NavBackButton({ isDark: this.isDark })
-        .onClick(() => {
-          if (this.busy) {
-            return;
-          }
-          if (this.detailKey.length > 0) {
-            this.detailKey = '';
-          } else {
-            this.pageStack.pop();
-          }
-        })
-      Text(this.detailKey.length > 0 ? this.detailTitle() : '存储空间')
-        .fontSize(17)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.textColor())
-        .layoutWeight(1)
-        .textAlign(TextAlign.Center)
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-      Row().width(44).height(44)
+  /** 有占用的分类（分段条只画非零段） */
+  private activeCategories(): StorageCategoryItem[] {
+    const out: StorageCategoryItem[] = [];
+    for (const item of this.categories()) {
+      if (item.bytes > 0) {
+        out.push(item);
+      }
     }
-    .width('100%')
-    .height(56)
-    .padding({ left: 16, right: 16 })
-    .margin({ top: this.topInset() })
+    return out;
   }
+
+  // ── UI（对齐 iOS 设置 → 通用 → iPhone 储存空间）──
 
   /** iOS 分组标题 */
   @Builder
@@ -321,117 +293,80 @@ export struct StorageSpacePage {
       .padding({ left: 2, right: 2, top: 8 })
   }
 
-  /** 彩色图标块（iOS settings 风格：圆角方块 + 白色 glyph） */
+  /**
+   * 占比分段条（iOS 储存空间顶部那条）：按各类字节量 layoutWeight 分宽，
+   * 段间 2vp 缝、整条圆角裁切；没有占用时显示轨道色。
+   */
   @Builder
-  categoryIcon(color: string, icon: Resource, size: number, radius: number) {
-    Stack({ alignContent: Alignment.Center }) {
-      Column()
-        .width(size)
-        .height(size)
-        .borderRadius(radius)
-        .linearGradient({
-          angle: 180,
-          colors: [[color, 0], [color + 'C4', 1]]
-        })
-      Image(icon)
-        .width(size * 0.52)
-        .height(size * 0.52)
-        .objectFit(ImageFit.Contain)
-        .colorFilter(WHITE_TINT)
-    }
-  }
-
-  @Builder
-  heroCard() {
-    Column({ space: 0 }) {
-      Stack({ alignContent: Alignment.Center }) {
-        DataPanel({
-          values: [this.chatsBytes, this.imagesBytes, this.filesBytes, this.tempBytes],
-          max: this.totalBytes() > 0 ? this.totalBytes() : 1,
-          type: DataPanelType.Circle
-        })
-          .valueColors(['#3D7AC7', '#3BA38C', '#DBA347', '#A182C2'])
-          .trackBackgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.06)')
-          .strokeWidth(16)
-          .width(168)
-          .height(168)
-        Column({ space: 2 }) {
-          Text(this.bytesLabel(this.totalBytes()))
-            .fontSize(20)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.textColor())
-          Text('本机缓存')
-            .fontSize(12)
-            .fontColor(this.subColor())
-        }
-      }
-      .width('100%')
-      .height(200)
-      Row() {
-        Column({ space: 2 }) {
-          Text('本地键值存储')
-            .fontSize(14)
-            .fontColor(this.textColor())
-          Text('不含图片与文件')
-            .fontSize(11.5)
-            .fontColor(this.subColor())
-        }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Start)
-        Text(this.bytesLabel(this.chatsBytes))
-          .fontSize(13)
-          .fontColor(this.subColor())
-      }
-      .width('100%')
-      .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-      .border({ width: { top: 0.5 }, color: this.dividerColor() })
+  segmentBar() {
+    Row({ space: 2 }) {
+      ForEach(this.activeCategories(), (item: StorageCategoryItem) => {
+        Column()
+          .height(14)
+          .layoutWeight(item.bytes)
+          .borderRadius(3)
+          .backgroundColor(item.color)
+      }, (item: StorageCategoryItem) => item.key)
     }
     .width('100%')
-    .borderRadius(16)
-    .backgroundColor(this.cardBg())
+    .height(14)
+    .borderRadius(7)
+    .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.06)')
     .clip(true)
   }
 
+  /** 图例行：小色块 + 名称 + 大小（iOS 图例不带图标、不带百分比） */
   @Builder
-  categoryList() {
+  legendRow(item: StorageCategoryItem) {
+    Row({ space: 12 }) {
+      Column()
+        .width(10)
+        .height(10)
+        .borderRadius(3)
+        .backgroundColor(item.color)
+      Text(item.title)
+        .fontSize(15)
+        .fontColor(this.textColor())
+        .layoutWeight(1)
+      Text(item.bytesText)
+        .fontSize(15)
+        .fontColor(this.subColor())
+      Image($r('app.media.chev_right_gray'))
+        .width(12)
+        .height(12)
+        .objectFit(ImageFit.Contain)
+        .opacity(0.5)
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+    .border({ width: { top: 0.5 }, color: this.dividerColor() })
+    .onClick(() => {
+      this.detailKey = item.key;
+      this.hint = '';
+    })
+  }
+
+  /** 顶部卡片：总量 + 分段条 + 图例 */
+  @Builder
+  heroCard() {
     Column() {
-      ForEach(this.categories(), (item: StorageCategoryItem, index: number) => {
-        Row({ space: 12 }) {
-          this.categoryIcon(item.color, item.icon, 30, 8)
-          Column({ space: 1 }) {
-            Text(item.title)
-              .fontSize(15)
-              .fontColor(this.textColor())
-            Text(item.detail)
-              .fontSize(12)
-              .fontColor(this.subColor())
-          }
-          .layoutWeight(1)
-          .alignItems(HorizontalAlign.Start)
-          Column({ space: 1 }) {
-            Text(item.bytesText)
-              .fontSize(13)
-              .fontColor(this.subColor())
-            if (item.pctText.length > 0) {
-              Text(item.pctText)
-                .fontSize(11)
-                .fontColor(this.subColor())
-            }
-          }
-          .alignItems(HorizontalAlign.End)
-          Image($r('app.media.chev_right_gray'))
-            .width(12)
-            .height(12)
-            .objectFit(ImageFit.Contain)
-            .opacity(0.5)
-        }
-        .width('100%')
-        .padding({ left: 16, right: 16, top: 13, bottom: 13 })
-        .border({ width: { top: index > 0 ? 0.5 : 0 }, color: this.dividerColor() })
-        .onClick(() => {
-          this.detailKey = item.key;
-          this.hint = '';
-        })
+      Column({ space: 8 }) {
+        Text('本机缓存')
+          .fontSize(13)
+          .fontColor(this.subColor())
+          .width('100%')
+        Text(this.bytesLabel(this.totalBytes()))
+          .fontSize(28)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.textColor())
+          .width('100%')
+        this.segmentBar()
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 16, right: 16, top: 18, bottom: 18 })
+      ForEach(this.categories(), (item: StorageCategoryItem) => {
+        this.legendRow(item)
       }, (item: StorageCategoryItem) => item.key)
     }
     .width('100%')
@@ -440,29 +375,39 @@ export struct StorageSpacePage {
     .clip(true)
   }
 
+  /** 详情头部：iOS 应用详情那种「饱和色大圆角图标 + 白色 glyph」，直接放在页面底色上 */
   @Builder
   detailHero() {
-    Column({ space: 12 }) {
-      this.categoryIcon(this.detailColor(), this.detailIcon(), 56, 14)
+    Column({ space: 10 }) {
+      Stack({ alignContent: Alignment.Center }) {
+        Column()
+          .width(64)
+          .height(64)
+          .borderRadius(15)
+          .backgroundColor(this.detailColor())
+        Image(this.detailIcon())
+          .width(32)
+          .height(32)
+          .objectFit(ImageFit.Contain)
+          .fillColor(Color.White)
+      }
       Text(this.detailTitle())
-        .fontSize(17)
+        .fontSize(20)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.textColor())
+      Text(this.detailBytesText())
+        .fontSize(15)
+        .fontColor(this.subColor())
       Text(this.detailDesc())
         .fontSize(13)
         .fontColor(this.subColor())
-      Text(this.detailBytesText())
-        .fontSize(15)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.textColor())
     }
     .width('100%')
-    .padding({ top: 24, bottom: 24 })
-    .borderRadius(16)
-    .backgroundColor(this.cardBg())
+    .padding({ top: 24, bottom: 12 })
     .alignItems(HorizontalAlign.Center)
   }
 
+  /** 清理按钮（iOS 分组里的红色居中文字行） */
   @Builder
   detailActions() {
     Column() {
@@ -484,7 +429,6 @@ export struct StorageSpacePage {
     .backgroundColor(this.cardBg())
     .opacity(this.busy ? 0.5 : 1)
   }
-
   private scroller: Scroller = new Scroller();
 
   build() {
@@ -506,8 +450,6 @@ export struct StorageSpacePage {
               Column().width('100%').height((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 56)
               if (this.detailKey.length === 0) {
                 this.heroCard()
-                this.groupTitle('缓存分类')
-                this.categoryList()
                 this.groupFooter('清理后需要时会重新下载；不会删除网关上的会话、工作区或设备上的原文件。')
               } else {
                 this.detailHero()
