@@ -1276,6 +1276,15 @@ export class SessionStore {
    * 手机上漏帧的自救：重新向主机要一次历史并重新订阅当前会话。
    * 补拉后会走 history 帧的 replace/merge + rebuild，时间线直接对齐主机。
    */
+  /**
+   * 页面用：回合刚结束时主动向主机补齐一次历史（等价于用户退出重进）。
+   * 实时流可能丢尾帧：最后一段正文/代码块后半段只在主机历史里，
+   * 补齐后 history 帧会 merge + rebuild，长回复尾部就不会缺。
+   */
+  refreshFromHost(): void {
+    this.catchUpCurrentSession();
+  }
+
   private catchUpCurrentSession(): void {
     if (this.client === null || this.sessionId.length === 0) {
       return;

@@ -3424,6 +3424,11 @@ export struct ConversationPage {
       setTimeout(() => {
         this.reloadFeedAfterSettle();
       }, 1800);
+      // 实时流可能丢尾帧（最后一段正文/代码块后半段只在主机历史里）：
+      // 结束后主动补拉一次历史，等价于退出重进的刷新。
+      setTimeout(() => {
+        SessionStore.get().refreshFromHost();
+      }, 1200);
       // 回合结束：稍后补两次重排，让过程组按「已收工」折叠成「已完成」
       // （折叠条件里带 3 秒活跃窗口，结束后不一定还有新的数据推送来触发重排）。
       setTimeout(() => {
