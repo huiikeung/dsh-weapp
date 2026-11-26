@@ -167,25 +167,39 @@ export class PluginStore {
         continue;
       }
       const meta = asRec(record['meta']);
+      // 名称/描述以主机下发为准（item.title/description 或 item.meta.*），
+      // 兼容 dsh 端 i18n 对象 {zh,en}；主机没给时才用下面这份兜底文案。
+      // 兜底文案与 dsh 桌面端一致（文案/顺序都对齐），改名时同步这里即可。
       const titles: Record<string, string> = {
-        'shell': '终端',
-        'agent-loop': 'Agent 循环',
         'subagent': '子智能体',
-        'web-search': '网页搜索'
+        'web-search': '网页搜索与获取',
+        'agent-loop': 'Agent 循环',
+        'shell': '终端'
       };
       const descriptions: Record<string, string> = {
-        'shell': '限制每条命令最多能跑多久、最多输出多少内容。',
-        'agent-loop': '控制 Agent 派发工具调用的方式。',
         'subagent': '设置子智能体的递归层级、数量和模型。',
-        'web-search': '设置 DeepSeek 的搜索提供方。'
+        'web-search': '选择网页搜索与网页获取使用的提供方。',
+        'agent-loop': '控制 Agent 派发工具调用的方式。',
+        'shell': '限制每条命令最多能跑多久、最多输出多少内容。'
       };
+      const hostTitle: string = localized(record['title'])
+        || (meta !== undefined ? localized(meta['title']) : '');
+      const hostDescription: string = localized(record['description'])
+        || (meta !== undefined ? localized(meta['description']) : '');
       officialItems.push({
         id: id,
-        title: (meta !== undefined ? localized(meta['title']) : '') || (titles[id] ?? id),
-        description: (meta !== undefined ? localized(meta['description']) : '') || (descriptions[id] ?? ''),
-        icon: meta !== undefined ? (str(meta, 'icon') ?? '') : ''
+        title: hostTitle.length > 0 ? hostTitle : (titles[id] ?? id),
+        description: hostDescription.length > 0 ? hostDescription : (descriptions[id] ?? ''),
+        icon: meta !== undefined ? (str(meta, 'icon') ?? '') : (str(record, 'icon') ?? '')
       });
     }
+    // 顺序对齐 dsh 桌面端：子智能体 → 网页搜索与获取 → Agent 循环 → 终端
+    const order: string[] = ['subagent', 'web-search', 'agent-loop', 'shell'];
+    officialItems.sort((a: OfficialPluginItem, b: OfficialPluginItem) => {
+      const ia: number = order.indexOf(a.id);
+      const ib: number = order.indexOf(b.id);
+      return (ia < 0 ? order.length : ia) - (ib < 0 ? order.length : ib);
+    });
     AppStorage.setOrCreate<OfficialPluginItem[]>('pluginOfficialItems', officialItems.slice());
     AppStorage.setOrCreate<boolean>('pluginManagementAvailable', this.managementAvailable);
     Logger.info('catalog frame=' + JSON.stringify(frame).substring(0, 1200));
