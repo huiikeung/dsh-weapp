@@ -3017,14 +3017,14 @@ export struct ConversationRowView {
     }
   }
 
-  /** 阅读档实时折叠：要渲染的步骤（折叠时跳过已收进折叠条的前缀） */
+  /**
+   * 要渲染的步骤：始终是全部步骤。
+   * 之前阅读档运行中会把「最后一次思考之前」的步骤切出去（先裸露在容器外、
+   * 等新思考出现再收进折叠条）——表现就是描述文字一会儿在容器外、一会儿被收走。
+   * 现在统一留在过程容器内（限高滚动 + 自动跟随最新一步），不再中途折叠。
+   */
   private displayItems(): ConversationItem[] {
-    const items: ConversationItem[] = this.entry.items;
-    if (this.workStepMode === 'reading' && this.entry.running && this.entry.liveFoldCount > 0
-      && !this.liveFoldOpen) {
-      return items.slice(this.entry.liveFoldCount);
-    }
-    return items;
+    return this.entry.items;
   }
 
   /** 实时折叠条上的计数：只统计被收起来的那段步骤 */
@@ -3171,10 +3171,8 @@ export struct ConversationRowView {
     Column() {
       // 阅读档：顶部计数行 → 步骤 → 执行图标行（保持原来的位置：贴底、在鲸尾行上方）
       if (this.workStepMode === 'reading') {
-        // 折叠条（容器外顶部）：累计「之前链条」的思考×N · 工具×N · 记录×N，点击展开/收起
-        if (this.workStepMode === 'reading' && this.entry.running && this.entry.liveFoldCount > 0) {
-          this.readingHead()
-        }
+        // 运行中不再显示折叠条：步骤始终全部留在过程容器内（见 displayItems），
+        // 没有被折叠的前缀，再显示「思考×N · 工具×N」计数条只会和可见步骤对不上。
         if (this.bodyVisible()) {
           this.bodyBlock()
         }
