@@ -235,6 +235,8 @@ export interface PluginNamespace {
   valid: boolean;
   /** 主机下发的设置 schema（Typert refs 树），用于动态生成字段 */
   schema?: Object;
+  /** 主机下发的字段级文案（key → 中文标签），来自插件 schema 的 description */
+  labels?: Record<string, string>;
 }
 
 /** 解析 plugin-settings 响应（namespace 视图在 frame.namespace） */
@@ -253,7 +255,22 @@ export function parseNamespace(frame: GatewayFrame | undefined): PluginNamespace
   const namespace: Object = inner !== undefined ? inner : frame;
   const revision: number = num(namespace, 'revision') ?? -1;
   const value: Object | undefined = field(namespace, 'value');
-  return { value: value, revision: revision, valid: Number.isSafeInteger(revision) && revision >= 0, schema: field(namespace, 'schema') };
+  // 字段文案可能挂在 namespace 上（网关新增），也可能挂在平铺帧的顶层
+  const labelsSource: Object | undefined = field(namespace, 'labels') ?? field(frame, 'labels');
+  const labels: Record<string, string> = {};
+  if (labelsSource !== undefined) {
+    const entries: Record<string, Object> = labelsSource as Record<string, Object>;
+    for (const key of Object.keys(entries)) {
+      const text: string = str(entries, key) ?? '';
+      if (text.length > 0) {
+        labels[key] = text;
+      }
+    }
+  }
+  return {
+    value: value, revision: revision, valid: Number.isSafeInteger(revision) && revision >= 0,
+    schema: field(namespace, 'schema'), labels: labels
+  };
 }
 
 /** 构造 set 操作 */

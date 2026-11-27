@@ -2205,6 +2205,12 @@ export class GatewayClient {
     return this.requestGateway(request, timeoutMs);
   }
 
+  /** 网页搜索/获取已注册的提供方（动态列表，替代硬编码） */
+  requestWebProviders(): Promise<GatewayFrame> {
+    this.pluginRequestSeq += 1;
+    return this.requestGateway(GatewayRequestFactory.webProviders(), 15000);
+  }
+
   requestPluginSettings(ns: string): Promise<GatewayFrame> {
     this.pluginRequestSeq += 1;
     return this.requestGateway(GatewayRequestFactory.pluginSettings(ns, 'plugin-settings-' + this.pluginRequestSeq), 15000);

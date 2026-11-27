@@ -1,6 +1,7 @@
 import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { currentGlassLevel, currentGlassMaterialLevel } from '../common/GlassMaterial';
 import { uiMaterial } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
 import { GatewayClient, Logger, OfficialPluginItem, PluginItem, parseNamespace } from 'nativecore';
 import type { CatalogEntry, CatalogRow } from 'nativecore';
 import { MarkdownBodyView } from '../components/MarkdownBodyView';
@@ -59,6 +60,8 @@ interface PluginField {
   section?: string;
   /** schema 类型为 boolean 时用开关渲染 */
   isBool?: boolean;
+  /** schema 类型为 union/enum：值是有限集合，按文本回写最稳妥 */
+  choice?: boolean;
 }
 
 /** 安装源选项（对齐小程序 registryOptions） */
@@ -181,6 +184,26 @@ export struct PluginsPage {
   @State subagentAllowed: string[] = [];
   @State subagentRevision: number = 0;
   @State subagentHasNamespace: boolean = false;
+  // 网页搜索与获取（dsh 端是「提供方 / 计费方式 / 结果条数」三段表单，横跨三个命名空间）
+  //   web               → searchProvider、fetchProvider
+  //   web-deepseek-api  → count、searchBilling、fetchBilling
+  @State webCfgLoaded: boolean = false;
+  @State webSearchProvider: string = '';
+  @State webFetchProvider: string = '';
+  @State webSearchBilling: string = 'auto';
+  @State webFetchBilling: string = 'auto';
+  @State webSearchCount: string = '10';
+  @State webNsRevision: number = 0;
+  @State webApiNsRevision: number = 0;
+  // web-search-deepseek：legacy（DeepSeek 服务端搜索）段的 Base URL / 单次搜索次数
+  // 注意存的是 baseURL（不是 messagesBaseURL）：桌面端 WebLegacySettings 的字段名就是 baseURL，
+  // 写错名字会静默写进一个没人读的键。
+  @State webLegacyNsRevision: number = 0;
+  @State webBaseURL: string = '';
+  @State webMaxUses: string = '5';
+  // 主机动态注册的搜索/获取提供方（remote web/listProviders），编码：id\u0003title\u0003description
+  @State webSearchOptions: string[] = [];
+  @State webFetchOptions: string[] = [];
   @State detailSaving: boolean = false;
   @State detailSaved: string = '';
   // 插件市场
@@ -227,6 +250,11 @@ export struct PluginsPage {
 
   private sheetPrimaryBorder(): string {
     return this.isDark ? 'rgba(255,255,255,0.24)' : this.accent();
+  }
+
+  /** 主按钮文字色：与描边同色系（深色近白、浅色主题蓝） */
+  private sheetPrimaryText(): string {
+    return this.isDark ? 'rgba(241,244,250,0.92)' : this.accent();
   }
 
   /** 次按钮：透明底 + 描边 */
@@ -820,28 +848,28 @@ export struct PluginsPage {
             })
           Text('核对状态')
             .fontSize(13)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#FFFFFF')
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.sheetPrimaryText())
             .layoutWeight(1)
             .height(42)
             .textAlign(TextAlign.Center)
             .borderRadius(9)
-            .border({ width: 0.5, color: this.sheetPrimaryBorder() })
-            .backgroundColor(this.sheetPrimaryBg())
+            .border({ width: 1, color: this.sheetPrimaryBorder() })
+            .backgroundColor(Color.Transparent)
             .onClick(() => {
               this.reconcileInstallRun();
             })
         } else {
           Text('安装')
             .fontSize(13)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#FFFFFF')
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.sheetPrimaryText())
             .layoutWeight(1)
             .height(42)
             .textAlign(TextAlign.Center)
             .borderRadius(9)
-            .border({ width: 0.5, color: this.sheetPrimaryBorder() })
-            .backgroundColor(this.sheetPrimaryBg())
+            .border({ width: 1, color: this.sheetPrimaryBorder() })
+            .backgroundColor(Color.Transparent)
             .onClick(() => {
               this.runInstall();
             })
@@ -887,6 +915,298 @@ export struct PluginsPage {
       }, 300);
     }
   }
+
+  /** 网页搜索与获取卡片（对齐 dsh 端 web-search 设置页） */
+  /** 网页搜索与获取卡片：严格对齐桌面端 WebSearchCard（提供方 → 分节字段 → 计费方式） */
+  @Builder
+  webSearchCard() {
+    Column({ space: 16 }) {
+      // ===== 网页搜索提供方 =====
+      Column({ space: 6 }) {
+        Text('网页搜索提供方').fontSize(13).fontColor(this.textColor()).width('100%')
+        this.providerMenu(false)
+        if (this.webProviderDescription(this.webSearchProvider, false).length > 0) {
+          Text(this.webProviderDescription(this.webSearchProvider, false))
+            .fontSize(11).fontColor(this.subColor()).width('100%')
+        } else if (this.webSearchProvider.length === 0) {
+          // 自动选择：说明主机实际会挑哪个提供方
+          Text('跟随当前会话的模型：DeepSeek 模型使用 DeepSeek 服务端搜索，搜索不按次收费；其他模型使用 DeepSeek Search API。')
+            .fontSize(11).fontColor(this.subColor()).width('100%')
+        }
+        if (this.webSearchKind() === 'deepseek' || this.webSearchProvider.length === 0) {
+          Text('网页搜索与获取指南')
+            .fontSize(11).fontColor(this.accent()).width('100%')
+            .onClick(() => {
+              this.onOpenSearchGuide();
+            })
+        } else if (this.webSearchKind() === 'plugin') {
+          Text('请在该插件自己的设置中配置')
+            .fontSize(11).fontColor(this.subColor()).width('100%')
+        }
+
+        // DeepSeek Search API 段：结果条数 + 计费方式
+        if (this.webSearchKind() === 'deepseek') {
+          Column({ space: 10 }) {
+            this.webNumberField('每次搜索结果数', '1–50 的整数，默认 10；无效值阻止保存。', this.webSearchCount,
+              (value: string) => { this.webSearchCount = value; })
+            this.webBillingField('search')
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
+          .padding({ top: 4 })
+        }
+
+        // 服务端搜索（legacy）段：API Key + Base URL + 单次请求最多搜索次数
+        if (this.webSearchKind() === 'legacy') {
+          Column({ space: 10 }) {
+            Column({ space: 4 }) {
+              Row() {
+                Text('API Key').fontSize(13).fontColor(this.textColor()).layoutWeight(1)
+                Text(this.apiKeyConfigured ? '已配置密钥。' : '未配置密钥。')
+                  .fontSize(11).fontColor(this.subColor())
+              }
+              .width('100%')
+              .alignItems(VerticalAlign.Center)
+              TextInput({ text: this.apiKeyText, placeholder: this.apiKeyConfigured ? '已配置，输入新值可覆盖' : '未配置' })
+                .type(InputType.Password)
+                .fontSize(14)
+                .fontColor(this.textColor())
+                .placeholderColor(this.subColor())
+                .height(42)
+                .borderRadius(10)
+                .enabled(this.apiKeyWritable)
+                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)')
+                .onChange((value: string) => {
+                  this.apiKeyText = value;
+                })
+              Row({ space: 10 }) {
+                Text('账号模型发起的请求使用已登录账号；其他请求使用此 API Key（DEEPSEEK_API_KEY），默认与「模型」页共用')
+                  .fontSize(11).fontColor(this.subColor()).layoutWeight(1)
+                Text('保存密钥')
+                  .fontSize(12)
+                  .fontColor(this.accent())
+                  .onClick(() => {
+                    this.saveApiKey();
+                  })
+              }
+              .width('100%')
+            }
+            .alignItems(HorizontalAlign.Start)
+            .width('100%')
+
+            this.webTextField('Messages API 基础地址',
+              '填写含 API 前缀的地址，例如 https://api.deepseek.com/anthropic/v1；程序追加 /messages，留空恢复默认。',
+              this.webBaseURL, '留空恢复默认', (value: string) => { this.webBaseURL = value; })
+            this.webNumberField('单次请求最多搜索次数', '正整数，默认 5。',
+              this.webMaxUses, (value: string) => { this.webMaxUses = value; })
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
+          .padding({ top: 4 })
+        }
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      // 搜索提供方独立成一张卡（与获取提供方分开）
+      .padding(12)
+      .borderRadius(12)
+      .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(16,19,24,0.03)')
+
+      // ===== 网页获取提供方（独立模块）=====
+      Column({ space: 6 }) {
+        Text('网页获取提供方').fontSize(13).fontColor(this.textColor()).width('100%')
+        this.providerMenu(true)
+        if (this.webProviderDescription(this.webFetchProvider, true).length > 0) {
+          Text(this.webProviderDescription(this.webFetchProvider, true))
+            .fontSize(11).fontColor(this.subColor()).width('100%')
+        } else if (this.webFetchKind() === 'plugin') {
+          Text('请在该插件自己的设置中配置')
+            .fontSize(11).fontColor(this.subColor()).width('100%')
+        }
+        if (this.webFetchKind() === 'deepseek') {
+          Column({ space: 10 }) {
+            this.webBillingField('fetch')
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
+          .padding({ top: 4 })
+        }
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      // 获取提供方独立成一张卡
+      .padding(12)
+      .borderRadius(12)
+      .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(16,19,24,0.03)')
+
+      Row() {
+        Blank()
+        Button('保存')
+          .fontSize(13)
+          .height(32)
+          // 透明底 + 蓝色描边 + 蓝色文字（不再用实心色块）
+          .backgroundColor(Color.Transparent)
+          .border({ width: 1, color: this.sheetPrimaryBorder() })
+          .borderRadius(9)
+          .fontColor(this.sheetPrimaryText())
+          .enabled(!this.detailSaving)
+          .onClick(() => {
+            this.saveWebConfig();
+          })
+      }
+      .width('100%')
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  /** 提供方下拉：自动选择 + 主机注册的提供方（未注册的当前值标「未加载」） */
+  @Builder
+  providerMenu(fetch: boolean) {
+    Row() {
+      Text(this.webProviderLabel(fetch ? this.webFetchProvider : this.webSearchProvider, fetch))
+        .fontSize(14)
+        .fontColor(this.textColor())
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
+      Text('\u25BE').fontSize(12).fontColor(this.subColor())
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Center)
+    .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+    .borderRadius(10)
+    .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)')
+    .bindMenu(this.providerMenuItems(fetch))
+  }
+
+  /** 菜单项：自动 + 已注册提供方；选中值未注册时补一项「（未加载）」 */
+  private providerMenuItems(fetch: boolean): MenuElement[] {
+    const items: MenuElement[] = [];
+    items.push({
+      value: '自动选择',
+      action: () => {
+        if (fetch) {
+          this.webFetchProvider = '';
+        } else {
+          this.webSearchProvider = '';
+        }
+      }
+    } as MenuElement);
+    for (const id of this.webMenuIds(fetch)) {
+      const registered: boolean = this.webRegisteredIds(fetch).indexOf(id) >= 0;
+      const label: string = registered ? this.webProviderLabel(id, fetch)
+        : this.webProviderLabel(id, fetch) + '（未加载）';
+      items.push({
+        value: label,
+        action: () => {
+          if (fetch) {
+            this.webFetchProvider = id;
+          } else {
+            this.webSearchProvider = id;
+          }
+        }
+      } as MenuElement);
+    }
+    return items;
+  }
+
+  /** 数字字段：标题 + 输入框 + 说明 */
+  @Builder
+  webNumberField(label: string, hint: string, value: string, onChange: (value: string) => void) {
+    Column({ space: 4 }) {
+      Text(label).fontSize(13).fontColor(this.textColor()).width('100%')
+      TextInput({ text: value })
+        .type(InputType.Number)
+        .fontSize(14)
+        .fontColor(this.textColor())
+        .placeholderColor(this.subColor())
+        .height(42)
+        .borderRadius(10)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)')
+        .onChange(onChange)
+      Text(hint).fontSize(11).fontColor(this.subColor()).width('100%')
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  /** 文本字段：标题 + 输入框 + 说明 */
+  @Builder
+  webTextField(label: string, hint: string, value: string, placeholder: string, onChange: (value: string) => void) {
+    Column({ space: 4 }) {
+      Text(label).fontSize(13).fontColor(this.textColor()).width('100%')
+      TextInput({ text: value, placeholder: placeholder })
+        .fontSize(14)
+        .fontColor(this.textColor())
+        .placeholderColor(this.subColor())
+        .height(42)
+        .borderRadius(10)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)')
+        .onChange(onChange)
+      Text(hint).fontSize(11).fontColor(this.subColor()).width('100%')
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  /** 计费方式字段：标题 + 下拉 + 当前值的说明 */
+  @Builder
+  webBillingField(capability: string) {
+    Column({ space: 4 }) {
+      Text('计费方式').fontSize(13).fontColor(this.textColor()).width('100%')
+      Row() {
+        Text(this.webBillingLabel(capability === 'search' ? this.webSearchBilling : this.webFetchBilling))
+          .fontSize(14)
+          .fontColor(this.textColor())
+          .layoutWeight(1)
+        Text('\u25BE').fontSize(12).fontColor(this.subColor())
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+      .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+      .borderRadius(10)
+      .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)')
+      .bindMenu([
+        { value: '自动', action: () => { this.setWebBilling(capability, 'auto'); } } as MenuElement,
+        { value: '已登录的 DeepSeek 账号', action: () => { this.setWebBilling(capability, 'account'); } } as MenuElement,
+        { value: 'DeepSeek API Key', action: () => { this.setWebBilling(capability, 'api-key'); } } as MenuElement
+      ])
+      Text(this.webBillingHint(capability === 'search' ? this.webSearchBilling : this.webFetchBilling))
+        .fontSize(11).fontColor(this.subColor()).width('100%')
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  private setWebBilling(capability: string, billing: string): void {
+    if (capability === 'search') {
+      this.webSearchBilling = billing;
+    } else {
+      this.webFetchBilling = billing;
+    }
+  }
+
+  private webBillingHint(billing: string): string {
+    if (billing === 'account') {
+      return '只使用已登录的 DeepSeek 账号。';
+    }
+    if (billing === 'api-key') {
+      return '只使用 DeepSeek API Key。';
+    }
+    return '会话使用 DeepSeek 模型时沿用其账号或 API Key，否则依次使用 DeepSeek API Key、已登录的 DeepSeek 账号。';
+  }
+
+  /** 打开网页搜索与获取指南 */
+  private onOpenSearchGuide(): void {
+    try {
+      const ctx = getContext(this) as common.UIAbilityContext;
+      ctx.openLink('https://api-docs.deepseek.com/zh-cn/guides/search');
+    } catch (err) {
+      Logger.info('[PSET] open search guide failed');
+    }
+  }
+
 
   @Builder
   detailSheetContent() {
@@ -1019,60 +1339,11 @@ export struct PluginsPage {
             .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)')
           }
 
+          // 网页搜索与获取：对齐 dsh 端「提供方 / 结果条数 / 计费方式」三段式表单
           if (this.detailKind === 'web-search') {
-            Column({ space: 10 }) {
-              Row() {
-                Column({ space: 2 }) {
-                  Text('使用 DeepSeek 搜索 API').fontSize(14).fontColor(this.textColor())
-                  Text('开启后通过 DeepSeek 搜索接口检索，否则使用内置搜索。')
-                    .fontSize(11)
-                    .fontColor(this.subColor())
-                }
-                .alignItems(HorizontalAlign.Start)
-                .layoutWeight(1)
-                if (this.webApiBusy) {
-                  LoadingProgress().width(18).height(18).color(this.subColor())
-                } else {
-                  Toggle({ type: ToggleType.Switch, isOn: this.webApiEnabled })
-                    .selectedColor(this.accent())
-                    .scale({ x: 0.72, y: 0.72 })
-                    .onChange((isOn: boolean) => {
-                      this.toggleWebApi(isOn);
-                    })
-                }
-              }
-              .width('100%')
-
-              Column({ space: 5 }) {
-                Text('API Key').fontSize(13).fontColor(this.subColor())
-                TextInput({ text: this.apiKeyText, placeholder: this.apiKeyConfigured ? '已配置，输入新值可覆盖' : '未配置' })
-                  .type(InputType.Password)
-                  .fontSize(14)
-                  .fontColor(this.textColor())
-                  .placeholderColor(this.subColor())
-                  .height(42)
-                  .borderRadius(10)
-                  .enabled(this.apiKeyWritable)
-                  .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)')
-                  .onChange((value: string) => {
-                    this.apiKeyText = value;
-                  })
-                Row({ space: 10 }) {
-                  Text(this.apiKeyHint).fontSize(11).fontColor(this.subColor()).layoutWeight(1)
-                  Text('保存凭据')
-                    .fontSize(12)
-                    .fontColor(this.accent())
-                    .onClick(() => {
-                      this.saveApiKey();
-                    })
-                }
-                .width('100%')
-              }
-              .alignItems(HorizontalAlign.Start)
-              .width('100%')
-            }
-            .width('100%')
+            this.webSearchCard()
           }
+
 
           if (this.detailMarkdown.length > 0) {
             MarkdownBodyView({
@@ -1291,17 +1562,18 @@ export struct PluginsPage {
       .edgeEffect(EdgeEffect.Spring)
 
       Row({ space: 10 }) {
-        if (this.detailKind.length > 0) {
+        // 网页搜索与获取：卡片内有自己的「保存」，底部不再重复一个
+        if (this.detailKind.length > 0 && this.detailKind !== 'web-search') {
           Text(this.detailSaving ? '保存中…' : '保存')
             .fontSize(13)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#FFFFFF')
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.sheetPrimaryText())
             .layoutWeight(1)
             .height(42)
             .textAlign(TextAlign.Center)
             .borderRadius(9)
-            .border({ width: 0.5, color: this.sheetPrimaryBorder() })
-            .backgroundColor(this.sheetPrimaryBg())
+            .border({ width: 1, color: this.sheetPrimaryBorder() })
+            .backgroundColor(Color.Transparent)
             .opacity(this.detailSaving ? 0.6 : 1)
             .onClick(() => {
               this.saveOfficialSettings();
@@ -1830,8 +2102,9 @@ export struct PluginsPage {
           }
           .width('100%')
           .padding({ left: 12, right: 12 })
-          .bindSheet($$this.marketDetailOpen, this.marketDetailSheet(), {
-            height: '62%',
+          .bindSheet(this.marketDetailOpen, this.marketDetailSheet(), {
+            // 与「已安装」插件详情同一个高度（85%），发现页弹窗不再矮一截
+            height: '85%',
             dragBar: false,
             showClose: false,
             preferType: SheetType.BOTTOM,
@@ -2801,14 +3074,18 @@ export struct PluginsPage {
     this.detailMarkdown = '';
     this.detailKind = item.id;
     this.detailFields = [];
+    this.hostLabels = {};
     this.detailBusy = true;
     this.webApiEnabled = false;
     this.apiKeyText = '';
     this.apiKeyConfigured = false;
     this.apiKeyHint = '';
+    this.webCfgLoaded = false;
     if (item.id === 'web-search') {
       this.loadWebApiState();
       this.loadApiKeyState();
+      // 提供方 / 结果条数 / 计费方式：独立拉取，失败不影响其它区域
+      this.loadWebConfig();
     }
     this.loadOfficialSettings(item.id);
     GatewayClient.get().requestPluginDetail(item.id, 'zh').then((frame) => {
@@ -2838,9 +3115,14 @@ export struct PluginsPage {
       ];
     }
     if (kind === 'web-search') {
+      // 对齐小程序 definitions()：新版 Search API 用 count（结果条数），
+      // 旧版 Messages API 用 maxUses（单次请求允许的搜索次数）。
+      if (this.webSearchKind() === 'deepseek') {
+        return [['count', '每次搜索结果数', '每个查询返回的结果条数，须为 1–50 的整数，默认 10；不控制搜索调用次数。']];
+      }
       return [
-        ['baseURL', '接口地址', '搜索接口的基础地址，留空使用默认值。'],
-        ['maxUses', '单次搜索次数上限', '一次会话里最多调用多少次搜索。']
+        ['baseURL', 'Messages API 基础地址', '填写含 API 前缀的地址，例如 https://api.deepseek.com/anthropic/v1；程序追加 /messages，留空恢复默认。'],
+        ['maxUses', '单次请求最多搜索次数', '辅助模型在一次 Messages 请求内最多可执行的搜索次数，仅适用于 Messages API。']
       ];
     }
     return [];
@@ -2865,7 +3147,15 @@ export struct PluginsPage {
   }
 
   /** 字段标签/说明：主机 schema 只有类型和默认值，文案在这里映射（与 dsh 端一致） */
+  /** 主机下发的字段文案（插件 schema description），当前详情页用 */
+  private hostLabels: Record<string, string> = {};
+
   private fieldLabel(key: string): string {
+    // 优先用主机下发的文案：插件改了标签，手机不用重编就能跟着变
+    const fromHost: string = this.hostLabels[key] ?? '';
+    if (fromHost.length > 0) {
+      return fromHost;
+    }
     const labels: Record<string, string> = {
       'cwd': '工作目录',
       'timeoutMs': '命令超时（毫秒）',
@@ -2873,8 +3163,10 @@ export struct PluginsPage {
       'maxOutputBytes': '单流输出上限（字节）',
       'maxSpillBytes': '溢出文件上限（字节）',
       'graceMs': '终止宽限（毫秒）',
-      'maxDepth': '子智能体递归层级',
-      'maxActiveSubagents': '同时活跃子智能体',
+      // 以下三条严格对齐 DSH 桌面端子智能体设置页的中文文案
+      'maxDepth': '最大递归深度',
+      'maxActiveSubagents': '子智能体并行数量上限',
+      'maxParallelToolCalls': '并行工具调用数',
       'maxSteps': '单轮最大步数',
       'baseURL': '接口地址',
       'model': '模型',
@@ -2910,8 +3202,9 @@ export struct PluginsPage {
       'maxOutputBytes': '超出部分会转存到临时文件，而不是被丢弃。',
       'maxSpillBytes': '单次命令输出转存到文件的上限。',
       'graceMs': '超时后等待进程退出的宽限时间。',
-      'maxDepth': '设置子智能体最多可以递归多少层。',
-      'maxActiveSubagents': '限制同一时间运行的子智能体数量。',
+      'maxDepth': '限制 Agent 创建子智能体的递归层级。',
+      'maxActiveSubagents': '同一主 Agent 下，所有递归层级同时存活的子智能体总数，主 Agent 不计入。达到上限时，新的启动请求会被拒绝。',
+      'maxParallelToolCalls': '同一步内最多同时运行多少个可并行的调用。',
       'maxSteps': '单轮对话里最多派发多少次工具调用。',
       'maxUses': '一次会话里最多调用多少次搜索。'
     };
@@ -2952,7 +3245,11 @@ export struct PluginsPage {
     for (const key of Object.keys(dict)) {
       const ref: Record<string, Object> = this.asRecord(refs[String(Number(dict[key]))]);
       const type: string = this.strField(ref, 'type');
-      if (type !== 'number' && type !== 'string' && type !== 'boolean') {
+      // 只渲染可编辑的标量；union/enum 归到「文本」交给输入框（值原样回写），
+      // 其它结构类型（object/array/dict/intersect）仍跳过 —— 它们没有对应的手机控件。
+      const scalar: boolean = type === 'number' || type === 'string' || type === 'boolean'
+        || type === 'union' || type === 'enum' || type === 'const';
+      if (!scalar) {
         continue;
       }
       const meta: Record<string, Object> = this.asRecord(ref['meta']);
@@ -2968,31 +3265,35 @@ export struct PluginsPage {
         numeric: type === 'number',
         value: this.readFieldValue(namespace.value, key),
         revision: namespace.revision,
-        isBool: type === 'boolean'
+        isBool: type === 'boolean',
+        choice: type === 'union' || type === 'enum' || type === 'const'
       });
     }
     return fields;
   }
 
   private buildFields(kind: string, ns: string, namespace: PluginNamespace): PluginField[] {
-    const dynamic: PluginField[] = this.buildSchemaFields(ns, namespace);
-    if (dynamic.length > 0) {
-      return dynamic;
-    }
+    // 内置插件优先用白名单（对齐小程序 plugin-settings.definitions() 与 DSH 桌面端）：
+    // shell 的 schema 里还有 cwd / maxTimeoutMs / graceMs 等，桌面端设置页只暴露 2 项，
+    // 如果按 schema 全量铺开就会出现 DSH 里根本没有的字段。
     const specs: string[][] = this.fieldSpecs(kind);
-    const fields: PluginField[] = [];
-    for (const spec of specs) {
-      fields.push({
-        ns: ns,
-        key: spec[0],
-        label: spec[1],
-        hint: spec[2],
-        numeric: true,
-        value: this.readFieldValue(namespace.value, spec[0]),
-        revision: namespace.revision
-      });
+    if (specs.length > 0) {
+      const fields: PluginField[] = [];
+      for (const spec of specs) {
+        fields.push({
+          ns: ns,
+          key: spec[0],
+          label: spec[1],
+          hint: spec[2],
+          numeric: true,
+          value: this.readFieldValue(namespace.value, spec[0]),
+          revision: namespace.revision
+        });
+      }
+      return fields;
     }
-    return fields;
+    // 未知插件：按主机 schema 的 dict 生成（新插件加字段会自动出现）
+    return this.buildSchemaFields(ns, namespace);
   }
 
   /** 设置命名空间的中文名（同一插件的多个 ns 分组显示，对齐 dsh 端设置分组） */
@@ -3011,7 +3312,8 @@ export struct PluginsPage {
   /** 一个内置插件对应的全部设置命名空间（都要拉，dsh 端是合并展示的） */
   private settingsCandidates(kind: string): string[] {
     if (kind === 'shell') {
-      return ['bash-sandbox', 'pwsh-sandbox'];
+      // 与小程序一致：优先 pwsh-sandbox，没有才用 bash-sandbox（字段取同一份，不重复展示）
+      return ['pwsh-sandbox', 'bash-sandbox'];
     }
     if (kind === 'agent-loop') {
       return ['agent-loop'];
@@ -3060,14 +3362,18 @@ export struct PluginsPage {
       // 模型授权组由独立卡片渲染，这里把它从通用字段里剔掉（否则会出现两个同样的开关）
       const visible: PluginField[] = [];
       for (const field of acc) {
-        if (field.ns !== 'subagent-model-selection-settings') {
+        // 这两组已由专用卡片渲染，通用字段里再出现就会重复
+        if (field.ns !== 'subagent-model-selection-settings' && field.ns !== 'web-search-deepseek') {
           visible.push(field);
         }
       }
       Logger.info('[PSET] done fields=' + visible.length.toString() + ' (raw=' + acc.length.toString() + ')');
       this.detailFields = visible;
       this.detailBusy = false;
-      this.detailError = visible.length === 0 && !this.subagentHasNamespace ? '当前网关未提供该插件的设置项' : '';
+      // 有专用卡片（子智能体 / 网页搜索）时字段为空是正常的，不能报「未提供设置项」
+      const hasDedicatedCard: boolean = this.subagentHasNamespace || this.webCfgLoaded
+        || this.detailKind === 'web-search';
+      this.detailError = visible.length === 0 && !hasDedicatedCard ? '当前网关未提供该插件的设置项' : '';
       return;
     }
     const ns: string = candidates[index];
@@ -3077,11 +3383,18 @@ export struct PluginsPage {
       const next: PluginField[] = acc.slice();
       if (parsed.valid) {
         const section: string = this.namespaceLabel(ns);
+        // 合并主机下发的字段文案（多个命名空间共用一张表；同名 key 后到者覆盖）
+        const incoming: Record<string, string> | undefined = parsed.labels;
+        if (incoming !== undefined) {
+          for (const key of Object.keys(incoming)) {
+            this.hostLabels[key] = incoming[key];
+          }
+        }
         for (const field of this.buildFields(kind, ns, parsed)) {
           next.push({
             ns: field.ns, key: field.key, label: field.label, hint: field.hint,
             numeric: field.numeric, value: field.value, revision: field.revision, section: section,
-            isBool: field.isBool
+            isBool: field.isBool, choice: field.choice
           });
         }
       }
@@ -3303,6 +3616,336 @@ export struct PluginsPage {
     }
     ops.push({ op: 'set', path: ['allowedModels'], value: rows } as SettingsOp);
     return ops;
+  }
+
+  /** 网页搜索与获取：独立拉三个命名空间（web / web-deepseek-api / web-search-deepseek），
+   * 失败只影响对应区块，不会把整页设置项清空。 */
+  private loadWebConfig(): void {
+    // 主机动态注册的提供方（对齐桌面端 remote web/listProviders）：缺了它只能硬编码 id
+    GatewayClient.get().requestWebProviders().then((frame) => {
+      const root: Record<string, Object> = this.asRecord(frame);
+      const search: Object | undefined = root['search'];
+      const fetchList: Object | undefined = root['fetch'];
+      this.webSearchOptions = this.encodeProviderOptions(search);
+      this.webFetchOptions = this.encodeProviderOptions(fetchList);
+      this.seedOfficialProviders();
+      Logger.info('[PSET] web providers search=' + this.webSearchOptions.length.toString()
+        + ' fetch=' + this.webFetchOptions.length.toString());
+    }).catch((err: Error) => {
+      Logger.info('[PSET] web providers failed: ' + err.message);
+      // 主机没这个服务：仍然把官方两项补上，否则下拉框只有「自动选择」
+      this.seedOfficialProviders();
+    });
+    GatewayClient.get().requestPluginSettings('web').then((frame) => {
+      const ns: PluginNamespace = parseNamespace(frame);
+      if (!ns.valid) {
+        return;
+      }
+      const rec: Record<string, Object> = ns.value === undefined ? {} : this.asRecord(ns.value);
+      this.webNsRevision = ns.revision;
+      this.webSearchProvider = this.strField(rec, 'searchProvider');
+      this.webFetchProvider = this.strField(rec, 'fetchProvider');
+      this.webCfgLoaded = true;
+    }).catch((err: Error) => {
+      Logger.info('[PSET] web ns failed: ' + err.message);
+    });
+    // legacy 段（选中「DeepSeek 服务端搜索」时显示的那几个字段）
+    GatewayClient.get().requestPluginSettings('web-search-deepseek').then((frame) => {
+      const ns: PluginNamespace = parseNamespace(frame);
+      if (!ns.valid) {
+        return;
+      }
+      const rec: Record<string, Object> = ns.value === undefined ? {} : this.asRecord(ns.value);
+      this.webLegacyNsRevision = ns.revision;
+      // 字段名就是 baseURL（桌面端 WebLegacySettings.baseURL）
+      this.webBaseURL = this.strField(rec, 'baseURL');
+      const maxUses: string = this.strField(rec, 'maxUses');
+      this.webMaxUses = maxUses.length > 0 ? maxUses : '5';
+    }).catch((err: Error) => {
+      Logger.info('[PSET] web-search-deepseek ns failed: ' + err.message);
+    });
+    GatewayClient.get().requestPluginSettings('web-deepseek-api').then((frame) => {
+      const ns: PluginNamespace = parseNamespace(frame);
+      if (!ns.valid) {
+        return;
+      }
+      const rec: Record<string, Object> = ns.value === undefined ? {} : this.asRecord(ns.value);
+      this.webApiNsRevision = ns.revision;
+      const count: string = this.strField(rec, 'count');
+      this.webSearchCount = count.length > 0 ? count : '10';
+      const sb: string = this.strField(rec, 'searchBilling');
+      this.webSearchBilling = sb.length > 0 ? sb : 'auto';
+      const fb: string = this.strField(rec, 'fetchBilling');
+      this.webFetchBilling = fb.length > 0 ? fb : 'auto';
+    }).catch((err: Error) => {
+      Logger.info('[PSET] web-deepseek-api ns failed: ' + err.message);
+    });
+  }
+
+  /**
+   * 官方提供方兜底：DSH 桌面端把这几项排在列表最前（见 dsh-client-ui-settings-web-search）。
+   * 主机没上报 listProviders（服务未挂载、请求失败、或返回空）时，如果不补这几项，
+   * 下拉框就只剩「自动选择」一项 —— 用户在手机上根本没法切提供方。
+   */
+  private seedOfficialProviders(): void {
+    const searchIds: string[] = [];
+    for (const chip of this.webSearchOptions) {
+      searchIds.push(this.providerField(chip, 0));
+    }
+    const search: string[] = [];
+    if (searchIds.indexOf('deepseek-search-api') < 0) {
+      search.push('deepseek-search-api' + '\u0003' + 'DeepSeek Search API' + '\u0003' + '');
+    }
+    if (searchIds.indexOf('deepseek-official') < 0) {
+      search.push('deepseek-official' + '\u0003' + 'DeepSeek 服务端搜索' + '\u0003' + '');
+    }
+    if (search.length > 0) {
+      this.webSearchOptions = search.concat(this.webSearchOptions);
+    }
+    const fetchIds: string[] = [];
+    for (const chip of this.webFetchOptions) {
+      fetchIds.push(this.providerField(chip, 0));
+    }
+    const fetchList: string[] = [];
+    if (fetchIds.indexOf('http') < 0) {
+      fetchList.push('http' + '\u0003' + '本机直接获取' + '\u0003' + '');
+    }
+    if (fetchIds.indexOf('deepseek-fetch-api') < 0) {
+      fetchList.push('deepseek-fetch-api' + '\u0003' + 'DeepSeek Fetch API' + '\u0003' + '');
+    }
+    if (fetchList.length > 0) {
+      this.webFetchOptions = fetchList.concat(this.webFetchOptions);
+    }
+  }
+
+  /** 把 listProviders 的数组编码成 chip：id\u0003title\u0003description */
+  private encodeProviderOptions(value: Object | undefined): string[] {
+    const out: string[] = [];
+    if (value === undefined || !Array.isArray(value)) {
+      return out;
+    }
+    for (const one of value as Object[]) {
+      const rec: Record<string, Object> = this.asRecord(one);
+      const id: string = this.strField(rec, 'id');
+      if (id.length === 0) {
+        continue;
+      }
+      const title: string = this.strField(rec, 'title');
+      // description 是 LocalizedText（{ en, zh, ... }），取当前中文，缺省回退 en
+      let description: string = '';
+      const rawDesc: Object | undefined = rec['description'];
+      if (rawDesc !== undefined) {
+        const localized: Record<string, Object> = this.asRecord(rawDesc);
+        description = this.strField(localized, 'zh');
+        if (description.length === 0) {
+          description = this.strField(localized, 'en');
+        }
+      }
+      out.push(id + '\u0003' + title + '\u0003' + description);
+    }
+    return out;
+  }
+
+  private providerField(chip: string, index: number): string {
+    const parts: string[] = chip.split('\u0003');
+    return index < parts.length ? parts[index] : '';
+  }
+
+  /** 主机注册过的 id 列表（判断 selected 是否是「未注册的旧值」） */
+  private webRegisteredIds(fetch: boolean): string[] {
+    const out: string[] = [];
+    for (const chip of (fetch ? this.webFetchOptions : this.webSearchOptions)) {
+      out.push(this.providerField(chip, 0));
+    }
+    return out;
+  }
+
+  /** 官方提供方优先、其余按注册顺序；未注册的当前值补在末尾（missing） */
+  private webMenuIds(fetch: boolean): string[] {
+    const registered: string[] = this.webRegisteredIds(fetch);
+    const official: string[] = fetch
+      ? ['http', 'deepseek-fetch-api'] : ['deepseek-search-api', 'deepseek-official'];
+    const out: string[] = [];
+    for (const id of official) {
+      if (registered.indexOf(id) >= 0) {
+        out.push(id);
+      }
+    }
+    for (const id of registered) {
+      if (out.indexOf(id) < 0) {
+        out.push(id);
+      }
+    }
+    const selected: string = fetch ? this.webFetchProvider : this.webSearchProvider;
+    if (selected.length > 0 && out.indexOf(selected) < 0) {
+      out.push(selected);
+    }
+    return out;
+  }
+
+  /** 提供方显示名：官方 id 走固定中文名，其余用主机给的 title，再退 id 原值 */
+  private webProviderLabel(provider: string, fetch: boolean): string {
+    if (provider.length === 0) {
+      return '自动选择';
+    }
+    // 官方 id 走固定中文名（桌面端 PROVIDER_LABELS 的词典条目）
+    if (fetch) {
+      if (provider === 'deepseek-fetch-api') {
+        return 'DeepSeek Fetch API';
+      }
+      if (provider === 'http') {
+        return '本机直接获取';
+      }
+    } else {
+      if (provider === 'deepseek-search-api') {
+        return 'DeepSeek Search API';
+      }
+      if (provider === 'deepseek-official') {
+        return 'DeepSeek 服务端搜索';
+      }
+    }
+    // 其它已注册提供方：用主机上报的 title，缺省回退 id
+    for (const chip of (fetch ? this.webFetchOptions : this.webSearchOptions)) {
+      if (this.providerField(chip, 0) === provider) {
+        const title: string = this.providerField(chip, 1);
+        return title.length > 0 ? title : provider;
+      }
+    }
+    return provider;
+  }
+
+  /** 选中提供方在主机里的描述（用于菜单下方那行说明） */
+  private webProviderDescription(provider: string, fetch: boolean): string {
+    for (const chip of (fetch ? this.webFetchOptions : this.webSearchOptions)) {
+      if (this.providerField(chip, 0) === provider) {
+        return this.providerField(chip, 2);
+      }
+    }
+    return '';
+  }
+
+  /** 搜索段形态：deepseek(Search API) / legacy(服务端搜索) / plugin(其它已注册) / none */
+  private webSearchKind(): string {
+    const id: string = this.webSearchProvider;
+    if (id.length === 0) {
+      return 'none';
+    }
+    // 桌面端 registered() 在「提供方列表还没到时」返回 true（乐观），
+    // 这里同样处理：列表为空不代表未注册，否则首屏永远只剩一个空壳。
+    const registered: string[] = this.webRegisteredIds(false);
+    if (registered.length > 0 && registered.indexOf(id) < 0) {
+      return 'none';
+    }
+    if (id === 'deepseek-search-api') {
+      return this.webApiNsRevision >= 0 ? 'deepseek' : 'none';
+    }
+    if (id === 'deepseek-official') {
+      return this.webLegacyNsRevision >= 0 ? 'legacy' : 'none';
+    }
+    return 'plugin';
+  }
+
+  /** 获取段形态：local(http) / deepseek(Fetch API) / plugin / none */
+  private webFetchKind(): string {
+    const id: string = this.webFetchProvider;
+    if (id.length === 0) {
+      return 'none';
+    }
+    const registered: string[] = this.webRegisteredIds(true);
+    if (registered.length > 0 && registered.indexOf(id) < 0) {
+      return 'none';
+    }
+    if (id === 'http') {
+      return 'local';
+    }
+    if (id === 'deepseek-fetch-api') {
+      return this.webApiNsRevision >= 0 ? 'deepseek' : 'none';
+    }
+    return 'plugin';
+  }
+
+  private webBillingLabel(billing: string): string {
+    if (billing === 'account') {
+      return '已登录的 DeepSeek 账号';
+    }
+    if (billing === 'api-key') {
+      return 'DeepSeek API Key';
+    }
+    return '自动';
+  }
+
+  /**
+   * 保存：只写当前界面上真的显示了的字段（对齐桌面端分节渲染）。
+   * 空提供方 = 自动（清除覆盖），用 unset 而不是写入一个空串。
+   */
+  private saveWebConfig(): void {
+    const searchKind: string = this.webSearchKind();
+    const fetchKind: string = this.webFetchKind();
+    // 校验：Search API 必须给 1–50 的结果条数，legacy 必须给正整数次数
+    if (searchKind === 'deepseek') {
+      const count: number = Number.parseInt(this.webSearchCount, 10);
+      if (Number.isNaN(count) || count < 1 || count > 50) {
+        this.detailError = '每次搜索结果数须为 1–50 的整数。';
+        return;
+      }
+    }
+    if (searchKind === 'legacy') {
+      const maxUses: number = Number.parseInt(this.webMaxUses, 10);
+      if (Number.isNaN(maxUses) || maxUses < 1) {
+        this.detailError = '单次请求最多搜索次数须为正整数。';
+        return;
+      }
+    }
+    this.detailSaving = true;
+    this.detailError = '';
+
+    const webOps: SettingsOp[] = [];
+    if (this.webSearchProvider.length > 0) {
+      webOps.push({ op: 'set', path: ['searchProvider'], value: this.webSearchProvider } as SettingsOp);
+    } else {
+      webOps.push({ op: 'unset', path: ['searchProvider'], value: '' } as SettingsOp);
+    }
+    if (this.webFetchProvider.length > 0) {
+      webOps.push({ op: 'set', path: ['fetchProvider'], value: this.webFetchProvider } as SettingsOp);
+    } else {
+      webOps.push({ op: 'unset', path: ['fetchProvider'], value: '' } as SettingsOp);
+    }
+
+    const apiOps: SettingsOp[] = [];
+    if (searchKind === 'deepseek') {
+      apiOps.push({ op: 'set', path: ['count'], value: Number.parseInt(this.webSearchCount, 10) } as SettingsOp);
+      apiOps.push({ op: 'set', path: ['searchBilling'], value: this.webSearchBilling } as SettingsOp);
+    }
+    if (fetchKind === 'deepseek') {
+      apiOps.push({ op: 'set', path: ['fetchBilling'], value: this.webFetchBilling } as SettingsOp);
+    }
+
+    const legacyOps: SettingsOp[] = [];
+    if (searchKind === 'legacy') {
+      legacyOps.push({ op: 'set', path: ['maxUses'], value: Number.parseInt(this.webMaxUses, 10) } as SettingsOp);
+      if (this.webBaseURL.trim().length > 0) {
+        legacyOps.push({ op: 'set', path: ['baseURL'], value: this.webBaseURL.trim() } as SettingsOp);
+      } else {
+        legacyOps.push({ op: 'unset', path: ['baseURL'], value: '' } as SettingsOp);
+      }
+    }
+
+    const client = GatewayClient.get();
+    let chain: Promise<Object> = client.mutatePluginSettings('web', this.webNsRevision, webOps as Object[]);
+    if (apiOps.length > 0) {
+      chain = chain.then(() => client.mutatePluginSettings('web-deepseek-api', this.webApiNsRevision, apiOps as Object[]));
+    }
+    if (legacyOps.length > 0) {
+      chain = chain.then(() => client.mutatePluginSettings('web-search-deepseek', this.webLegacyNsRevision, legacyOps as Object[]));
+    }
+    chain.then(() => {
+      this.detailSaving = false;
+      this.detailSaved = '已保存';
+      this.loadWebConfig();
+    }).catch((err: Error) => {
+      this.detailSaving = false;
+      this.detailError = err.message.length > 0 ? err.message : '保存失败，请重试';
+    });
   }
 
   /** 只写开关本身（dsh 端开关是即时生效的） */
@@ -3583,6 +4226,7 @@ export struct PluginsPage {
     this.detailMarkdown = '';
     this.detailKind = '';
     this.detailFields = [];
+    this.hostLabels = {};
     this.webApiEnabled = false;
     this.apiKeyText = '';
     this.apiKeyConfigured = false;

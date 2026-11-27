@@ -322,6 +322,9 @@ export class GatewayRequestFactory {
   /** 可配置的模型提供商列表（对齐小程序 requestProviders） */
   static providers(): GatewayRequest { return GatewayRequestFactory.simple('providers'); }
 
+  /** 网页搜索/获取已注册的提供方（对齐 DSH 桌面端 remote web/listProviders） */
+  static webProviders(): GatewayRequest { return GatewayRequestFactory.simple('web-providers'); }
+
   /** 读取 llm 插件命名空间设置（对齐小程序 requestPlugin('plugin-settings')） */
   static pluginSettings(ns: string, requestId: string): GatewayRequest {
     return GatewayRequestFactory.make('plugin-settings', 'plugin-settings', { 'ns': ns, 'requestId': requestId }, undefined, undefined, GatewayRequestLanePolicy.REJECT_IF_BUSY);
