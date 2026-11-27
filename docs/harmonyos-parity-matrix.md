@@ -38,7 +38,7 @@ Status: **Present** = end-user flow exists; **Partial** = scaffold or narrower f
 
 ## Test and validation gaps
 
-- No tests were discovered under harmonyos/native-app/entry/src/test or harmonyos/native-core/src/test. The legacy harmonyos/entry/src/test/GatewayFrameCodec.test.mjs does not establish coverage for native-app/native-core modules. A clean native-app HAP build succeeded on 2026-11-06; emulator installation was not repeatable because HDC had no confirmed target during the latest check.
+- No tests were discovered under harmonyos/native-app/entry/src/test or harmonyos/native-core/src/test, so native-app/native-core modules have no automated coverage. A clean native-app HAP build succeeded on 2026-11-06; emulator installation was not repeatable because HDC had no confirmed target during the latest check.
 - Add native-core parser/codec/request/store tests: malformed/expired pairing payloads; endpoint policy; handshake/auth/token refresh; relay encryption; frame dispatch; duplicate/out-of-order events; reconnect generations; multi-gateway isolation; queue, question and approval transitions.
 - Add UI/flow tests for QR/manual pairing, reconnect and host switching; session create/history paging; send/cancel/queue; question/approval decisions; plugin/schedule mutations; and failure/loading/empty/offline states.
 - Add device tests for secure credential migration, lifecycle recovery, QR permission denial, microphone/file-picker permissions, interrupted transfers and tablet resizing. Use fixture Gateway credentials only.

@@ -1,6 +1,6 @@
 # HarmonyOS 设备验收
 
-本文覆盖 native-app（bundle com.whaletail.app）的可复现构建、HAP 安装、模拟器冒烟和真实网关配对验收。此工程要求 HarmonyOS / API 26 工具链；不要把旧的 harmonyos/entry 工程或 native-atomic 元服务包当作本应用产物。
+本文覆盖 native-app（bundle com.whaletail.app）的可复现构建、HAP 安装、模拟器冒烟和真实网关配对验收。此工程要求 HarmonyOS / API 26 工具链；不要把 native-atomic 元服务包当作本应用产物。
 
 ## 外部条件
 

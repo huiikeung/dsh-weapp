@@ -28,4 +28,4 @@
 - [ ] 阶段 5：Trajectory + History + Workspace
 - [ ] 阶段 6：长时任务、卡片、设置页、本地化
 
-用 DevEco Studio 打开 `harmonyos/` 目录即可构建（API 12+）。协议解码冒烟测试：`node entry/src/test/GatewayFrameCodec.test.mjs`。
+用 DevEco Studio 打开 `harmonyos/native-app`（或 `harmonyos/native-atomic`）目录即可构建（API 26+）；两个壳共用 `harmonyos/native-core`。

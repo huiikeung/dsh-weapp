@@ -37,7 +37,7 @@ function check() {
   const inner=JSON.parse(fs.readFileSync(path.join(root,'project.config.json'),'utf8'));
   if(outer.miniprogramRoot!=='miniprogram/'||inner.miniprogramRoot!=='./')throw Error('Upload roots are not isolated');
   for(const config of [outer,inner])if(!config.setting.minified||!config.setting.minifyWXSS||!config.setting.minifyWXML||config.setting.uploadWithSourceMap)throw Error('Upload minification must stay enabled and source maps must stay disabled');
-  for(const dir of ['dsh-console','harmonyos','native-app','dsh-mini','resources','tests','scripts','node_modules'])if(fs.existsSync(path.join(root,dir)))throw Error('Non-miniapp directory in upload root: '+dir);
+  for(const dir of ['dsh-console','harmonyos','dsh-mini','resources','tests','scripts','node_modules'])if(fs.existsSync(path.join(root,dir)))throw Error('Non-miniapp directory in upload root: '+dir);
   if(report.groups[0].bytes>MAIN_SOURCE_BUDGET)throw Error('Main package source inventory exceeds '+(MAIN_SOURCE_BUDGET/1024/1024).toFixed(2)+' MiB ('+report.groups[0].bytes+' bytes). Move infrequently used pages to subpackages or optimize main-package files.');
   for(const group of report.groups)if(group.bytes>BUDGET)throw Error(group.name+' exceeds the '+(BUDGET/1024/1024).toFixed(2)+' MiB source budget ('+group.bytes+' bytes). Split or optimize before upload.');
   if(report.groups[0].mediaBytes>=MEDIA_BUDGET)throw Error('Main package image/audio resources must stay below '+Math.round(MEDIA_BUDGET/1024)+' KiB ('+report.groups[0].mediaBytes+' bytes).');

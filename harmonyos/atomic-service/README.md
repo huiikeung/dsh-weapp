@@ -24,10 +24,6 @@ npm exec --yes --package=@atomicservice/ascf-toolkit@1.0.17 -- ascf compile "$PW
 
 ASCF 编译会将 `ascf/ascf_src/` 转换到 `ascf/ascf_build/` 并更新根 `build-profile.json5`，这两者为生成产物，不要手工编辑。开发工具提示的图标规范、HarmonyOS 模拟器 ASCF Runtime 版本及 ASCF compile warning 仍需处理。
 
-## 微信多端 App
-
-微信开发者工具路线使用独立目录：从仓库根目录执行 `node scripts/prepare-native-app.cjs`，再在微信开发者工具导入 `native-app/generated-miniprogram/`。该目录为忽略的生成副本，原始页面仍由 `miniprogram/` 维护。它与本 ASCF 元服务工程不是同一个产物。当前副本已打开在微信开发者工具 2.02.2608080 多端应用模式，内置 iPhone 预览首页正常、控制台无错误；工具已识别并选中本地 HarmonyOS 模拟器 `127.0.0.1:5555`。本次尚未成功触发 HarmonyOS App 构建，也没有生成微信多端鸿蒙包；仅验证了小程序在开发者工具预览环境运行。下一步仍需在微信开放平台确认多端应用与小程序绑定、完善鸿蒙 Bundle ID/签名等配置，并由工具成功产出后在模拟器/真机验收。该多端 App 流程不同于 ASCF 元服务。
-
 ## 已知迁移限制
 
 - ASCF 客户端固定访问 `https://dsh.ahwe.top`，托管中继使用其对应的 `wss://` 域名；两者必须在华为开发者中心按 HTTPS/WSS 配置且 TLS 证书有效。本地代码只做 WSS 格式筛选，不会绕过或验证域名白名单。不能假定原小程序的局域网 `ws://` 或任意动态域名可用。

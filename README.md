@@ -9,7 +9,6 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 - `miniprogram/`：微信小程序唯一源码/上传目录；开发者工具请直接导入此目录。
 - `dsh-console/`：独立控制台、中继和服务端，部署路径保持不变。
 - `harmonyos/`：鸿蒙原生工程。
-- `native-app/`：Android/iOS 多端配置和资源；执行 `node scripts/prepare-native-app.cjs` 生成独立的 `generated-miniprogram/` 多端工程。
 - `dsh-mini/`：独立 Node CLI 内核。
 - `resources/`：原始美术素材和语言字典源文件，不上传；字典编辑后执行 `node scripts/sync-i18n.cjs`。
 - `scripts/`、`tests/`、`docs/`：构建、测试和文档，不上传。

@@ -14,7 +14,7 @@ harmonyos/
 ```
 
 - `native-core`：主题（跟随系统/浅色/深色）、偏好存储、全局状态键、网关 WebSocket 客户端、
-  **协议层（DTO + fail-closed 帧解码，自旧 `harmonyos/entry` 工程迁入并按 ArkTS 26 改写）**、
+  **协议层（DTO + fail-closed 帧解码，按 ArkTS 26 规则实现）**、
   日志、发送侧帧构造、会话数据层（`SessionStore`）。两个壳共用，避免两份实现漂移。
 - `native-atomic`：元服务壳。`AppScope/app.json5` 里 `bundleType: "atomicService"`，
   `module.json5` 里 `installationFree: true`。**后续功能优先在这里落地。**
@@ -113,13 +113,6 @@ $HVIGOR --mode module -p product=default assembleHap --no-daemon
 3. **元服务验收**：与 ASCF 版逐屏对照，功能对齐后再作为默认版本。
 4. **应用增强**（native-app）：服务卡片、实况窗、通知、后台保活、折叠屏/多设备、无障碍。
 5. 两壳共用核心，任何业务改动只改 `native-core` 与对应壳页面。
-
-## 关于旧工程 `harmonyos/entry`
-
-仓库根目录还有一套更早的原生工程（`bundleName: com.whaletail.hmos`，API 12），它的
-`protocol/GatewayDtos.ets` 与 `protocol/GatewayFrameCodec.ets` 已全部迁入
-`native-core/src/main/ets/protocol/`（并按 API 26 的 ArkTS 规则改写），页面仍是占位实现。
-后续以 `native-core` 为准，旧工程仅作参考，不再作为构建目标。
 
 ## UI 玻璃标准（Liquid Glass）
 
