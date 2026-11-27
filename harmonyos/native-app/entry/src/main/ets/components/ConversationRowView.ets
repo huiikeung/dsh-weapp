@@ -3232,10 +3232,14 @@ export struct ConversationRowView {
               this.onToggleReasonCard(item.id);
             })
           } else if ((item.kind as string) === 'REASONING' && this.hasReasonBody(item)
-            && (this.stepOpen(item.id) || (this.entry.running && this.isLastReasoning(item)) || this.workStepMode === 'verbose')) {
+            && (this.stepOpen(item.id)
+              || (this.isLastReasoning(item) && (this.entry.running || this.workStepMode === 'verbose')))) {
             // 有思考正文就用「思考阅读卡」（左上角带「思考」标题 + 完整内容/收起阅读底栏）。
-            // 运行中只让最后一段思考出卡：之前的段落收成紧凑步骤行。以前每段都出卡、
-            // 多张卡共用同一个滚动控制器和同一个节拍器，互相打架 —— 有的卡空白、有的只有一点。
+            // 一个过程组里**同时只允许一张思考卡（最近的那段）**：
+            // 卡片的滚动控制器和打字机节拍都是行级单例，同一行里出多张卡会互相抢，
+            // 表现为卡片内容一直闪、有的空白有的只显示一点。
+            // 「完全展开」也不例外 —— 之前每段思考都出卡，多个卡一起刷，用户明确要求收敛成一张。
+            // 更早的思考段退回紧凑步骤行（点开仍可单独展开成卡）。
             this.reasoningCard(item)
           } else {
             this.stepNode(item)
