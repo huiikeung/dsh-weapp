@@ -278,21 +278,10 @@ struct Index {
    * 由 EntryAbility 在偏好初始化后写入，用户点同意后由 PrivacyConsent.agree() 改成 granted。
    */
   private syncConsentDialog(): void {
-    if (this.consentState === 'granted') {
-      this.closeConsentDialog();
-      return;
-    }
-    if (this.consentState === 'required' && !this.consentDocOpen) {
-      // 只在应用真正在前台时弹：系统隐私弹窗期间窗口未前台，此时 openCustomDialog
-      // 会得到「打开了但看不见的模态弹窗」，用户点完系统弹窗后就是黑屏/卡死。
-      if ((AppStorage.get<string>('appLifecycle') ?? 'foreground') !== 'foreground') {
-        return;
-      }
-      // 等页面首帧之后再弹，避免在页面还没挂载时 open()
-      setTimeout(() => {
-        this.showConsentDialog();
-      }, 60);
-    }
+    // 自绘同意弹窗已下线：首次启动的隐私同意由系统隐私弹窗（AGC 隐私声明）承担，
+    // 启动流程在这里只会关闭可能残留的弹窗，不再主动弹出。
+    // 《用户协议》《隐私政策》仍可在「设置 → 关于」里查看。
+    this.closeConsentDialog();
   }
 
   /** 同意弹窗内容（openCustomDialog 的 builder 必须写成 () => { this.内部builder() } 的形式） */
@@ -454,17 +443,7 @@ struct Index {
       // 模式切换波纹（工作 ⇄ Bot，对齐 iOS WorkspaceModeWave）
       ModeWave()
 
-      // 系统弹窗打不开时的兜底：自绘玻璃同意层（内容复用 PrivacyConsentDialog）
-      if (this.consentFallback && this.consentState === 'required' && !this.consentDocOpen) {
-        this.consentFallbackOverlay()
-      }
-      // 未同意期间的兜底：弹窗本身是模态的，这里只挡弹窗出现/消失动画期间的触摸空档
-      if (this.consentState === 'required' && !this.consentDocOpen && !this.consentFallback) {
-        Column()
-          .width('100%')
-          .height('100%')
-          .hitTestBehavior(HitTestMode.Block)
-      }
+
     }
     .width('100%')
     .height('100%')

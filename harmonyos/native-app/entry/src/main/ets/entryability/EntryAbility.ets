@@ -152,16 +152,11 @@ export default class EntryAbility extends UIAbility {
       }
       AppStorage.setOrCreate<string>('procIconStyle', storedProcIcon);
       ThemeManager.get().init(this.context.config.colorMode);
-      // 首次启动隐私同意：未同意前不初始化隧道、不自动连接网关，同意后由 PrivacyConsent 回调补做
-      const agreed: boolean = PrivacyConsent.isAgreed();
-      AppStorage.setOrCreate<string>('privacyConsentState', agreed ? 'granted' : 'required');
-      if (agreed) {
-        this.startNetworking();
-      } else {
-        PrivacyConsent.onAgreed(() => {
-          this.startNetworking();
-        });
-      }
+      // 首次启动隐私同意已改由系统隐私弹窗（AGC 隐私声明）承担：
+      // 应用内不再自绘同意弹窗，启动即视为已同意并直接联网。
+      // PrivacyConsent 仍保留（记录版本、供设置页协议入口复用），需要时可恢复为版本化确认。
+      PrivacyConsent.agree();
+      this.startNetworking();
     })
     .catch((err: BusinessError) => {
       Logger.error('init preferences failed: ' + JSON.stringify(err));
