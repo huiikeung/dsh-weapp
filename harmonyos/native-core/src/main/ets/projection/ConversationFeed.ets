@@ -537,15 +537,12 @@ export class ConversationFeed {
         continue;
         // 注：title 为 'tool' 的包装事件已在投影层忽略，这里不需要再过滤
       }
-      // 只有「本轮后面还有别的助手正文」才算回合中段叙述，收进当前过程组。
-      // 叙述的「身份」（过程叙述 / 最终答复）由 bodyPhase 单独标记：叙述永远不折叠，
-      // 身份只决定复制/引用/用量行归谁（对齐 dsh-interactive-reader）。
-      if (kind === ConversationItemKind.ASSISTANT as string && open !== null
-        && ConversationFeed.hasAssistantAheadInTurn(items, itemIndex, item.turn)) {
-        // 回合中段的过程文字：收进当前过程组，独立成行（narration）
-        ConversationFeed.appendToGroup(open, item);
-        continue;
-      }
+      // 叙述（助手正文）永远不进过程组：它是阅读内容，独立成行、原位显示，永不折叠
+      //（对齐 dsh-interactive-reader：narration is never process content and never folds）。
+      // 叙述同时把本轮切成多个过程组：遇到叙述就关组，后面的步骤另起新组。
+      // 以前「后面还有助手正文」的叙述会被塞进当前组，组一折叠它就跟着消失 ——
+      // 这就是「运行工具之间的一些描述直接不显示」。
+      // 叙述身份（过程叙述 / 最终答复）由 bodyPhase 单独标记，只决定复制/引用/用量行归谁。
       open = null;
       if (kind === ConversationItemKind.STATUS as string) {
         const group: ConversationFeedEntry = ConversationFeed.newProcessGroup(item);
@@ -919,29 +916,38 @@ export class ConversationFeed {
   }
 
   /**
-   * 阅读档运行中：叙述把本轮切成多个过程组，叙述之前的组已不在运行（running=false），
-   * 以前它们整组步骤全部摊开、不出折叠条（liveFoldCount 只对运行组算），回合结束才收 ——
-   * 运行中越跑越长。这里把「正在跑的那一轮」里所有非运行组整组折成一条「思考×N · 工具×N」摘要，
-   * 点开可回看；对齐 dsh-interactive-reader 的 live fold（narration 之前每个 run 各自收起）。
-   * 只含记录（没有思考/工具）的组不折，避免出现无意义的折叠条。
+   * 阅读档运行中：叙述把本轮切成多个过程组。「叙述一出现，它上面的过程就收起」——
+   * 每个后面（同轮）紧跟叙述的过程组整组折成一条「思考×N · 工具×N」摘要，点开按原顺序回看。
+   * 不看 running：本轮最后一个组即便还标着运行，只要叙述已经出现在它下面，它就已被隔开、该收起
+   *（以前只折「非运行组」，最后一个组收不到；而 liveFoldCount 只折思考之前的，工具步骤仍摊着）。
+   * 只含记录（没有思考/工具）的组不折，避免出现无意义的折叠条。回合结束后由 mergeSettledTurn 接手。
    */
   private static foldSettledGroupsOfRunningTurn(entries: ConversationFeedEntry[], policy: WorkStepPolicy,
     processRunning: boolean): void {
     if (!policy.readingSummary || !processRunning) {
       return;
     }
-    let runningTurn: string = '';
-    for (const entry of entries) {
-      if (entry.kind === 'PROCESS' && entry.running) {
-        runningTurn = entry.turnKey;
-        break;
+    for (let index = 0; index < entries.length; index++) {
+      const entry: ConversationFeedEntry = entries[index];
+      if (entry.kind !== 'PROCESS' || entry.items.length === 0) {
+        continue;
       }
-    }
-    if (runningTurn.length === 0) {
-      return;
-    }
-    for (const entry of entries) {
-      if (entry.kind !== 'PROCESS' || entry.running || entry.turnKey !== runningTurn || entry.items.length === 0) {
+      // 组后面、同轮内是否出现叙述正文（遇到 USER / 不同轮次即止）
+      let narrationAfter: boolean = false;
+      for (let probe = index + 1; probe < entries.length; probe++) {
+        const next: ConversationFeedEntry = entries[probe];
+        if (next.kind === 'USER') {
+          break;
+        }
+        if (entry.turnKey.length > 0 && next.turnKey.length > 0 && next.turnKey !== entry.turnKey) {
+          break;
+        }
+        if (next.kind === ConversationItemKind.ASSISTANT as string && next.text.trim().length > 0) {
+          narrationAfter = true;
+          break;
+        }
+      }
+      if (!narrationAfter) {
         continue;
       }
       let foldable: boolean = false;
