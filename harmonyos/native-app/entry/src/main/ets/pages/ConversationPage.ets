@@ -724,6 +724,8 @@ export struct ConversationPage {
   private ready: boolean = false;
   /** 当前是否是这个 NavDestination 的显示态：被设置页/任务面板盖住时不再重排时间线 */
   private pageVisible: boolean = true;
+  /** 页面最近一次 onShown 的时刻：进页数秒内 dock 尺寸变化要补硬贴底 */
+  private shownAt: number = 0;
   private pendingItemsWhileHidden: boolean = false;
   /** 草稿归属的会话：切会话时先落盘旧的，再读新的 */
   private draftOwnerSessionId: string = '';
@@ -3356,6 +3358,18 @@ export struct ConversationPage {
           // 卡片摘要晚到：key 变了但行实例没变，靠整表重载让 LazyForEach 重新算 key
           this.source.reload();
         }
+        // 数据晚到的追加（快速路径）也会改变末尾位置：吸底时补两次硬贴底，
+        // 否则进页早期按旧内容高度落下的偏移会悬在「内容之外」（底部一大块空白，触摸才被夹回）。
+        if (this.autoStick && this.pageVisible && !this.listTouching) {
+          for (const delay of [60, 320]) {
+            setTimeout(() => {
+              if (!this.autoStick || this.listTouching || !this.pageVisible || this.userInteracting()) {
+                return;
+              }
+              this.hardStickToBottom();
+            }, delay);
+          }
+        }
       }
       return;
     }
@@ -3393,15 +3407,16 @@ export struct ConversationPage {
     // 首次/重建赋值时列表尚未完成布局，立刻贴底可能落在「内容之外」→ 一片空白，
     // 要等一次触摸才被纠正。这里在布局完成后再补一次贴底。
     if (this.autoStick) {
-      setTimeout(() => {
-        if (!this.autoStick || this.listTouching || !this.pageVisible) {
-          return;
-        }
-        try {
-          this.scroller.scrollEdge(Edge.Bottom);
-        } catch (err) {
-        }
-      }, 90);
+      // 行高与末尾留白（dock 实测）是分几帧才稳定的：几个时间点各硬贴底一次，
+      // 保证落在最终有效的底部，而不是「内容之外」的半空。
+      for (const delay of [90, 260, 520]) {
+        setTimeout(() => {
+          if (!this.autoStick || this.listTouching || !this.pageVisible || this.userInteracting()) {
+            return;
+          }
+          this.hardStickToBottom();
+        }, delay);
+      }
     }
     setTimeout(() => {
       if (keepOffset) {
@@ -3624,6 +3639,25 @@ export struct ConversationPage {
     if (this.stickTimer >= 0) {
       clearInterval(this.stickTimer);
       this.stickTimer = -1;
+    }
+  }
+
+  /**
+   * 硬贴底：先把偏移归零、再贴底（同一个 tick，不会渲染出「顶部」那一帧）。
+   * 为什么不能只 scrollEdge：末尾留白（dockHeight 默认 220 → 实测 ~130）或内容变短后，
+   * 当前偏移会落在内容之外（底部一大块空白），此时列表认为自己「已在末尾」，scrollEdge 直接返回；
+   * 只有触摸事件才会把偏移夹回有效范围 —— 表现就是「进页停在半空、必须手动拉一下」。
+   */
+  private hardStickToBottom(): void {
+    if (this.entries.length === 0) {
+      return;
+    }
+    this.lastStickAt = Date.now();
+    this.stickScrollUntil = Date.now() + 500;
+    try {
+      this.scroller.scrollTo({ xOffset: 0, yOffset: 0, animation: false });
+      this.scroller.scrollEdge(Edge.Bottom);
+    } catch (err) {
     }
   }
 
@@ -7634,6 +7668,15 @@ export struct ConversationPage {
       const height: number = Number(newArea.height);
       if (height > 0 && Math.abs(height - this.dockHeight) > 1) {
         this.dockHeight = height;
+        // 末尾留白跟着变了：进页早期按旧留白落下的偏移会跑到内容之外，下一帧补一次硬贴底。
+        // 运行中会话的队列/任务卡是数据晚到后才出现/收缩的，dock 高度可能在进页数秒内仍在变，窗口放宽到 6s。
+        if (this.autoStick && this.pageVisible && !this.userInteracting() && Date.now() - this.shownAt < 6000) {
+          setTimeout(() => {
+            if (this.autoStick && this.pageVisible && !this.userInteracting()) {
+              this.hardStickToBottom();
+            }
+          }, 16);
+        }
       }
     })
   }
@@ -8093,16 +8136,18 @@ export struct ConversationPage {
       }
       // 首屏兜底：内容可能在上屏前一刻才到（赋值落在组件还没建好的窗口里被吞掉）。
       // 这里在几个时间点各补一次重排+贴底，保证第一帧就能看到内容，不需要用户点一下。
-      for (const delay of [60, 220, 600]) {
+      this.shownAt = Date.now();
+      for (const delay of [60, 220, 600, 1200, 2500]) {
         setTimeout(() => {
           if (!this.pageVisible) {
             return;
           }
           this.rebuildEntries();
-          try {
-            this.scroller.scrollEdge(Edge.Bottom);
-          } catch (err) {
+          // 只在仍处于吸底状态时贴底：从二级页返回时若用户正在往上看，不要拽回底部
+          if (!this.autoStick || this.listTouching || this.userInteracting()) {
+            return;
           }
+          this.hardStickToBottom();
         }, delay);
       }
     })
