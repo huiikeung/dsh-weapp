@@ -41,6 +41,10 @@ export class ConversationFeedEntryModel {
   changeSeq: number = 0;
   streaming: boolean = false;
   copyable: boolean = false;
+  /** 最后一条流式增长的助手回复：正文走纯文本快速路径 + 打字机显现 */
+  liveAnswer: boolean = false;
+  /** 打字机显现进度（页面定时器推进；流式行只渲染这一段） */
+  revealText: string = '';
   epochSeconds: number = 0;
   /** 过程组 / 回合行是否展开 */
   expanded: boolean = false;
@@ -212,6 +216,12 @@ export class ConversationFeedEntryModel {
     }
     if (this.streaming !== entry.streaming) {
       this.streaming = entry.streaming;
+    }
+    if (this.liveAnswer !== entry.liveAnswer) {
+      this.liveAnswer = entry.liveAnswer;
+      if (!entry.liveAnswer) {
+        this.revealText = '';
+      }
     }
     if (this.copyable !== entry.copyable) {
       this.copyable = entry.copyable;

@@ -133,6 +133,8 @@ export class ConversationFeedEntry {
   isError: boolean = false;
   streaming: boolean = false;
   copyable: boolean = false;
+  /** 正在流式增长的「最后一条助手回复」：正文走纯文本快速路径（避免每次 delta 重解析 Markdown 导致闪屏） */
+  liveAnswer: boolean = false;
   epochSeconds: number = 0;
   expanded: boolean = false;
   items: ConversationItem[] = [];
@@ -1419,6 +1421,7 @@ export class ConversationFeed {
         entry.copyable = entry.text.length > 0 || entry.imageCount > 0;
       } else if (entry.kind === ConversationItemKind.ASSISTANT as string) {
         entry.copyable = index === lastAssistant && !entry.streaming;
+        entry.liveAnswer = index === lastAssistant && (entry.running || entry.streaming);
       } else {
         entry.copyable = false;
       }

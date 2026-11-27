@@ -3460,6 +3460,11 @@ export struct ConversationPage {
   }
 
   private onRunningChanged(): void {
+    if (this.running) {
+      this.startLiveReveal();
+    } else {
+      this.stopLiveReveal();
+    }
     if (!this.running) {
       this.runningFalseAt = Date.now();
       // 回合刚结束：流式期间行高是按「半截内容」量的，结束后不重建就会截断
@@ -3600,6 +3605,10 @@ export struct ConversationPage {
   }
 
   private applyTimelineUpdate(): void {
+    // 进页/切会话时可能已经在跑：定时器还没起，这里补一次（内部幂等）
+    if (this.running) {
+      this.startLiveReveal();
+    }
     Logger.info('[PAGE] apply enter visible=' + (this.pageVisible ? '1' : '0') + ' ready=' + (this.ready ? '1' : '0')
       + ' touching=' + (this.listTouching ? '1' : '0') + ' entries=' + this.entries.length.toString()
       + ' running=' + (this.running ? '1' : '0'));
@@ -3895,6 +3904,55 @@ export struct ConversationPage {
    * 会走纯追加分支，什么都不重建，行高仍是流式期间的半截值 —— 就是「代码块只显示几行、
    * 退出重进才完整」的成因。
    */
+  /** 打字机显现：40ms 一拍把流式正文逐段补出来（不管 delta 一次来多大，视觉上都是逐行/逐字增长） */
+  private liveRevealTimer: number = -1;
+
+  private startLiveReveal(): void {
+    if (this.liveRevealTimer >= 0) {
+      return;
+    }
+    this.liveRevealTimer = setInterval(() => {
+      this.tickLiveReveal();
+    }, 40);
+    this.tickLiveReveal();
+  }
+
+  private stopLiveReveal(): void {
+    if (this.liveRevealTimer >= 0) {
+      clearInterval(this.liveRevealTimer);
+      this.liveRevealTimer = -1;
+    }
+    for (const row of this.entries) {
+      if (row.revealText.length > 0) {
+        row.revealText = '';
+      }
+    }
+  }
+
+  private tickLiveReveal(): void {
+    let live: ConversationFeedEntryModel | undefined = undefined;
+    for (const row of this.entries) {
+      if (row.liveAnswer) {
+        live = row;
+      }
+    }
+    if (live === undefined) {
+      return;
+    }
+    const target: string = live.text;
+    const shown: number = live.revealText.length;
+    if (shown >= target.length) {
+      return;
+    }
+    const missing: number = target.length - shown;
+    // 落后越多追得越快：少量时 2 字/拍，落后多时最多 12 字/拍
+    const step: number = Math.max(2, Math.min(12, Math.ceil(missing / 12)));
+    live.revealText = target.substring(0, shown + step);
+    if (this.autoStick && this.pageVisible && !this.listTouching) {
+      this.hardStickToBottom();
+    }
+  }
+
   private reloadFeedAfterSettle(): void {
     if (!this.pageVisible || this.entries.length === 0) {
       return;
