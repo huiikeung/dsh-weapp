@@ -1968,20 +1968,32 @@ export struct ConversationRowView {
       // 所以样式和完整性可以兼顾。
       // 正文容器挂长按：打开"可选中/复制"的底部弹窗（对话页统一定义弹窗本体）
       Column() {
-        MarkdownBodyView({
-          text: this.assistantBody(),
-          fontSize: this.contentSize(),
-          textColor: this.entry.isError ? DANGER : '',
-          onImageTap: (src: string) => {
-            this.openMarkdownImage(src, this.assistantBody());
-          },
-          resolveImage: (src: string) => this.resolveMarkdownImage(src),
-          linkTapEnabled: true,
-          onLinkTap: (text: string, href: string) => {
-            this.onMarkdownLink(text, href);
-          },
-          imageRevision: this.imagePathEntries.length
-        })
+        if (this.entry.streaming || (this.entry.running && this.entry.text.length > 0)) {
+          // 流式快速路径：纯文本逐字增长（ArkUI 只 patch Text 内容，不会重建整段），
+          // 之前每次 delta 都重解析 Markdown → 整段 blocks 被替换重建，页面看起来一直在闪。
+          // 回合结束后（streaming=false）再切回 Markdown 渲染一次。
+          Text(this.assistantBody())
+            .fontSize(this.contentSize())
+            .lineHeight(this.contentSize() * 1.45)
+            .fontColor(this.entry.isError ? DANGER : this.primaryText())
+            .width('100%')
+            .textAlign(TextAlign.Start)
+        } else {
+          MarkdownBodyView({
+            text: this.assistantBody(),
+            fontSize: this.contentSize(),
+            textColor: this.entry.isError ? DANGER : '',
+            onImageTap: (src: string) => {
+              this.openMarkdownImage(src, this.assistantBody());
+            },
+            resolveImage: (src: string) => this.resolveMarkdownImage(src),
+            linkTapEnabled: true,
+            onLinkTap: (text: string, href: string) => {
+              this.onMarkdownLink(text, href);
+            },
+            imageRevision: this.imagePathEntries.length
+          })
+        }
       }
       .width('100%')
       .gesture(LongPressGesture({ repeat: false, duration: 480 }).onAction(() => {
