@@ -32,6 +32,16 @@ const DANGER: string = '#D4545B';
 const KIND_USER: string = 'USER';
 const KIND_ASSISTANT: string = 'ASSISTANT';
 const KIND_PROCESS: string = 'PROCESS';
+
+/**
+ * 思考卡打字机进度：按「条目 id」记在模块级，跨行重建保持。
+ * 行 key 里带正文长度 → 每来一点新正文整行就重建；若进度存在行内 @State，重建后归零，
+ * 表现就是「同一个思考反复从头加载」。存这里后重建接着上次的位置继续打。
+ */
+class ReasonReveal {
+  shown: number = 0;
+}
+const REASON_REVEAL: Map<string, ReasonReveal> = new Map<string, ReasonReveal>();
 const KIND_TURN: string = 'TURN';
 const KIND_STATUS: string = 'STATUS';
 const KIND_SYSTEM: string = 'SYSTEM';
@@ -2361,12 +2371,16 @@ export struct ConversationRowView {
         onLinkTap: (text: string, href: string) => {
           this.onMarkdownLink(text, href);
         },
-        imageRevision: this.imagePathEntries.length
+        imageRevision: this.imagePathEntries.length,
+        // 末段不留 Markdown 自带底距，避免「描述文字下方空隙」比工具行间距大近一倍
+        compactLastGap: true
       })
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding({ left: 0, top: 2.35, bottom: 9.39, right: 0 })
+    // 行距与工具行一致：工具行内容在 56rpx 最小高里居中，文字上下各留约 10rpx；
+    // 叙述行用同样的 rpx(10) 上下内边距，描述↔工具、工具↔工具的空隙才是同一个值。
+    .padding({ left: 0, top: this.rpx(10), bottom: this.rpx(10), right: 0 })
   }
 
   /**
@@ -2378,6 +2392,22 @@ export struct ConversationRowView {
    * 某些档位下运行态没有传到行上（liveDetail 有值/组体限高/最后一步仍在跑），
    * 用这几个信号兜底，避免思考卡按已结束处理→高度随内容增长把页面顶上去。
    */
+  /**
+   * 思考段是否真有正文：流式推理刚创建时标题是占位（'Think' / '思考'）、正文为空，
+   * 这种空段不能渲染成一张空白思考卡（以前会出现「没有思考却冒出一张卡、里面只写 Think」）。
+   */
+  private hasReasonBody(item: ConversationItem): boolean {
+    const detail: string = this.stepDetail(item).trim();
+    if (detail.length === 0) {
+      return false;
+    }
+    const title: string = item.title === undefined ? '' : item.title.trim();
+    if (detail === title || detail === 'Think' || detail === '思考') {
+      return false;
+    }
+    return true;
+  }
+
   /** 是否最后一个思考段：运行中只有它出思考卡，之前的段落收成紧凑步骤行 */
   private isLastReasoning(item: ConversationItem): boolean {
     const items: ConversationItem[] = this.entry.items;
@@ -2426,10 +2456,27 @@ export struct ConversationRowView {
    * 一行满了随内容增长自然向上滚一行 —— 稳定的逐行生成效果，不再一团一团跳。
    * 缓冲无上限：模型写得再快也只影响缓冲长度，显示速度恒定；追平即停，新正文到达再拉起。
    */
+  /** 取某个思考条目的显现进度（模块级，跨行重建保持） */
+  private revealOf(id: string): ReasonReveal {
+    let state: ReasonReveal | undefined = REASON_REVEAL.get(id);
+    if (state === undefined) {
+      state = new ReasonReveal();
+      REASON_REVEAL.set(id, state);
+    }
+    return state;
+  }
+
   private feedReasonTyping(item: ConversationItem): void {
     // 只存条目引用：节拍每拍直接从活动条目取最新正文 —— 不依赖 onAreaChange 喂缓冲，
     // 否则「显示追平缓冲 → 画面不再变化 → onAreaChange 不再触发 → 新正文永远进不来（少一段）」。
     this.reasonLiveItem = item;
+    // 首帧就把当前正文同步进去，避免「要等第一拍才有内容」
+    const now: string = this.stepDetail(item);
+    if (this.reasonFullText !== now) {
+      this.reasonFullText = now;
+    }
+    // 行重建后接着模块级的进度继续显示（不清零 → 不再从头重打）
+    this.reasonShown = this.revealOf(item.id).shown;
     if (this.reasonTypeTimer >= 0) {
       return;
     }
@@ -2443,14 +2490,20 @@ export struct ConversationRowView {
       return;
     }
     const target: string = this.stepDetail(live);
+    // 正文同步进 state（渲染用的是 reasonFullText；之前重构漏了这一步 → 卡片永远空白）
+    if (this.reasonFullText !== target) {
+      this.reasonFullText = target;
+    }
     if (!this.cardIsLive()) {
       // 回合结束：一次性放完整段（结束态整段可读，不再逐字）
+      this.revealOf(live.id).shown = target.length;
       this.reasonShown = target.length;
       clearInterval(this.reasonTypeTimer);
       this.reasonTypeTimer = -1;
       return;
     }
-    if (this.reasonShown >= target.length) {
+    const state: ReasonReveal = this.revealOf(live.id);
+    if (state.shown >= target.length) {
       // 已追平：跟随模式下把视口按在底部（新正文到达会立刻推进）
       if (this.reasonAuto && !this.reasonTouching) {
         try {
@@ -2460,8 +2513,9 @@ export struct ConversationRowView {
       }
       return;
     }
-    const rest: number = target.length - this.reasonShown;
-    this.reasonShown = this.reasonShown + Math.min(rest, Math.max(2, Math.ceil(rest / 24)));
+    const rest: number = target.length - state.shown;
+    state.shown = state.shown + Math.min(rest, Math.max(2, Math.ceil(rest / 24)));
+    this.reasonShown = state.shown;
     // 跟随底部：打字机每拍都把显示末尾带到可见区（一行一行向上滚的效果）
     if (this.reasonAuto && !this.reasonTouching) {
       try {
@@ -2501,8 +2555,11 @@ export struct ConversationRowView {
       } else {
         Scroll(this.reasonScroller) {
           Column() {
-            // 打字机：显示已揭示部分（reasonShown 由节拍器匀速推进）
-            Text(this.reasonFullText.substring(0, Math.min(this.reasonShown, this.reasonFullText.length)))
+            // 运行中：打字机显示已揭示部分；非运行态（回合结束 / 手动展开的历史思考）直接显示全文，
+            // 否则读不到活动条目、缓冲为空或停在上段旧文本 —— 其它档位展开时就会空白/串段。
+            Text(this.cardIsLive()
+              ? this.reasonFullText.substring(0, Math.min(this.reasonShown, this.reasonFullText.length))
+              : this.stepDetail(item))
               .fontSize(13)
               .lineHeight(this.rpx(48))
               .fontColor(this.secondaryText())
@@ -2513,8 +2570,10 @@ export struct ConversationRowView {
           .width('100%')
           .alignItems(HorizontalAlign.Start)
           .onAreaChange((_old: Area, newVal: Area) => {
-            // 正文（可能一大段）先入缓冲；显示按固定节奏逐字补，实现稳定的逐行打印
-            this.feedReasonTyping(item);
+            // 仅运行中的思考卡需要打字机节拍；历史/已收工的直接整段显示
+            if (this.cardIsLive()) {
+              this.feedReasonTyping(item);
+            }
           })
         }
         // 运行中固定高度（不再随内容变高把页面往上顶）；结束后按内容估算高度
@@ -3172,7 +3231,8 @@ export struct ConversationRowView {
             .onClick(() => {
               this.onToggleReasonCard(item.id);
             })
-          } else if ((item.kind as string) === 'REASONING' && (this.stepOpen(item.id) || (this.entry.running && this.isLastReasoning(item)) || this.workStepMode === 'verbose')) {
+          } else if ((item.kind as string) === 'REASONING' && this.hasReasonBody(item)
+            && (this.stepOpen(item.id) || (this.entry.running && this.isLastReasoning(item)) || this.workStepMode === 'verbose')) {
             // 有思考正文就用「思考阅读卡」（左上角带「思考」标题 + 完整内容/收起阅读底栏）。
             // 运行中只让最后一段思考出卡：之前的段落收成紧凑步骤行。以前每段都出卡、
             // 多张卡共用同一个滚动控制器和同一个节拍器，互相打架 —— 有的卡空白、有的只有一点。

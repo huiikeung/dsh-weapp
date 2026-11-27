@@ -215,7 +215,15 @@ export class ConversationProjector {
     const keys: string[] = [];
     this.streamIndexes.forEach((value: number, key: string) => { keys.push(key); });
     for (const key of keys) {
-      const index: number = this.streamIndexes.get(key) === undefined ? -1 : (this.streamIndexes.get(key) as number);
+      let index: number = this.streamIndexes.get(key) === undefined ? -1 : (this.streamIndexes.get(key) as number);
+      if (index < 0 || index >= this.mutableItems.length) {
+        this.streamIndexes.delete(key);
+        continue;
+      }
+      // 定稿前把缓冲里没上屏的尾部全部冲上屏：段末零头（常见句末冒号前几个字）不会丢。
+      const pending: ConversationItem = this.mutableItems[index];
+      this.flushStreamTail(key, pending.kind, pending.title, pending.epochSeconds, out);
+      index = this.streamIndexes.get(key) === undefined ? -1 : (this.streamIndexes.get(key) as number);
       if (index < 0 || index >= this.mutableItems.length) {
         this.streamIndexes.delete(key);
         continue;
@@ -589,30 +597,35 @@ export class ConversationProjector {
    * 界面上表现为「已完成回复每行只剩几个字」（其实每行是独立的一条 item）。
    */
   /**
-   * 流式正文：先累积到缓冲区，只把「完整行」提交上屏。
-   * 这样界面是按整行增长，不会每个 delta 都重新换行重排 —— 打字机式逐行出现，不闪。
+   * 流式正文：**每次都把新增部分完整提交**，不按换行/字数切。
+   * 一段描述的边界由结构决定（下面来了工具调用、切段、或回合结束），不是换行也不是 40 字取整 ——
+   * 以前按「最后换行」或「40 字整数倍」提交，尾部零头（常见句末冒号前的几个字）会滞留在缓冲里：
+   * 段结束时被丢弃，或并到下一段开头 → 「每段最后几个字消失、跑到下一段」。
+   * 缓冲只用于拼装 accumulated，提交点永远是「当前完整长度」。
    */
   private appendStreamText(key: string, kind: ConversationItemKind, title: string, delta: string, epochSeconds: number, out: ConversationProjectionOperation[]): void {
     const accumulated: string = (this.streamBuffers.get(key) ?? '') + delta;
     this.streamBuffers.set(key, accumulated);
-    let cut: number = accumulated.lastIndexOf('\n');
-    if (cut < 0) {
-      // 还没换行：每 40 字符提交一次，避免长时间空白
-      cut = Math.floor(accumulated.length / 40) * 40;
-      if (cut <= 0) {
-        cut = 0;
-      }
-    } else {
-      cut = cut + 1;
-    }
     // append 是「追加」语义：只提交比上次多出来的那一段，
     // 否则每提交一次都会把整段前缀再追加一遍 → 正文重复好几份。
     const committed: number = this.streamCommitted.get(key) ?? 0;
-    if (cut <= committed) {
+    if (accumulated.length <= committed) {
       return;
     }
-    this.streamCommitted.set(key, cut);
-    this.append(key, kind, title, accumulated.substring(committed, cut), epochSeconds, out);
+    this.streamCommitted.set(key, accumulated.length);
+    this.append(key, kind, title, accumulated.substring(committed), epochSeconds, out);
+  }
+
+  /** 把某个流式行缓冲里「已累积但未提交」的尾部全部提交上屏（段末不丢字） */
+  private flushStreamTail(key: string, kind: ConversationItemKind, title: string, epochSeconds: number,
+    out: ConversationProjectionOperation[]): void {
+    const accumulated: string = this.streamBuffers.get(key) ?? '';
+    const committed: number = this.streamCommitted.get(key) ?? 0;
+    if (accumulated.length <= committed) {
+      return;
+    }
+    this.streamCommitted.set(key, accumulated.length);
+    this.append(key, kind, title, accumulated.substring(committed), epochSeconds, out);
   }
 
   /** 清掉还没绑 callId 的占位工具行（残留会显示成「工具调用 运行中 · tool」） */

@@ -42,6 +42,13 @@ export struct MarkdownBodyView {
    * 注意：中英混排时行内空格会被拉开，短句/末行不受影响。
    */
   @Prop justifyText: boolean = false;
+  /**
+   * 末段不留底部段距：过程叙述行用。
+   * Markdown 每个段落默认带 paragraphGap(10vp) 底距，叙述行外层若再叠自己的内边距，
+   * 描述文字与下面工具行之间会多出近一倍空隙（用户反馈「描述文字下面间距比运行行大」）。
+   * 置 true 时最后一整段的底距归零，由外层统一给一个和工具行一致的行距。
+   */
+  @Prop compactLastGap: boolean = false;
   /** 正文色覆盖：只用于错误态（红色）；空串表示跟随主题 */
   @Prop textColor: string = '';
   /**
@@ -630,7 +637,7 @@ export struct MarkdownBodyView {
   }
 
   @Builder
-  blockView(block: MarkdownBlock) {
+  blockView(block: MarkdownBlock, index: number) {
     if (block.kind === 'code') {
       // 头部行对齐 dsh 端：左侧语言名（无语言时显示「代码块」），右侧「复制代码」按钮
       Column({ space: 6 }) {
@@ -751,15 +758,15 @@ export struct MarkdownBodyView {
           FontWeight.Normal, this.bodyLineHeight(this.fontSize))
       }
       .width('100%')
-      // iOS paragraph：margin(top 0, bottom 10)
-      .margin({ top: 0, bottom: this.paragraphGap() })
+      // iOS paragraph：margin(top 0, bottom 10)；末段可按需去掉底距（过程叙述行）
+      .margin({ top: 0, bottom: (this.compactLastGap && index === this.blocks.length - 1) ? 0 : this.paragraphGap() })
     }
   }
 
   build() {
     Column({ space: 0 }) {
       ForEach(this.blocks, (block: MarkdownBlock, index: number) => {
-        this.blockView(block)
+        this.blockView(block, index)
       }, (block: MarkdownBlock, index: number) => index.toString() + block.kind + '_' + this.themeGeneration
         + '_' + this.imageRevision.toString())
       // 解析器漏掉的尾段：原样补一段（不参与 Markdown 语法），宁可能看到样式朴素也不能丢内容
