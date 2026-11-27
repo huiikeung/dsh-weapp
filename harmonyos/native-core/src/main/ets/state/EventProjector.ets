@@ -46,6 +46,8 @@ export interface TraceRow {
   text: string;
   /** running | done | error */
   status: string;
+  /** 工具调用 id（会话页「查看」用来定位到这一行；非工具行为空） */
+  callId?: string;
 }
 
 /** 概览时间轴的一段（输入 / 模型 / 工具） */
@@ -404,13 +406,14 @@ export class EventProjector {
       if (event.event.arguments !== undefined) {
         prettyArgs = EventProjector.capText(EventProjector.prettyJson(event.event.arguments), 6000);
       }
-      this.traceRows.push({
+      const toolRow: TraceRow = {
         key: 'tr-' + event.seq, badge: 'TOOL', kind: 'tool', label: name,
         preview: EventProjector.clipText(args), seq: event.seq, time: t, turn: turn,
         startedAt: t, endedAt: 0,
         args: prettyArgs, result: '', thinking: '', text: '',
-        status: 'running'
-      });
+        status: 'running', callId: event.event.callId !== undefined ? event.event.callId : ''
+      };
+      this.traceRows.push(toolRow);
       this.traceCallCount += 1;
       const callId: string = event.event.callId !== undefined ? event.event.callId : '';
       if (callId.length > 0) {

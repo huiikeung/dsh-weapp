@@ -59,3 +59,6 @@ harmonyos/native-app/entry/src/main/cpp/libtailscale_stub/
 
 # Local runtime state (device id etc.)
 .local/
+
+# JiuwenSwarm runtime file operation logs
+.agent_history/

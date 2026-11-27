@@ -4,7 +4,7 @@ import { uiMaterial } from '@kit.ArkUI';
 import { GatewayClient, Logger, OfficialPluginItem, PluginItem, parseNamespace } from 'nativecore';
 import type { CatalogEntry, CatalogRow } from 'nativecore';
 import { MarkdownBodyView } from '../components/MarkdownBodyView';
-import type { PluginNamespace } from 'nativecore';
+import type { PluginNamespace, ModelOption } from 'nativecore';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 const MORE_BUNDLES: string[] = [
@@ -174,6 +174,13 @@ export struct PluginsPage {
   @State detailMarkdown: string = '';
   @State detailKind: string = '';
   @State detailFields: PluginField[] = [];
+  // 子智能体模型选择（dsh 端是独立卡片：开关 + 按 provider 分组的模型复选列表，
+  // 数据来自 subagent-model-selection-settings 的 { enabled, allowedModels[] }）
+  @StorageLink('modelDetails') modelDetails: ModelOption[] = [];
+  @State subagentEnabled: boolean = false;
+  @State subagentAllowed: string[] = [];
+  @State subagentRevision: number = 0;
+  @State subagentHasNamespace: boolean = false;
   @State detailSaving: boolean = false;
   @State detailSaved: string = '';
   // 插件市场
@@ -1136,6 +1143,13 @@ export struct PluginsPage {
               }
             }
             .width('100%')
+          }
+
+          // 子智能体模型选择：放在「子智能体递归层级 / 同时活跃子智能体」之后（对齐 dsh 卡片顺序）
+          // 只要进的是子智能体插件就画这张卡片：命名空间没拉回来时至少开关要在，
+          // 否则整块消失、用户会以为功能没做（开关默认关闭，与 dsh 一致）
+          if (this.detailKind === 'subagent') {
+            this.subagentModelCard()
           }
 
           if (!this.detailBusy && this.detailDescription.length === 0 && this.detailError.length === 0) {
@@ -3019,15 +3033,41 @@ export struct PluginsPage {
       return;
     }
     this.detailBusy = true;
+    this.subagentHasNamespace = false;
     this.collectSettings(kind, candidates, 0, []);
+    // 模型授权组单独拉：它属于独立卡片，绝不能和主链串在一起 ——
+    // 一次失败/悬住就会让整页「设置项全空」，只剩一句「当前网关未提供该插件的设置项」。
+    if (kind === 'subagent') {
+      this.loadSubagentModels();
+    }
+  }
+
+  /** 独立拉取 subagent-model-selection-settings（失败只影响卡片自身） */
+  private loadSubagentModels(): void {
+    GatewayClient.get().requestPluginSettings('subagent-model-selection-settings').then((frame) => {
+      const parsed: PluginNamespace = parseNamespace(frame);
+      Logger.info('[PSET] subagent ns valid=' + (parsed.valid ? '1' : '0'));
+      if (parsed.valid) {
+        this.applySubagentNamespace(parsed);
+      }
+    }).catch((err: Error) => {
+      Logger.info('[PSET] subagent ns failed: ' + err.message);
+    });
   }
 
   private collectSettings(kind: string, candidates: string[], index: number, acc: PluginField[]): void {
     if (index >= candidates.length) {
-      Logger.info('[PSET] done fields=' + acc.length.toString());
-      this.detailFields = acc;
+      // 模型授权组由独立卡片渲染，这里把它从通用字段里剔掉（否则会出现两个同样的开关）
+      const visible: PluginField[] = [];
+      for (const field of acc) {
+        if (field.ns !== 'subagent-model-selection-settings') {
+          visible.push(field);
+        }
+      }
+      Logger.info('[PSET] done fields=' + visible.length.toString() + ' (raw=' + acc.length.toString() + ')');
+      this.detailFields = visible;
       this.detailBusy = false;
-      this.detailError = acc.length === 0 ? '当前网关未提供该插件的设置项' : '';
+      this.detailError = visible.length === 0 && !this.subagentHasNamespace ? '当前网关未提供该插件的设置项' : '';
       return;
     }
     const ns: string = candidates[index];
@@ -3048,6 +3088,261 @@ export struct PluginsPage {
       this.collectSettings(kind, candidates, index + 1, next);
     }).catch(() => {
       this.collectSettings(kind, candidates, index + 1, acc);
+    });
+  }
+
+  /** 子智能体模型选择卡片：开关 + 模型复选列表（dsh 端同款分组与提示） */
+  @Builder
+  subagentModelCard() {
+    Column({ space: 10 }) {
+      Row() {
+        Column({ space: 2 }) {
+          Text('允许 Agent 为子智能体选择模型')
+            .fontSize(14)
+            .fontColor(this.textColor())
+          Text(this.subagentEnabled
+            ? 'Agent 可以从下方授权模型中为子智能体选择提供方、模型和推理强度。'
+            : '关闭时子智能体不接受模型路由授权。')
+            .fontSize(11)
+            .fontColor(this.subColor())
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        Toggle({ type: ToggleType.Switch, isOn: this.subagentEnabled })
+          .selectedColor(this.accent())
+          .onChange((isOn: boolean) => {
+            this.subagentEnabled = isOn;
+            // 与 dsh 一致：开关一改立即写入，不必再点保存
+            if (isOn || this.subagentAllowed.length > 0) {
+              this.saveSubagentToggle(isOn);
+            }
+          })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      if (this.subagentEnabled) {
+        Column({ space: 6 }) {
+          Text('Agent 可选择的模型')
+            .fontSize(12)
+            .fontColor(this.subColor())
+            .width('100%')
+          if (!this.subagentHasNamespace) {
+            Text('当前网关未提供「子智能体模型选择」设置项（需要网关/DSH 侧支持），这里只显示开关状态。')
+              .fontSize(11)
+              .fontColor(this.subColor())
+              .width('100%')
+          } else if (this.modelDetails.length === 0) {
+            Text('网关还没有返回模型目录，请在会话页切换一次模型后再试。')
+              .fontSize(11)
+              .fontColor(this.subColor())
+              .width('100%')
+          }
+          ForEach(this.subagentProviders(), (group: string) => {
+            Column({ space: 4 }) {
+              Text(group)
+                .fontSize(12)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.subColor())
+                .width('100%')
+                .margin({ top: 2 })
+              ForEach(this.subagentModelsOf(group), (one: ModelOption) => {
+                Row({ space: 8 }) {
+                  Toggle({ type: ToggleType.Checkbox, isOn: this.subagentChecked(one.provider, one.model) })
+                    .selectedColor(this.accent())
+                    .width(20)
+                    .height(20)
+                    .onChange(() => {
+                      this.toggleSubagentModel(one.provider, one.model);
+                    })
+                  Column({ space: 1 }) {
+                    Text(one.label.length > 0 ? one.label : one.model)
+                      .fontSize(13)
+                      .fontColor(this.textColor())
+                    Text(one.providerName + ' · ' + one.provider + '/' + one.model)
+                      .fontSize(10)
+                      .fontColor(this.subColor())
+                  }
+                  .alignItems(HorizontalAlign.Start)
+                  .layoutWeight(1)
+                }
+                .width('100%')
+                .alignItems(VerticalAlign.Center)
+                .padding({ top: 3, bottom: 3 })
+                .onClick(() => {
+                  this.toggleSubagentModel(one.provider, one.model);
+                })
+              }, (one: ModelOption) => one.provider + '|' + one.model)
+            }
+            .width('100%')
+            .alignItems(HorizontalAlign.Start)
+          }, (group: string) => group)
+          if (this.subagentEnabled && this.subagentAllowed.length === 0) {
+            Text('保存前请至少选择一个模型。')
+              .fontSize(11)
+              .fontColor('#D4545B')
+              .width('100%')
+          }
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
+        .padding({ top: 6 })
+      }
+
+      // 只有开启后才需要「保存模型授权」：关闭状态只暴露开关本身
+      if (this.subagentEnabled) {
+        Row() {
+          Blank()
+          Button('保存模型授权')
+            .fontSize(13)
+            .height(32)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
+            .fontColor(this.textColor())
+            .enabled(!this.detailSaving)
+            .onClick(() => {
+              this.saveSubagentModels();
+            })
+        }
+        .width('100%')
+      }
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding(12)
+    .borderRadius(12)
+    .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(16,19,24,0.03)')
+  }
+
+  /** 解析 subagent-model-selection-settings：{ enabled, allowedModels: [{provider, model}] } */
+  private applySubagentNamespace(namespace: PluginNamespace): void {
+    const raw: Object | undefined = namespace.value;
+    const value: Record<string, Object> = raw === undefined ? {} : this.asRecord(raw);
+    this.subagentRevision = namespace.revision;
+    this.subagentHasNamespace = true;
+    this.subagentEnabled = value['enabled'] === true;
+    const keys: string[] = [];
+    const list: Object | undefined = value['allowedModels'];
+    if (list !== undefined && Array.isArray(list)) {
+      for (const one of list as Object[]) {
+        const row: Record<string, Object> = this.asRecord(one);
+        const provider: string = this.strField(row, 'provider');
+        const model: string = this.strField(row, 'model');
+        if (provider.length > 0 && model.length > 0) {
+          keys.push(provider + '/' + model);
+        }
+      }
+    }
+    this.subagentAllowed = keys;
+    Logger.info('[PSET] subagent enabled=' + (this.subagentEnabled ? '1' : '0')
+      + ' allowed=' + keys.length.toString() + ' models=' + this.modelDetails.length.toString());
+  }
+
+  private subagentKey(provider: string, model: string): string {
+    return provider + '/' + model;
+  }
+
+  private subagentChecked(provider: string, model: string): boolean {
+    return this.subagentAllowed.indexOf(this.subagentKey(provider, model)) >= 0;
+  }
+
+  private toggleSubagentModel(provider: string, model: string): void {
+    const key: string = this.subagentKey(provider, model);
+    const next: string[] = [];
+    let removed: boolean = false;
+    for (const one of this.subagentAllowed) {
+      if (one === key) {
+        removed = true;
+        continue;
+      }
+      next.push(one);
+    }
+    if (!removed) {
+      next.push(key);
+    }
+    this.subagentAllowed = next;
+  }
+
+  /** 按 provider 分组（保持网关顺序） */
+  private subagentProviders(): string[] {
+    const out: string[] = [];
+    for (const one of this.modelDetails) {
+      const name: string = one.providerName.length > 0 ? one.providerName : one.provider;
+      if (out.indexOf(name) < 0) {
+        out.push(name);
+      }
+    }
+    return out;
+  }
+
+  private subagentModelsOf(providerName: string): ModelOption[] {
+    const out: ModelOption[] = [];
+    for (const one of this.modelDetails) {
+      const name: string = one.providerName.length > 0 ? one.providerName : one.provider;
+      if (name === providerName) {
+        out.push(one);
+      }
+    }
+    return out;
+  }
+
+  /** 子智能体卡片要写的 ops（与普通字段分开提交，走各自的 revision） */
+  private subagentOps(): SettingsOp[] {
+    const ops: SettingsOp[] = [];
+    ops.push({ op: 'set', path: ['enabled'], value: this.subagentEnabled } as SettingsOp);
+    const rows: Object[] = [];
+    for (const key of this.subagentAllowed) {
+      const cut: number = key.indexOf('/');
+      if (cut <= 0) {
+        continue;
+      }
+      const row: Record<string, Object> = {
+        'provider': key.substring(0, cut),
+        'model': key.substring(cut + 1)
+      };
+      rows.push(row);
+    }
+    ops.push({ op: 'set', path: ['allowedModels'], value: rows } as SettingsOp);
+    return ops;
+  }
+
+  /** 只写开关本身（dsh 端开关是即时生效的） */
+  private saveSubagentToggle(enabled: boolean): void {
+    if (!this.subagentHasNamespace) {
+      this.detailError = '当前网关未提供「子智能体模型选择」设置项，无法保存开关';
+      return;
+    }
+    this.detailSaving = true;
+    this.detailError = '';
+    const ops: SettingsOp[] = [{ op: 'set', path: ['enabled'], value: enabled } as SettingsOp];
+    GatewayClient.get().mutatePluginSettings('subagent-model-selection-settings', this.subagentRevision,
+      ops as Object[]).then(() => {
+      this.detailSaving = false;
+      this.detailSaved = enabled ? '已开启模型授权' : '已关闭模型授权';
+      this.loadOfficialSettings(this.detailKind);
+    }).catch((err: Error) => {
+      this.detailSaving = false;
+      this.detailError = err.message.length > 0 ? err.message : '开关保存失败';
+    });
+  }
+
+  private saveSubagentModels(): void {
+    if (!this.subagentHasNamespace) {
+      return;
+    }
+    if (this.subagentEnabled && this.subagentAllowed.length === 0) {
+      this.detailError = '保存前请至少选择一个模型。';
+      return;
+    }
+    this.detailSaving = true;
+    this.detailError = '';
+    GatewayClient.get().mutatePluginSettings('subagent-model-selection-settings', this.subagentRevision,
+      this.subagentOps() as Object[]).then(() => {
+      this.detailSaving = false;
+      this.detailSaved = '已保存';
+      this.loadOfficialSettings(this.detailKind);
+    }).catch((err: Error) => {
+      this.detailSaving = false;
+      this.detailError = err.message.length > 0 ? err.message : '保存失败，请重试';
     });
   }
 

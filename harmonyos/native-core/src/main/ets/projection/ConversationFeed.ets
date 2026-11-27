@@ -217,7 +217,7 @@ const PROCESS_KINDS: string[] = ['CONTEXT', 'REASONING', 'TOOL', 'JSON_TOOL', 'T
 
 export class ConversationFeed {
   /** 流式标题常量（判定依据，不能本地化）。 */
-  static streamingAssistantTitle: string = 'DeepSeek · 正在生成';
+  static streamingAssistantTitle: string = 'flukit · 正在生成…';
 
   /** 运行中短语（30 秒一桶轮换，对齐小程序 §3.4）。 */
   private static thinkingPhrases: string[] = ['梳理脉络中', '推敲细节中', '酝酿下一步中', '沿着思路前行中'];
@@ -263,6 +263,23 @@ export class ConversationFeed {
     return collapsed.length > limit ? collapsed.substring(0, limit) + '…' : collapsed;
   }
 
+  /** 后台任务类工具的展示名（对齐 DSH 桌面端 tool.title.*）；非任务工具返回空串。 */
+  static jobToolLabel(name: string): string {
+    const raw: string = String(name === undefined ? '' : name).toLowerCase();
+    const parts: string[] = raw.split('.');
+    const tail: string = parts[parts.length - 1].replace(/[^a-z0-9_]/g, '');
+    if (tail === 'job_output' || tail === 'readjob' || tail === 'joboutput') {
+      return '读取任务输出';
+    }
+    if (tail === 'job_list' || tail === 'listjobs' || tail === 'joblist') {
+      return '查看后台任务';
+    }
+    if (tail === 'job_kill' || tail === 'killjob' || tail === 'jobkill') {
+      return '取消后台任务';
+    }
+    return '';
+  }
+
   /** 工具展示：命令工具取 command，其余按类型取代表字段（对齐小程序）。 */
   static toolFace(name: string, argumentsText: string): ToolFace {
     const face: ToolFace = {
@@ -272,20 +289,29 @@ export class ConversationFeed {
     const fields: Record<string, string> = ConversationFeed.parseFields(raw);
     const kind: string = ToolActivity.kind(name);
     const trimmed: string = String(name === undefined ? '' : name).trim();
+    // 后台任务工具按 DSH 桌面端 tool.title.* 命名，并把 jobId 放到详情里：
+    //   读取任务输出 · pwsh-b503d189e7a3406e
+    const jobLabel: string = ConversationFeed.jobToolLabel(trimmed);
+    if (jobLabel.length > 0) {
+      const jobId: string = ConversationFeed.field(fields, ['job_id', 'jobId', 'job', 'id']);
+      return {
+        label: jobLabel, detail: jobId, genericTool: false, isCommand: false, commandText: '', cwdLabel: ''
+      };
+    }
     if (kind === 'commands') {
       face.label = '运行命令';
     } else if (kind === 'read' || kind === 'readImage') {
-      face.label = '读取文件';
+      face.label = '读取';
     } else if (kind === 'write') {
-      face.label = '写入文件';
+      face.label = '写入';
     } else if (kind === 'edit') {
-      face.label = '修改文件';
+      face.label = '编辑';
     } else if (kind === 'search' || kind === 'webSearch') {
       face.label = '搜索';
     } else if (kind === 'webFetch') {
       face.label = '读取网页';
     } else if (kind === 'code') {
-      face.label = '运行代码';
+      face.label = '代码';
     } else {
       // 未识别到具体动作的工具（ops_stat / ops_edit_file 等）：左侧标签固定为「工具调用」，
       // 工具名放到右侧详情里（对齐桌面端显示为「工具调用  ops_stat · <路径>」）。
@@ -329,7 +355,7 @@ export class ConversationFeed {
       detail = trimmed;
     }
     const firstLine: string = detail.split('\n')[0].trim();
-    face.detail = firstLine.length > 240 ? firstLine.substring(0, 240) : firstLine;
+    face.detail = firstLine.length > 600 ? firstLine.substring(0, 600) : firstLine;
     face.commandText = face.isCommand ? command : '';
     const cwd: string = ConversationFeed.field(fields, ['workdir', 'cwd', 'workingDirectory', 'working_directory']);
     if (cwd.length > 0) {
@@ -498,8 +524,12 @@ export class ConversationFeed {
         continue;
         // 注：title 为 'tool' 的包装事件已在投影层忽略，这里不需要再过滤
       }
+      // 只有「本轮后面还有别的助手正文」才算回合中段叙述。
+      // 以前用「后面还有过程行」判断：本轮最后一个助手正文后面往往紧跟工具行（下一轮或本轮收尾），
+      // 于是最终答复被当成叙述折进「记录×N」，界面上就是「回复最后一段不见了」；
+      // 退出重进时 items 里有用户气泡隔断，不折叠 → 内容又齐了。
       if (kind === ConversationItemKind.ASSISTANT as string && open !== null
-        && ConversationFeed.hasProcessAhead(items, itemIndex)) {
+        && ConversationFeed.hasAssistantAheadInTurn(items, itemIndex, item.turn)) {
         // 回合中段的过程文字：收进当前过程组，独立成行（narration）
         ConversationFeed.appendToGroup(open, item);
         continue;
@@ -998,6 +1028,48 @@ export class ConversationFeed {
       }
     }
     return true;
+  }
+
+  /**
+   * 同一条目之后、同一回合内是否还有过程条目。
+   * 只按「下一个用户消息」截断是不够的：从电脑端发消息、或该轮用户气泡被窗口截掉时，
+   * items 里没有 USER 分隔，上一轮的最终答复就会被下一轮的过程行误判成「回合中段叙述」，
+   * 折叠进「记录×N」里 —— 界面上就是「回复最后一段不见了」，退出重进（不折叠）才正常。
+   * 这里再加上回合号约束：跨回合的行一律不算「后面还有过程」。
+   */
+  /** 同一回合内、本条之后是否还有别的助手正文（有 = 本条只是过程叙述）。 */
+  private static hasAssistantAheadInTurn(items: ConversationItem[], from: number, turn: number | undefined): boolean {
+    for (let index = from + 1; index < items.length; index++) {
+      const item: ConversationItem = items[index];
+      const kind: string = item.kind as string;
+      if (kind === ConversationItemKind.USER as string) {
+        return false;
+      }
+      if (turn !== undefined && item.turn !== undefined && item.turn !== turn) {
+        return false;
+      }
+      if (kind === ConversationItemKind.ASSISTANT as string && item.text.length > 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static hasProcessAheadInTurn(items: ConversationItem[], from: number, turn: number | undefined): boolean {
+    for (let index = from + 1; index < items.length; index++) {
+      const item: ConversationItem = items[index];
+      const kind: string = item.kind as string;
+      if (kind === ConversationItemKind.USER as string) {
+        return false;
+      }
+      if (turn !== undefined && item.turn !== undefined && item.turn !== turn) {
+        return false;
+      }
+      if (ConversationFeed.isProcessKind(kind)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** 当前条目之后、下一个用户消息之前是否还有过程条目。 */

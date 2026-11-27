@@ -188,7 +188,7 @@ export class ConversationProjector {
       const suffix = str(row.chunk, 'index') ?? str(row.chunk, 'id') ?? '0';
       const key = 'live-' + attemptId + '-' + type + '-' + suffix;
       const text = str(row.chunk, type === 'tool-call-delta' ? 'argumentsDelta' : 'text') ?? '';
-      this.append(key, kind, kind === ConversationItemKind.ASSISTANT ? (this.labels.streamingAssistant ?? 'DeepSeek') : kind === ConversationItemKind.REASONING ? (this.labels.streamingReasoning ?? 'Think') : (name ?? this.labels.assemblingTool ?? 'Tool'), text, row.time, out);
+      this.append(key, kind, kind === ConversationItemKind.ASSISTANT ? (this.labels.streamingAssistant ?? 'flukit · 正在生成…') : kind === ConversationItemKind.REASONING ? (this.labels.streamingReasoning ?? 'Think') : (name ?? this.labels.assemblingTool ?? 'Tool'), text, row.time, out);
     }
     return out;
   }
@@ -337,8 +337,14 @@ export class ConversationProjector {
     }
     if(e.type==='assistant/chunk') {
       if(this.finalizedKeys.has(key)) return;
-      const chunk=e.chunkType; if(chunk==='text-delta'||chunk==='text') this.appendStreamText(this.resolveStreamKey('stream-text-',turn,step),ConversationItemKind.ASSISTANT,this.labels.streamingAssistant??'DeepSeek',e.text??'',date,out);
-      else if(chunk==='reasoning-delta'||chunk==='reasoning') this.appendStreamText(this.resolveStreamKey('stream-reason-',turn,step),ConversationItemKind.REASONING,this.labels.streamingReasoning??'Think',e.text??'',date,out);
+      // 分片类型不止 text / text-delta：网关还会发 text-chunks（多段合并批），
+      // 只认前两种会把这一批整段丢掉 —— 表现就是「正文最后一段不显示，退出重进才完整」。
+      const chunk=e.chunkType??'text';
+      const isTextChunk:boolean=chunk==='text'||chunk==='text-delta'||chunk==='text-chunks';
+      const isReasonChunk:boolean=chunk==='reasoning'||chunk==='reasoning-delta'
+        ||chunk==='reasoning-chunks'||chunk==='reasoning-text';
+      if(isTextChunk) this.appendStreamText(this.resolveStreamKey('stream-text-',turn,step),ConversationItemKind.ASSISTANT,this.labels.streamingAssistant??'DeepSeek',e.text??'',date,out);
+      else if(isReasonChunk) this.appendStreamText(this.resolveStreamKey('stream-reason-',turn,step),ConversationItemKind.REASONING,this.labels.streamingReasoning??'Think',e.text??'',date,out);
       else if(chunk==='tool-call-delta') { const name=(e.tool?.name??'').trim(); if(name.length===0||name.toLowerCase()==='tool'){ return; } this.append('stream-tool-'+(e.tool?.id??key),name.toLowerCase()==='run_code'?ConversationItemKind.JSON_TOOL:ConversationItemKind.TOOL,name,e.tool?.argumentsDelta??'',date,out); }
       return;
     }
@@ -438,6 +444,18 @@ export class ConversationProjector {
         if(row.status!=='running') continue;
         const next:ConversationItem={id:row.id,kind:row.kind,title:row.title,text:row.text,images:row.images,isError:e.isError===true,epochSeconds:row.epochSeconds,turn:row.turn,callId:row.callId,parentCallId:row.parentCallId,rootCallId:row.rootCallId,subCallId:row.subCallId,depth:row.depth,status:e.isError===true?'error':'done',argumentsText:row.argumentsText,resultText:preview};
         this.mutableItems[i]=next; out.push({kind:'replace',item:next,itemId:next.id}); return;
+      }
+      // 再兜一层：结果晚于 turn/end 到达时，上面那条「运行中」收尾已经跳过（status 已 done），
+      // 结果会被塞成独立的 TOOL_RESULT 行，工具行展开就没有「输出」段。
+      // 这里把结果补到同回合最近一条还没有结果的工具行上。
+      for(let j=this.mutableItems.length-1;j>=0;j--){
+        const row:ConversationItem=this.mutableItems[j];
+        const kk: string = row.kind as string;
+        if(!(kk===ConversationItemKind.TOOL as string||kk===ConversationItemKind.JSON_TOOL as string)) continue;
+        if(row.turn!==effectiveTurn) continue;
+        if((row.resultText??'').length>0) continue;
+        const next:ConversationItem={id:row.id,kind:row.kind,title:row.title,text:row.text,images:row.images,isError:e.isError===true,epochSeconds:row.epochSeconds,turn:row.turn,callId:row.callId,parentCallId:row.parentCallId,rootCallId:row.rootCallId,subCallId:row.subCallId,depth:row.depth,status:e.isError===true?'error':row.status,argumentsText:row.argumentsText,resultText:preview};
+        this.mutableItems[j]=next; out.push({kind:'replace',item:next,itemId:next.id}); return;
       }
       this.insert({id,kind:ConversationItemKind.TOOL_RESULT,title:e.isError===true?(this.labels.toolResultFailed??'Tool failed'):(this.labels.toolResultDone??'Tool result'),text:preview,isError:e.isError,epochSeconds:date,turn:effectiveTurn,callId:callId,images:(e.images===undefined?[]:e.images)},out);
       if (e.appendOrigin === true && (e.mutationPath ?? '').length > 0 && (e.turn ?? 0) > 0) {
@@ -622,7 +640,13 @@ export class ConversationProjector {
     const index=this.streamIndexes.get(key);
     if(index===undefined){this.insert(item,out);return;}
     const old=this.mutableItems[index];
-    const next:ConversationItem={id:old.id,kind:item.kind,title:item.title,text:item.text.length>0?item.text:old.text,images:item.images,isError:item.isError,epochSeconds:item.epochSeconds,turn:item.turn};
+    // 定稿时绝不把正文变短：assistant/message 有时只带本轮最后一段（或收口早于最后几个 delta），
+    // 直接用它会截断已经流式显示出来的尾部 —— 表现就是「最后一段不显示，退出重进才完整」。
+    let settledText:string = item.text.length>0?item.text:old.text;
+    if(old.text.length>settledText.length && old.text.startsWith(settledText)){
+      settledText=old.text;
+    }
+    const next:ConversationItem={id:old.id,kind:item.kind,title:item.title,text:settledText,images:item.images,isError:item.isError,epochSeconds:item.epochSeconds,turn:item.turn};
     this.streamIndexes.delete(key);
     if(index===this.mutableItems.length-1){
       this.mutableItems[index]=next;
@@ -639,7 +663,23 @@ export class ConversationProjector {
 
   private finalize(key:string,item:ConversationItem,out:ConversationProjectionOperation[]):void {
     const index=this.streamIndexes.get(key); if(index===undefined){this.insert(item,out);return;}
-    const old=this.mutableItems[index]; const next:ConversationItem={id:old.id,kind:item.kind,title:item.title,text:item.text.length>0?item.text:old.text,images:item.images,isError:item.isError,epochSeconds:item.epochSeconds,turn:item.turn}; this.mutableItems[index]=next;this.streamIndexes.delete(key);out.push({kind:'replace',item:next,itemId:next.id});
+    const old=this.mutableItems[index];
+    // 流式提交只到「最后一个换行」或 40 字符整数倍，末尾那一截从来没上过屏；
+    // 定稿必须把它补齐，否则思考卡最后一段永远缺一截（尤其是一整段没有换行的文本）。
+    const buffered:string=this.streamBuffers.get(key) ?? '';
+    const committed:number=this.streamCommitted.get(key) ?? 0;
+    let settledText:string=item.text.length>0?item.text:old.text;
+    if(buffered.length>committed && buffered.startsWith(settledText)){
+      settledText=buffered;
+    }else if(buffered.length>committed && settledText.startsWith(buffered.substring(0,committed))){
+      settledText=settledText+buffered.substring(committed);
+    }
+    if(old.text.length>settledText.length && old.text.startsWith(settledText)){
+      settledText=old.text;
+    }
+    this.streamBuffers.delete(key);
+    this.streamCommitted.delete(key);
+    const next:ConversationItem={id:old.id,kind:item.kind,title:item.title,text:settledText,images:item.images,isError:item.isError,epochSeconds:item.epochSeconds,turn:item.turn}; this.mutableItems[index]=next;this.streamIndexes.delete(key);out.push({kind:'replace',item:next,itemId:next.id});
   }
   /** 工具参数 → 展示文本：对象走 JSON，字符串原样（对齐小程序 argumentsText）。 */
   private static argumentsText(value:Object|undefined):string{

@@ -548,6 +548,8 @@ export struct ConversationPage {
   private liveFoldOpenIds: Set<string> = new Set<string>();
   /** 摘要请求失败的 changeSeq 对应的行 id：允许后续重试（网关忙/断线时第一次会失败） */
   private fileSummaryFailed: Set<string> = new Set<string>();
+  /** 诊断：ENTRYDIAG 节流时间戳 */
+  private entryDiagAt: number = 0;
   private fileSummaryRetryTimer: number = -1;
   /** 已编辑文件卡片内联到助手回复（显示在复制/用量/时间行上方） */
   private inlineAssistantFiles: Map<string, string[]> = new Map<string, string[]>();
@@ -724,7 +726,7 @@ export struct ConversationPage {
   private ready: boolean = false;
   /** 当前是否是这个 NavDestination 的显示态：被设置页/任务面板盖住时不再重排时间线 */
   private pageVisible: boolean = true;
-  /** 页面最近一次 onShown 的时刻：进页数秒内 dock 尺寸变化要补硬贴底 */
+  /** 页面最近一次 onShown 的时刻：进页 1.5s 内 dock 尺寸变化要补硬贴底 */
   private shownAt: number = 0;
   private pendingItemsWhileHidden: boolean = false;
   /** 草稿归属的会话：切会话时先落盘旧的，再读新的 */
@@ -3427,6 +3429,24 @@ export struct ConversationPage {
     }, 0);
   }
 
+  /** 前后台切换：回到前台时补一次历史并重建可见行（等价于「切后台再回来」的那次自救） */
+  @StorageLink('appLifecycle') @Watch('onAppLifecycleChanged') appLifecycle: string = 'foreground';
+
+  private onAppLifecycleChanged(): void {
+    if (this.appLifecycle !== 'foreground' || !this.pageVisible) {
+      return;
+    }
+    setTimeout(() => {
+      if (!this.pageVisible) {
+        return;
+      }
+      SessionStore.get().refreshFromHost();
+      setTimeout(() => {
+        this.reloadFeedAfterSettle();
+      }, 600);
+    }, 200);
+  }
+
   private onRunningChanged(): void {
     if (!this.running) {
       this.runningFalseAt = Date.now();
@@ -3436,14 +3456,24 @@ export struct ConversationPage {
       setTimeout(() => {
         this.reloadFeedAfterSettle();
       }, 420);
-      setTimeout(() => {
-        this.reloadFeedAfterSettle();
-      }, 1800);
       // 实时流可能丢尾帧（最后一段正文/代码块后半段只在主机历史里）：
-      // 结束后主动补拉一次历史，等价于退出重进的刷新。
-      setTimeout(() => {
-        SessionStore.get().refreshFromHost();
-      }, 1200);
+      // 结束后分多档补拉 + 重载。只拉一次不够：主机把长回复写入历史可能晚于 1.8s，
+      // 那时补拉到的还是半截内容，之后就再也没有动作 —— 表现就是「必须退出重进/切后台才完整」。
+      const catchUpDelays: number[] = [1200, 2400, 4200, 7000];
+      for (const delay of catchUpDelays) {
+        setTimeout(() => {
+          if (!this.pageVisible || this.running) {
+            return;
+          }
+          SessionStore.get().refreshFromHost();
+        }, delay);
+        setTimeout(() => {
+          if (!this.pageVisible || this.running) {
+            return;
+          }
+          this.reloadFeedAfterSettle();
+        }, delay + 600);
+      }
       // 回合结束：稍后补两次重排，让过程组按「已收工」折叠成「已完成」
       // （折叠条件里带 3 秒活跃窗口，结束后不一定还有新的数据推送来触发重排）。
       setTimeout(() => {
@@ -3479,6 +3509,18 @@ export struct ConversationPage {
         + ' entries=' + this.entries.length.toString() + ' ready=' + (this.ready ? '1' : '0')
         + ' visible=' + (this.pageVisible ? '1' : '0')
         + ' tail=' + (this.entries.length > 0 ? this.entries[this.entries.length - 1].id : '-'));
+    }
+    // 诊断：最后 8 条的 kind / 正文长度 / 开头，定位「最后一段」落在哪个 entry（1s 节流）
+    if (Date.now() - this.entryDiagAt > 1000) {
+      this.entryDiagAt = Date.now();
+      let dump: string = '';
+      for (let index = Math.max(0, this.entries.length - 8); index < this.entries.length; index++) {
+        const one: ConversationFeedEntryModel = this.entries[index];
+        const head: string = one.text.length > 0 ? one.text.substring(0, 20).replace(/\s+/g, ' ') : '';
+        const tail: string = one.text.length > 20 ? one.text.substring(one.text.length - 14).replace(/\s+/g, ' ') : '';
+        dump += ' [' + one.kind + ':' + one.text.length.toString() + ':' + head + '~' + tail + ']';
+      }
+      Logger.info('ENTRYDIAG n=' + this.entries.length.toString() + dump);
     }
     if (!this.ready) {
       return;
@@ -7668,8 +7710,9 @@ export struct ConversationPage {
       const height: number = Number(newArea.height);
       if (height > 0 && Math.abs(height - this.dockHeight) > 1) {
         this.dockHeight = height;
-        // 末尾留白跟着变了：进页早期按旧留白落下的偏移会跑到内容之外，下一帧补一次硬贴底。
-        // 运行中会话的队列/任务卡是数据晚到后才出现/收缩的，dock 高度可能在进页数秒内仍在变，窗口放宽到 6s。
+        // 末尾留白跟着变了：刚进页（dock 默认 220 → 实测值）时，之前按旧留白落下的偏移会跑到内容之外，
+        // 下一帧补一次硬贴底（只限进页 1.5s 内，不打开发送/收键盘时的正常过渡）
+        // 运行中会话的队列/任务卡是数据晚到后才出现/收缩的，dock 高度可能在进页数秒后仍在变，窗口放宽到 6s
         if (this.autoStick && this.pageVisible && !this.userInteracting() && Date.now() - this.shownAt < 6000) {
           setTimeout(() => {
             if (this.autoStick && this.pageVisible && !this.userInteracting()) {
@@ -10906,6 +10949,15 @@ export struct ConversationPage {
               },
               onToggleStep: (id: string) => {
                 this.onToggleStep(id);
+              },
+              // 展开态「查看」：切到轨迹页并把该调用定位到详情面板
+              onViewStep: (item: ConversationItem) => {
+                const callId: string = item.callId === undefined ? '' : item.callId;
+                AppStorage.setOrCreate('traceFocusCallId', callId);
+                if (this.sessionTab !== 1) {
+                  this.sessionTab = 1;
+                  Haptics.play();
+                }
               },
               onCopy: (text: string) => {
                 this.onCopyEntry(text);

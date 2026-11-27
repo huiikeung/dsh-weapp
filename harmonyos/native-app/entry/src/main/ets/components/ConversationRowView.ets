@@ -89,6 +89,8 @@ export struct ConversationRowView {
   /** 思考卡展开/折叠（底部两个按钮都走这个） */
   onToggleReasonCard: (id: string) => void = (id: string) => {};
   onToggleStep: (id: string) => void = () => {};
+  /** 展开态底部「查看」：跳到轨迹页对应行（由会话页实现） */
+  onViewStep: (item: ConversationItem) => void = () => {};
   /** 本条消息图片的本地路径（会话页预取后下传，顺序即展示顺序） */
   @Prop imagePaths: string[] = [];
   /** 过程步骤里的图片路径点击（如「读取图片 · /tmp/a.jpg」）→ 会话页下载并预览 */
@@ -401,16 +403,17 @@ export struct ConversationRowView {
     return base.length > 0 ? base : normalized;
   }
 
-  /** 卡片标题用的文件名：chip 里的 name 缺失或本身就是整条路径时，退回路径最后一段 */
+  /**
+   * 卡片标题用的文件名：直接映射 dsh 端的 {{file.name}}（不做任何加工）。
+   * 只有 name 为空时才退回路径末段，避免空标题。
+   */
   private fileTitleOf(chip: string): string {
     const name: string = this.fileAt(chip, 1);
-    if (name.length === 0 || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 || name.indexOf(':') >= 0) {
-      const path: string = this.filePathOf(chip);
-      if (path.length > 0) {
-        return this.fileShortName(path);
-      }
+    if (name.length > 0) {
+      return name;
     }
-    return name;
+    const path: string = this.filePathOf(chip);
+    return path.length > 0 ? this.fileShortName(path) : '';
   }
 
   private filePathOf(chip: string): string {
@@ -535,6 +538,32 @@ export struct ConversationRowView {
     })
   }
 
+  /**
+   * 文件行第二行（路径）：完全按 dsh 端规则映射 ——
+   *   {{file.display}} 只在 display !== name 时渲染（见 miniprogram session.wxml changed-file-row）。
+   * 主机的 display 常常就是文件名本身，不做这个判断就会「标题显示两遍」。
+   */
+  /** 右侧状态标签：dsh 端把「二进制 / 过大」显示在 +N −N 的位置，而不是塞在文件名下面 */
+  private fileTagOf(chip: string): string {
+    if (this.fileAt(chip, 5) === '1') {
+      return '';
+    }
+    const note: string = this.fileAt(chip, 6);
+    if (note.indexOf('二进制') >= 0) {
+      return '二进制';
+    }
+    if (note.indexOf('过大') >= 0) {
+      return '过大';
+    }
+    return '';
+  }
+
+  private filePathLineOf(chip: string): string {
+    const display: string = this.fileAt(chip, 2);
+    const name: string = this.fileAt(chip, 1);
+    return display !== name ? display : '';
+  }
+
   /** 交付文件副标题：「Word 文档：说明」，没有说明只留类型 */
   private deliverableSubtitle(chip: string): string {
     const label: string = this.kindLabel(this.fileKind(chip));
@@ -601,8 +630,10 @@ export struct ConversationRowView {
   @Builder
   filesCard() {
     if (this.fileCards.length > 0) {
-      if (!this.filesHaveCounts()) {
-        // 明确交付的文件（没有增删行数）：用 dsh 电脑端的文件卡样式，不再套「已编辑 N 个文件」
+      if (!this.filesHaveCounts() && this.entry.kind !== KIND_CHANGES && !this.filesInline) {
+        // 明确交付的文件（没有增删行数）：用 dsh 电脑端的文件卡样式，不再套「已编辑 N 个文件」。
+        // 注意必须排除「已编辑」行：一批纯二进制改动（没有 +N −N）也曾走进这里，
+        // 被渲染成交付文件卡（副标题「文件：二进制文件已变更…」），看起来像图片卡片跑到结尾。
         Column({ space: 8 }) {
           ForEach(this.fileCards, (chip: string) => {
             this.deliverableCard(chip)
@@ -665,8 +696,8 @@ export struct ConversationRowView {
                     .fontSize(this.rpx(24))
                     .fontColor(this.deletedColor())
                 }
-              } else {
-                Text(this.fileAt(this.fileCards[0], 2))
+              } else if (this.filePathLineOf(this.fileCards[0]).length > 0) {
+                Text(this.filePathLineOf(this.fileCards[0]))
                   .fontSize(this.rpx(23))
                   .fontColor(this.secondaryText())
                   .maxLines(1)
@@ -702,12 +733,14 @@ export struct ConversationRowView {
                         .fontColor(this.primaryText())
                         .maxLines(1)
                         .textOverflow({ overflow: TextOverflow.Ellipsis })
-                      Text(this.fileAt(chip, 2))
-                        .fontSize(this.rpx(22))
-                        .fontColor(this.secondaryText())
-                        .maxLines(1)
-                        .textOverflow({ overflow: TextOverflow.Ellipsis })
-                      if (this.fileAt(chip, 6).length > 0) {
+                      if (this.filePathLineOf(chip).length > 0) {
+                        Text(this.filePathLineOf(chip))
+                          .fontSize(this.rpx(22))
+                          .fontColor(this.secondaryText())
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      }
+                      if (this.fileAt(chip, 6).length > 0 && this.fileTagOf(chip).length === 0) {
                         Text(this.fileAt(chip, 6))
                           .fontSize(this.rpx(21))
                           .fontColor(this.tertiaryText())
@@ -726,6 +759,12 @@ export struct ConversationRowView {
                           .fontColor(this.deletedColor())
                       }
                       .flexShrink(0)
+                    } else if (this.fileTagOf(chip).length > 0) {
+                      // 二进制 / 过大：右侧纯文字标签（无底色），对齐 dsh 端
+                      Text(this.fileTagOf(chip))
+                        .fontSize(this.rpx(21))
+                        .fontColor(this.tertiaryText())
+                        .flexShrink(0)
                     }
                   }
                   .width('100%')
@@ -1875,14 +1914,19 @@ export struct ConversationRowView {
   assistantRow() {
     Column() {
       if (this.entry.streaming) {
-        Row({ space: 2.93 }) {
-          LoadingProgress().width(5.87).height(5.87).color(OCEAN)
+        Row({ space: this.rpx(10) }) {
+          // 加载图与「执行图标」同大（过程组标题图标同为 rpx(32)），此前只有 5.87vp、几乎看不见
+          LoadingProgress()
+            .width(this.rpx(32))
+            .height(this.rpx(32))
+            .color(OCEAN)
           // .row-streaming-title 30rpx 500 --text-2
           Text(this.entry.title)
             .fontSize(17.6)
             .fontWeight(FontWeight.Medium)
             .fontColor(this.secondaryText())
         }
+        .alignItems(VerticalAlign.Center)
         .margin({ bottom: 8.21 })
       }
       if (this.entry.isError && this.entry.failureTitle.length > 0) {
@@ -2146,6 +2190,10 @@ export struct ConversationRowView {
     if (kind === 'TOOL_RESULT') {
       return this.procIcon('tools');
     }
+    // 后台任务类工具（job_output / job_list / job_kill）用任务清单图标
+    if (ConversationFeed.jobToolLabel(item.title).length > 0) {
+      return this.isDark ? $r('app.media.proc_checklist_dark') : $r('app.media.proc_checklist');
+    }
     const face: ToolFace = ConversationFeed.toolFace(item.title, item.text);
     if (face.isCommand) {
       return this.procIcon('commands');
@@ -2161,6 +2209,10 @@ export struct ConversationRowView {
     }
     if (status === 'running') {
       return this.entry.running ? '运行中' : '未返回结果';
+    }
+    // 后台任务类工具：完成后补「已完成」，让「读取任务输出 · <jobId> · 已完成」可读
+    if (status === 'done' && ConversationFeed.jobToolLabel(item.title).length > 0) {
+      return '已完成';
     }
     return '';
   }
@@ -2203,6 +2255,32 @@ export struct ConversationRowView {
       return label.substring(2);
     }
     return label;
+  }
+
+  /** 展开区第一段标题：代码类给语言名（对齐 DSH 的代码块标题），其余为「调用参数」 */
+  private argsLabel(item: ConversationItem): string {
+    if (ToolActivity.kind(item.title) !== 'code') {
+      return '调用参数';
+    }
+    const name: string = String(item.title === undefined ? '' : item.title).toLowerCase();
+    if (name.indexOf('python') >= 0) {
+      return 'Python';
+    }
+    return 'TypeScript';
+  }
+
+  /** 展开区第二段标题：代码类是「输出」，其余是「调用结果」 */
+  private resultLabel(item: ConversationItem): string {
+    return ToolActivity.kind(item.title) === 'code' ? '输出' : '调用结果';
+  }
+
+  /** 跟在详情后面的状态（前缀 · ），紧贴内容而不是右对齐；错误行用「错误：」表达，不再重复 */
+  private trailingStatus(item: ConversationItem): string {
+    if (item.isError === true) {
+      return '';
+    }
+    const status: string = this.stepStatus(item);
+    return status.length > 0 ? ' · ' + status : '';
   }
 
   private stepDetail(item: ConversationItem): string {
@@ -2249,7 +2327,7 @@ export struct ConversationRowView {
     const wrappedLines: number = Math.ceil(text.length / 28);
     const lines: number = Math.max(newlineLines, wrappedLines);
     const estimate: number = lines * 25.7;
-    return estimate < 77 ? 77 : (estimate > 210 ? 210 : estimate);
+    return estimate < 77 ? 77 : (estimate > 320 ? 320 : estimate);
   }
 
   /** 过程叙述：回合中段的助手文字，独立成行（对齐小程序 narration） */
@@ -2377,13 +2455,21 @@ export struct ConversationRowView {
         }
         // 运行中固定高度（不再随内容变高把页面往上顶）；结束后按内容估算高度
         .height(this.cardIsLive() ? this.RUNNING_CARD_HEIGHT : this.readingHeight(this.stepDetail(item)))
-        .scrollBar(BarState.Auto)
+        .scrollBar(BarState.On)
+        .scrollBarWidth(3)
+        .scrollBarColor(this.tertiaryText())
         .width('100%')
-        // 思考卡是「列表里的定高滚动区」：默认 SELF_FIRST 会把竖向滑动全吃掉，
-        // 手指一落到卡片上整页就滑不动。改成父列表优先，滑到边了才轮到卡片内部。
+        // 卡片内部滚动优先（SELF_FIRST）：手指落在卡上先滚卡内，滚到头才带动页面。
+        // 之前用 PARENT_FIRST 会把竖向滚动全部交给外层列表，卡内永远不动、滚动条也拖不动。
         .nestedScroll({
-          scrollForward: NestedScrollMode.PARENT_FIRST,
-          scrollBackward: NestedScrollMode.PARENT_FIRST
+          scrollForward: NestedScrollMode.SELF_FIRST,
+          scrollBackward: NestedScrollMode.SELF_FIRST
+        })
+        // 手指一按下就暂停「跟随滚动」，否则自动滚到底会和手动拖动打架（表现为拖不动）
+        .onTouch((event: TouchEvent) => {
+          if (event.type === TouchType.Down && this.cardIsLive() && !this.reasonFollowPaused) {
+            this.onToggleReasonFollow();
+          }
         })
       }
 
@@ -2438,7 +2524,9 @@ export struct ConversationRowView {
   /** 命令卡（对齐小程序 .command-card：状态点 + cwd + 复制 + $ 命令行 + 输出区） */
   @Builder
   commandCard(item: ConversationItem) {
+    // 外层不铺底色：卡片本体在内层，底部「查看」落在卡片外（与代码行展开一致）
     Column() {
+      Column() {
       Row({ space: this.rpx(14) }) {
         Circle({ width: this.rpx(10), height: this.rpx(10) })
           .fill(item.isError === true ? '#DC555C' : (this.stepStatus(item) === '运行中' ? '#D59A31' : '#28B970'))
@@ -2518,58 +2606,97 @@ export struct ConversationRowView {
           .border({ width: { top: 0.5 }, color: this.ruleColor() })
       }
     }
+      .width('100%')
+      .borderRadius(this.rpx(22))
+      .border({ width: 0.5, color: this.ruleColor() })
+      .backgroundColor(this.fillColor())
+      .clip(true)
+
+      // 查看：卡片外的左下角（行内左侧与卡片左缘齐平）
+      Row() {
+        Text('查看')
+          .fontSize(11.5)
+          .fontColor(this.secondaryText())
+      }
+      .padding({ left: this.rpx(14), right: this.rpx(14), top: this.rpx(5), bottom: this.rpx(5) })
+      .borderRadius(this.rpx(12))
+      .border({ width: 0.5, color: this.ruleColor() })
+      .backgroundColor(this.fill2Color())
+      .margin({ top: this.rpx(10) })
+      .onClick(() => {
+        this.onViewStep(item);
+      })
+    }
     .width('100%')
-    .borderRadius(this.rpx(22))
-    .border({ width: 0.5, color: this.ruleColor() })
-    .backgroundColor(this.fillColor())
+    .alignItems(HorizontalAlign.Start)
     .margin({ bottom: this.rpx(16) })
-    .clip(true)
   }
 
   /** 普通工具详情（对齐小程序 .tool-detail：左缩进 44rpx，「调用参数」+「结果」两段代码块） */
   @Builder
   toolDetail(item: ConversationItem) {
-    Column() {
+    // 对齐 DSH：整块一张卡（淡底 + 细边），里面「调用参数 / 调用结果」各自一个代码块，
+    // 底部左下角一个「查看」，点了跳到轨迹页对应行。
+    Column({ space: 0 }) {
       if (this.argsText(item).length > 0) {
-        Text('调用参数')
-          .fontSize(12)
-          .fontWeight(FontWeight.Bold)
+        Text(this.argsLabel(item))
+          .fontSize(11.5)
           .fontColor(this.secondaryText())
           .width('100%')
-          .margin({ top: this.rpx(10), bottom: this.rpx(10) })
+          .margin({ bottom: this.rpx(6) })
         Text(this.argsText(item))
           .fontSize(11)
-          .lineHeight(this.rpx(34))
+          .lineHeight(this.rpx(32))
           .fontColor(this.primaryText())
           .fontFamily('monospace')
           .width('100%')
-          .padding(this.rpx(20))
-          .borderRadius(this.rpx(20))
+          .padding(this.rpx(16))
+          .borderRadius(this.rpx(14))
           .backgroundColor(this.fill2Color())
           .copyOption(CopyOptions.LocalDevice)
+          .margin({ bottom: this.rpx(12) })
       }
       if (this.resultText(item).length > 0) {
-        Text(item.isError === true ? '错误' : '结果')
-          .fontSize(12)
-          .fontWeight(FontWeight.Bold)
+        Text(item.isError === true ? '错误' : this.resultLabel(item))
+          .fontSize(11.5)
           .fontColor(item.isError === true ? '#E5484D' : this.secondaryText())
           .width('100%')
-          .margin({ top: this.rpx(10), bottom: this.rpx(10) })
+          .margin({ bottom: this.rpx(6) })
         Text(this.resultText(item))
           .fontSize(11)
-          .lineHeight(this.rpx(34))
+          .lineHeight(this.rpx(32))
           .fontColor(this.primaryText())
           .fontFamily('monospace')
           .width('100%')
-          .padding(this.rpx(20))
-          .borderRadius(this.rpx(20))
+          .padding(this.rpx(16))
+          .borderRadius(this.rpx(14))
           .backgroundColor(this.fill2Color())
           .copyOption(CopyOptions.LocalDevice)
+          .margin({ bottom: this.rpx(12) })
+      }
+      // 底部左下角：查看（跳轨迹）；后台任务行本身就在轨迹里另有入口，不再重复给「查看」
+      if (ConversationFeed.jobToolLabel(item.title).length === 0) {
+      Row() {
+        Text('查看')
+          .fontSize(11.5)
+          .fontColor(this.secondaryText())
+      }
+      .padding({ left: this.rpx(14), right: this.rpx(14), top: this.rpx(5), bottom: this.rpx(5) })
+      .borderRadius(this.rpx(12))
+      .border({ width: 0.5, color: this.ruleColor() })
+      .backgroundColor(this.fillColor())
+      .onClick(() => {
+        this.onViewStep(item);
+      })
       }
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding({ left: this.rpx(44), bottom: this.rpx(12) })
+    // 不再给整块套背景：两段（TypeScript / 输出）各自已有背景块。
+    // 缩进用 padding（不能用 margin）：width 100% + margin-left 会把内容推出父容器、看起来偏左且被裁。
+    // 44rpx = 图标槽 32rpx + 图标与文字间距 10rpx，正好对齐上面「代码 · …」的文字左缘。
+    .width('100%')
+    .padding({ left: this.rpx(42), right: this.rpx(6), bottom: this.rpx(12) })
   }
 
   /** 上下文详情（对齐小程序 .event-body：左侧 2rpx 竖线 + 缩进正文） */
@@ -2780,14 +2907,6 @@ export struct ConversationRowView {
           .constraintSize({ maxWidth: '48%' })
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-        if (this.stepStatus(item).length > 0) {
-          Text(this.stepStatus(item))
-            .fontSize(10.6)
-            .fontWeight(item.isError === true ? FontWeight.Bold : FontWeight.Normal)
-            .fontColor(item.isError === true ? '#E5533C' : this.tertiaryText())
-            .flexShrink(0)
-            .maxLines(1)
-        }
         // 工具产出的图片：默认只显示一行带下划线的文字链接，点击弹窗预览
         if (this.stepAttachmentName(item).length > 0) {
           Text('· ' + this.stepAttachmentName(item))
@@ -2805,12 +2924,23 @@ export struct ConversationRowView {
               }
             })
         }
-        if (ConversationFeed.toolFace(item.title, item.text).detail.length > 0) {
-          Text('·')
-            .fontSize(12.6)
-            .fontColor(this.tertiaryText())
+        // 失败步骤：标签后接「· 错误：<详情>」（对齐 DSH，不再在行尾重复「失败」）
+        if (item.isError === true && (ConversationFeed.toolFace(item.title, item.text).detail.length > 0
+          || this.stepAttachmentName(item).length > 0)) {
+          Text('· 错误：')
+            .fontSize(11.5)
+            .fontColor('#E5484D')
             .flexShrink(0)
-          Text(ConversationFeed.toolFace(item.title, item.text).detail)
+        }
+        if (ConversationFeed.toolFace(item.title, item.text).detail.length > 0) {
+          // 错误行前面已经输出过「· 错误：」，这里不再重复一个「·」
+          if (item.isError !== true) {
+            Text('·')
+              .fontSize(12.6)
+              .fontColor(this.tertiaryText())
+              .flexShrink(0)
+          }
+          Text(ConversationFeed.toolFace(item.title, item.text).detail + this.trailingStatus(item))
             .fontSize(11.5)
             .lineHeight(16.5)
             // 过程文字统一用默认色（用户明确要求：不要蓝色）。
@@ -2818,7 +2948,7 @@ export struct ConversationRowView {
             .fontColor(this.tertiaryText())
             .layoutWeight(1)
             // 不省略：路径/命令参数要完整显示，允许换行（用户要求对齐截图的完整展示）
-            .maxLines(3)
+            .maxLines(6)
             .wordBreak(WordBreak.BREAK_ALL)
             .onClick(() => {
               const imagePath: string = this.stepImagePath(item);
@@ -2830,7 +2960,7 @@ export struct ConversationRowView {
       }
     }
     .width('100%')
-    .padding({ top: this.rpx(8), bottom: this.rpx(8) })
+    .padding({ top: this.rpx(8), bottom: this.rpx(8) }) 
     .constraintSize({ minHeight: this.rpx(56) })
     .alignItems(VerticalAlign.Center)
   }

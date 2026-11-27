@@ -46,12 +46,38 @@ export struct TrajectoryPanel {
   };
   @State private inspectorOpen: boolean = false;
   @State private inspectorKey: string = '';
+  /** 会话页「查看」写入的工具调用 id；非空时定位到该行并打开详情面板 */
+  @StorageLink('traceFocusCallId') @Watch('onFocusCallId') focusCallId: string = '';
   /** 详情面板当前页签：summary / preview / raw / input / output / timing */
   @State private inspectorTab: string = 'summary';
   /** 概览三个统计项的交互：时长=时间轴实际/等宽，轮次=按轮汇总视图，调用=只看工具调用 */
   @State private laneEqual: boolean = false;
   @State private viewMode: string = 'all';
   private inspectorScroller: Scroller = new Scroller();
+
+  /** 「查看」跳转：按 callId 找到轨迹行，滚动到位并展开详情 */
+  onFocusCallId(): void {
+    const target: string = this.focusCallId;
+    if (target.length === 0) {
+      return;
+    }
+    for (let index = 0; index < this.rows.length; index++) {
+      const row: TraceRow = this.rows[index];
+      const id: string = row.callId === undefined ? '' : row.callId;
+      if (id === target) {
+        this.inspectorKey = row.key;
+        this.inspectorOpen = true;
+        this.inspectorTab = 'summary';
+        try {
+          this.inspectorScroller.scrollToIndex(index);
+        } catch (error) {
+        }
+        AppStorage.setOrCreate('traceFocusCallId', '');
+        return;
+      }
+    }
+    AppStorage.setOrCreate('traceFocusCallId', '');
+  }
 
   private textColor(): string {
     return this.isDark ? '#F1F4FA' : '#101318';

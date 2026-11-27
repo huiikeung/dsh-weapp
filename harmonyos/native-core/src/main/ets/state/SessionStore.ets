@@ -244,6 +244,16 @@ export class SessionStore {
   /** 正在吃 assistant-stream 增量（仅用于状态记录） */
   private assistantStreamActive: boolean = false;
   /**
+   * 回合结束后待重建标记：实时流与历史回填可能只拼出半截正文
+   * （最后一段要么晚到、要么被收口截断），而「退出重进」用的是历史重建，永远是完整的。
+   * 收工后补拉的历史到达时按历史重建一次，实时态就与重新进入完全一致。
+   */
+  private rebuildAfterTurn: boolean = false;
+  /** 诊断：本回合流式累计的「正文 / 思考」字符数与收口时行文本长度（定位尾部丢失） */
+  private diagTextLen: number = 0;
+  private diagReasonLen: number = 0;
+  private diagTurn: number = -1;
+  /**
    * 每轮 token 用量（对话页脚「用量」按钮）：turnKey → 累计值。
    * 同一回合可能有多次 attempt/重试，按小程序 turn-usage 的口径累加（都是真实计费）。
    */
@@ -1107,6 +1117,13 @@ export class SessionStore {
       }
     }
     Logger.info('history incremental +' + fresh.length.toString() + ' maxSeq=' + this.projectedMaxSeq.toString());
+    // 回合刚结束、又有新历史到：按历史重建，实时态与「退出重进」保持一致
+    if (this.rebuildAfterTurn && !this.running) {
+      this.rebuildAfterTurn = false;
+      Logger.info('turn-end rebuild (history) fresh=' + fresh.length.toString());
+      this.rebuildProjection();
+      return;
+    }
     this.publishConversation();
   }
 
@@ -1151,11 +1168,31 @@ export class SessionStore {
     for (const raw of olderUserEvents.slice(-20)) {
       this.appendRaw(raw);
     }
+    // 历史回放同时校正「最近一条助手正文」：流式会丢尾帧，lastAssistantText 可能只有半截，
+    // 而回合收尾的回填气泡就是用它渲染的 —— 于是最后一段永远不显示，退出重进才完整。
+    let historyLastAssistant: string = '';
     for (let index = replayStart; index < this.rawEvents.length; index++) {
       const raw: RawSessionEvent = this.rawEvents[index];
       this.appendRaw(raw);
       if (raw.seq > this.projectedMaxSeq) {
         this.projectedMaxSeq = raw.seq;
+      }
+      if (raw.type === 'assistant/message') {
+        const payload: Record<string, Object> | undefined = raw.data as Record<string, Object> | undefined;
+        if (payload !== undefined) {
+          const text: Object | undefined = payload['text'];
+          if (text !== undefined && typeof text === 'string' && (text as string).length > 0) {
+            historyLastAssistant = text as string;
+          }
+        }
+      }
+    }
+    if (historyLastAssistant.length > 0) {
+      // 只在「历史更完整」时采纳：历史是权威，但若本地已有更长的实时正文（历史还没写入），保持本地不动
+      if (this.lastAssistantText.length === 0
+        || (historyLastAssistant.length > this.lastAssistantText.length
+          && historyLastAssistant.startsWith(this.lastAssistantText))) {
+        this.lastAssistantText = historyLastAssistant;
       }
     }
     this.replayingHistory = false;
@@ -1230,9 +1267,9 @@ export class SessionStore {
     const labels: ConversationProjectionLabels = {
       userMessage: '你',
       context: '上下文注入 · ',
-      streamingAssistant: 'DeepSeek · 正在生成',
+      streamingAssistant: 'flukit · 正在生成…',
       streamingReasoning: 'Think · 正在推理',
-      finalAssistant: 'DeepSeek',
+      finalAssistant: 'flukit',
       finalReasoning: 'Think',
       assemblingTool: '工具调用 · 正在组装',
       toolResultDone: '工具完成',
@@ -1521,6 +1558,16 @@ export class SessionStore {
       this.turnEndedAt = Date.now();
       this.stopLiveTicker();
       this.publishConversation();
+      // 收工后按历史重建一次（等补拉的历史落地），保证「不用退出重进也能看到完整正文」
+      this.rebuildAfterTurn = true;
+      setTimeout(() => {
+        if (this.running || !this.rebuildAfterTurn) {
+          return;
+        }
+        this.rebuildAfterTurn = false;
+        Logger.info('turn-end rebuild (timer)');
+        this.rebuildProjection();
+      }, 900);
       // 任务完成：通知开关开启且 App 在后台时，发鸿蒙系统通知（前台正看着该会话就不打扰）
       this.publishTurnCompletedNotification();
     }
@@ -1839,6 +1886,26 @@ export class SessionStore {
       const since: number = keptSince[index];
       const at: number = since >= 0 ? Math.min(since + index, items.length) : items.length;
       items.splice(at, 0, kept[index]);
+    }
+    // 收口校正：把「最后一条助手行」的正文补齐到本回合累积的完整正文。
+    // 流式尾帧被 assistant/message 提前 finalize 掐断时（finalizedKeys 之后的 chunk 被丢弃），
+    // 行文本会短一截，表现为「回复最后一段不显示，退出重进才完整」。
+    // 只在严格前缀扩展时生效，不会把别的内容覆盖进去。
+    if (!this.running && this.diagTextLen > 0) {
+      let lastRowLen: number = -1;
+      let lastRowId: string = '';
+      for (let index = items.length - 1; index >= 0; index--) {
+        const one: ConversationItem = items[index];
+        if ((one.kind as string) === (ConversationItemKind.ASSISTANT as string)) {
+          lastRowLen = one.text.length;
+          lastRowId = one.id;
+          break;
+        }
+      }
+      Logger.info('STREAMDIAG text=' + this.diagTextLen.toString() + ' reason=' + this.diagReasonLen.toString()
+        + ' lastAssistant=' + this.lastAssistantText.length.toString()
+        + ' lastRow=' + lastRowLen.toString() + ' id=' + lastRowId);
+      this.diagTextLen = 0;
     }
     // 回合刚收工、投影里还没有最终答复时先补上最近流式正文，
     // 保证「已完成」下面立刻有内容（对齐小程序回填逻辑）；真实答复到达后这里会自动让位。
@@ -2861,6 +2928,8 @@ export class SessionStore {
     const type: string = str(payload, 'type') ?? 'chunk';
     if (type === 'start') {
       this.assistantStreamActive = true;
+      this.diagTextLen = 0;
+      this.diagReasonLen = 0;
       if (this.replayingHistory) {
         return;
       }
@@ -2904,6 +2973,11 @@ export class SessionStore {
       Logger.info('stream lag=' + (Date.now() - sentMs).toString() + 'ms chunk=' + this.streamChunkCount.toString());
     }
     const declaredType: string = chunk === undefined ? 'text' : (str(chunk, 'type') ?? 'text');
+    if (declaredType.indexOf('text') >= 0) {
+      this.diagTextLen += text.length;
+    } else if (declaredType.indexOf('reason') >= 0) {
+      this.diagReasonLen += text.length;
+    }
     this.emitLiveAssistantChunk(this.liveChunkType(declaredType), text,
       num(payload, 'turn'), num(payload, 'step'));
     if (this.liveTimer < 0) {
@@ -2921,10 +2995,12 @@ export class SessionStore {
 
   /** 网关 chunk 类型 → 投影认识的类型（text / reasoning 简写兼容）。 */
   private liveChunkType(declared: string): string {
-    if (declared === 'text' || declared === 'text-delta') {
+    // 网关的正文分片有 text / text-delta / text-chunks 三种，思考有 reasoning / reasoning-delta /
+    // reasoning-chunks / reasoning-text。以前只映射了前两种，其余原样透传 → 投影器不认识 → 整段丢弃。
+    if (declared.indexOf('text') >= 0) {
       return 'text-delta';
     }
-    if (declared === 'reasoning' || declared === 'reasoning-delta') {
+    if (declared.indexOf('reason') >= 0) {
       return 'reasoning-delta';
     }
     return declared;

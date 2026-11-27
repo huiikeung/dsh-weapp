@@ -290,13 +290,29 @@ function toolResultText(message: Object | undefined): string {
   const content = arr(message, 'content') ?? [];
   const parts: string[] = [];
   for (const block of content) {
-    for (const inner of (arr(block, 'content') ?? [])) {
-      if (str(inner, 'type') === 'text') {
-        const t = str(inner, 'text');
-        if (t !== undefined) {
-          parts.push(t);
-        }
+    // 1) 最常见：tool-result 块里再套 text 块
+    const innerBlocks = arr(block, 'content') ?? [];
+    let nested: boolean = false;
+    for (const inner of innerBlocks) {
+      const t = str(inner, 'text');
+      if (t !== undefined && t.length > 0) {
+        parts.push(t);
+        nested = true;
       }
+    }
+    // 2) 退化形态：块本身就是 text（有些工具直接给 content:[{type:'text',text:'...'}]）
+    if (!nested) {
+      const t = str(block, 'text');
+      if (t !== undefined && t.length > 0) {
+        parts.push(t);
+      }
+    }
+  }
+  // 3) 再兜底：message.text / message.preview（PTC / run_code 一类）
+  if (parts.length === 0) {
+    const flat = str(message, 'text') ?? str(message, 'preview');
+    if (flat !== undefined && flat.length > 0) {
+      parts.push(flat);
     }
   }
   return parts.join('');

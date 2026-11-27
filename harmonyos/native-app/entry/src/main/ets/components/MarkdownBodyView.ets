@@ -62,6 +62,10 @@ export struct MarkdownBodyView {
   @Prop imageRevision: number = 0;
 
   @State private blocks: MarkdownBlock[] = [];
+  /** 解析器没覆盖到的原文尾巴（原样补渲染，避免「最后一段不显示」） */
+  @State private tailText: string = '';
+  /** 诊断：上次打印时间（1s 节流） */
+  private diagAt: number = 0;
   private parseTimer: number = -1;
   private lastParseAt: number = 0;
 
@@ -223,6 +227,13 @@ export struct MarkdownBodyView {
   private parseNow(): void {
     this.lastParseAt = Date.now();
     this.blocks = MarkdownLite.parse(this.text);
+    // 诊断：行文本到底有没有「最后一段」，以及解析出多少块
+    if (this.text.length > 200 && Date.now() - this.diagAt > 1000) {
+      this.diagAt = Date.now();
+      const tail: string = this.text.substring(Math.max(0, this.text.length - 34)).replace(/\s+/g, ' ');
+      Logger.info('MDDIAG len=' + this.text.length.toString() + ' blocks=' + this.blocks.length.toString()
+        + ' tail=' + tail);
+    }
     // 安全网：解析结果如果明显丢字（各块文本拼起来远少于原文），
     // 直接退回「整段纯文本」渲染。自定义 Markdown 解析在某些混排（中文 + 行内代码 +
     // 全角标点）下会丢段，界面上就出现「每行只剩几个字、后半句没了」。
@@ -252,6 +263,29 @@ export struct MarkdownBodyView {
         spans: MarkdownLite.inline(this.text), index: 0, headers: [], rows: []
       };
       this.blocks = [plain];
+      this.tailText = '';
+      return;
+    }
+    // 尾段兜底：最后一块在原文里的结束位置之后如果还有内容，说明解析器把末尾吃掉了
+    // （常见于「列表后面紧跟一段正文」的结尾）。这里把未覆盖的尾巴原样补成一段纯文本，
+    // 保证「回复最后一段永远不丢」——以前只能退出重进才显示。
+    this.tailText = '';
+    if (this.blocks.length > 0) {
+      const last: MarkdownBlock = this.blocks[this.blocks.length - 1];
+      const body: string = last.text === undefined ? '' : last.text;
+      const probe: string = body.length > 0 ? body : (last.spans.length > 0 ? last.spans[last.spans.length - 1].text : '');
+      if (probe.length > 0) {
+        const at: number = this.text.lastIndexOf(probe);
+        if (at >= 0) {
+          const end: number = at + probe.length;
+          if (end < this.text.length) {
+            const rest: string = this.text.substring(end).trim();
+            if (rest.length > 0) {
+              this.tailText = rest;
+            }
+          }
+        }
+      }
     }
   }
 
@@ -728,6 +762,17 @@ export struct MarkdownBodyView {
         this.blockView(block)
       }, (block: MarkdownBlock, index: number) => index.toString() + block.kind + '_' + this.themeGeneration
         + '_' + this.imageRevision.toString())
+      // 解析器漏掉的尾段：原样补一段（不参与 Markdown 语法），宁可能看到样式朴素也不能丢内容
+      if (this.tailText.length > 0) {
+        Text(this.tailText)
+          .fontSize(this.fontSize)
+          .lineHeight(this.fontSize * 1.5)
+          .fontColor(this.bodyColor())
+          .fontFamily(BODY_FONT)
+          .width('100%')
+          .textAlign(this.justifyText ? TextAlign.JUSTIFY : TextAlign.Start)
+          .copyOption(this.selectable ? CopyOptions.LocalDevice : CopyOptions.None)
+      }
     }
     .alignItems(HorizontalAlign.Start)
     .width('100%')
