@@ -306,6 +306,9 @@ export default class EntryAbility extends UIAbility {
     GatewayClient.get().revalidateOnForeground();
     Logger.info('FG_TIMING revalidate +' + (Date.now() - fgStart));
     AppStorage.setOrCreate<string>('appLifecycle', 'foreground');
+    // 通知首页：回到前台了。首次启动的系统隐私弹窗点完后，自己的同意弹窗可能在
+    // 窗口未前台时被打开成「隐形模态」，这里让首页重来一次（见 Index.onConsentNudge）。
+    AppStorage.setOrCreate<number>('consentNudge', (AppStorage.get<number>('consentNudge') ?? 0) + 1);
     // 回到前台：清掉任务完成的桌面角标
     NotificationService.clearBadge().catch(() => {
     });

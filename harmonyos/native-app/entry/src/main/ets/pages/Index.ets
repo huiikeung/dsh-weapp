@@ -48,6 +48,8 @@ struct Index {
   @StorageLink('isDark') isDark: boolean = false;
   /** 首次启动隐私同意：unknown / required / granted，未同意前不自动联网（见 EntryAbility.startNetworking） */
   @StorageLink('privacyConsentState') @Watch('onConsentStateChanged') consentState: string = 'unknown';
+  /** 回到前台的自增计数：EntryAbility 每次 onForeground +1，用来重试被系统弹窗挡住的同意弹窗 */
+  @StorageLink('consentNudge') @Watch('onConsentNudge') consentNudge: number = 0;
   /** 正在查看《用户协议》/《隐私政策》：此时不弹同意弹窗，返回首页后再弹 */
   @State consentDocOpen: boolean = false;
   /** 系统同意弹窗的 id（openCustomDialog 返回）；-1 表示没在显示 */
@@ -255,6 +257,23 @@ struct Index {
   }
 
   /**
+   * 回到前台的自增计数（EntryAbility.onForeground 里 +1）。
+   * 首次启动时系统隐私弹窗会盖在应用窗口上：那期间 openCustomDialog 成功但窗口未前台，
+   * 弹窗「打开了却看不见」且 modal 拦截输入 —— 表现就是系统弹窗点完、我们的弹不出来还卡死。
+   * 这里在回到前台时强制重来一次：先关掉可能存在的隐形弹窗，再重新弹。
+   */
+  onConsentNudge(): void {
+    if (this.consentState !== 'required' || this.consentDocOpen) {
+      return;
+    }
+    Logger.info('CONSENT nudge on foreground, reopen dialog');
+    this.closeConsentDialog();
+    setTimeout(() => {
+      this.syncConsentDialog();
+    }, 120);
+  }
+
+  /**
    * 同意状态：unknown（偏好还没读出来）/ required（需要用户同意）/ granted（已同意）。
    * 由 EntryAbility 在偏好初始化后写入，用户点同意后由 PrivacyConsent.agree() 改成 granted。
    */
@@ -264,6 +283,11 @@ struct Index {
       return;
     }
     if (this.consentState === 'required' && !this.consentDocOpen) {
+      // 只在应用真正在前台时弹：系统隐私弹窗期间窗口未前台，此时 openCustomDialog
+      // 会得到「打开了但看不见的模态弹窗」，用户点完系统弹窗后就是黑屏/卡死。
+      if ((AppStorage.get<string>('appLifecycle') ?? 'foreground') !== 'foreground') {
+        return;
+      }
       // 等页面首帧之后再弹，避免在页面还没挂载时 open()
       setTimeout(() => {
         this.showConsentDialog();
