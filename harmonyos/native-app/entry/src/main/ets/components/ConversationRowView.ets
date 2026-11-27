@@ -78,6 +78,11 @@ export struct ConversationRowView {
   private reasonContentH: number = 0;
   private reasonFollowAt: number = 0;
   /** 打字机：已显示字符数 / 对应思考段 id / 推进 timer（仅运行中的思考卡启用） */
+  @State reasonTyped: number = 0;
+  @State reasonTypedFor: string = '';
+  private reasonTypeTimer: number = -1;
+  private reasonLiveId: string = '';
+  private reasonLiveText: string = '';
   /** 会话正文/用户气泡字号档位（设置页「字号大小」，响应式） */
   @StorageProp('contentFontSize') contentFontSize: string = '标准';
   /** 执行图标动效样式（设置页「执行图标」，13 种） */
@@ -2897,6 +2902,35 @@ export struct ConversationRowView {
     return cached.length > 0 ? this.imageSource(cached) : '';
   }
 
+  /**
+   * 折叠态步骤详情：超过 44 字符时按路径分段只保留末尾 N 级（前缀 .\），文件名必须可见；
+   * 短文本/非路径文本原样返回。展开态（stepOpen）不走这里，显示完整多行。
+   */
+  private stepTailPreview(detail: string): string {
+    if (detail.length <= 44) {
+      return detail;
+    }
+    const sep: string = detail.indexOf('\\') >= 0 ? '\\' : '/';
+    if (detail.indexOf(sep) < 0) {
+      return detail;
+    }
+    const parts: string[] = detail.split(sep).filter((p: string) => p.length > 0);
+    if (parts.length < 2) {
+      return detail;
+    }
+    let take: number = 1;
+    let out: string = '.' + sep + parts[parts.length - 1];
+    while (take < parts.length) {
+      const cand: string = '.' + sep + parts.slice(parts.length - take - 1).join(sep);
+      if (cand.length > 44) {
+        break;
+      }
+      out = cand;
+      take++;
+    }
+    return out;
+  }
+
   /** 步骤行（对齐 .disclosure-head.tool：gap 10rpx、padding 8rpx 0、min-height 56rpx） */
   @Builder
   stepHead(item: ConversationItem) {
@@ -2992,15 +3026,17 @@ export struct ConversationRowView {
               .fontColor(this.tertiaryText())
               .flexShrink(0)
           }
-          Text(ConversationFeed.toolFace(item.title, item.text).detail + this.trailingStatus(item))
+          // 折叠态单行：路径按末尾 N 级缩短（.\xx\name），点开展开后显示完整多行
+          Text((this.stepOpen(item.id)
+            ? ConversationFeed.toolFace(item.title, item.text).detail
+            : this.stepTailPreview(ConversationFeed.toolFace(item.title, item.text).detail)) + this.trailingStatus(item))
             .fontSize(11.5)
             .lineHeight(16.5)
             // 过程文字统一用默认色（用户明确要求：不要蓝色）。
             // 图片路径仍然可以点开预览，但不再靠颜色区分。
             .fontColor(this.tertiaryText())
             .layoutWeight(1)
-            // 不省略：路径/命令参数要完整显示，允许换行（用户要求对齐截图的完整展示）
-            .maxLines(6)
+            .maxLines(this.stepOpen(item.id) ? 6 : 1)
             .wordBreak(WordBreak.BREAK_ALL)
             .onClick(() => {
               const imagePath: string = this.stepImagePath(item);
