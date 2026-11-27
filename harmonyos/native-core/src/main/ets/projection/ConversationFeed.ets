@@ -955,14 +955,24 @@ export class ConversationFeed {
     // 容器内只保留最新这段（从最后一次思考开始）的过程。
     entry.liveFoldCount = 0;
     if (policy.readingSummary && entry.running && entry.items.length > 1) {
+      // 折叠设计（滑动窗口）：容器里只保留最近 KEEP_LIVE 步「活链」，更早的步骤全部收进
+      // 「思考×N · 输出×N · 工具×N · 记录×N」折叠条 —— 折叠条因此始终可见：有思考时标签带思考×N，
+      // 没思考的纯工具轮就是「工具×N（·记录×N）」，不会再因为「没有第二次思考」而永不折叠。
+      // 有思考时再和「最后一次思考」取 max：保证最新思考卡和它之后的工具步骤一定在活链里。
+      // 点折叠条按原顺序展开全部（liveFoldOpen），收起时回到窗口视图。
       let lastReasoning: number = -1;
       for (let index = 0; index < entry.items.length; index++) {
         if (entry.items[index].kind === ConversationItemKind.REASONING) {
           lastReasoning = index;
         }
       }
-      if (lastReasoning > 0) {
-        entry.liveFoldCount = lastReasoning;
+      const keepLive: number = 6;
+      let foldTo: number = entry.items.length - keepLive;
+      if (lastReasoning > foldTo) {
+        foldTo = lastReasoning;
+      }
+      if (foldTo > 0) {
+        entry.liveFoldCount = foldTo;
       }
     }
     // 简洁档运行中：只留活动组那一行「正在…」，已收工组的标题也收起来
