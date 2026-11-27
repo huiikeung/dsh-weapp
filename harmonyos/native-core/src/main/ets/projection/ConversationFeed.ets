@@ -548,9 +548,12 @@ export class ConversationFeed {
         groups.push(open);
         continue;
       }
+      // 运行中的「最新一段正文」一律不进过程组 —— 它就是这次的回答，独立成行实时增长。
+      // 之前把它塞进组里（running && inLastTurn），每次 delta 都在组内外来回搬，
+      // 行被反复创建/销毁，表现就是回复文本一直闪。只有「后面确实还有下一段助手正文」
+      // 的才是过程叙述 narrative，才并进组。
       if (kind === ConversationItemKind.ASSISTANT as string && open !== null && !interruptedByUser
-        && ((running && ConversationFeed.inLastTurn(items, itemIndex))
-          || ConversationFeed.hasAssistantAheadInTurn(items, itemIndex, item.turn))) {
+        && ConversationFeed.hasAssistantAheadInTurn(items, itemIndex, item.turn)) {
         // 回合中段的过程文字：收进当前过程组，独立成行（narration）
         ConversationFeed.appendToGroup(open, item);
         continue;
