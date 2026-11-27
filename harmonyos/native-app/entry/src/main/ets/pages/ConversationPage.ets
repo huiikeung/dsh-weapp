@@ -3664,11 +3664,10 @@ export struct ConversationPage {
         return;
       }
       // 运行中无条件贴底：贴底判断失准会导致「跳回第一个内容」，这里直接滚到底。
+      // 用硬贴底（先归零再贴底）：折叠条计数跳变/组体收缩会让偏移悬空在内容之外，
+      // 此时软 scrollEdge 直接返回、空白留在屏幕上直到触摸才被夹回 —— 硬贴底每拍强制校正。
       this.stickScrollUntil = Date.now() + 400;
-      try {
-        this.scroller.scrollEdge(Edge.Bottom);
-      } catch (err) {
-      }
+      this.hardStickToBottom();
     }, 400);
     return;
     // 心跳已停用：它会隔 600ms 把视图拉回底部，

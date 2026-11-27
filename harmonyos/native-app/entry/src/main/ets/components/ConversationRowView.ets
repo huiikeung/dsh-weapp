@@ -71,18 +71,14 @@ export struct ConversationRowView {
   /** 自动跟随（对齐参考 ReasoningCard）：触摸即暂停，左下「继续跟随」恢复 */
   @State reasonAuto: boolean = true;
   @State reasonTouching: boolean = false;
-  /** 步进节拍：平时 840ms 一拍向后走 2 行；落后超过 2 行按 120ms/拍追赶（单跳 ≤40 行） */
-  private reasonPaceTimer: number = -1;
-  private reasonNextAt: number = 0;
-  /** 思考正文实测高度（内层 Column），节拍用它换算「落后行数」 */
-  private reasonContentH: number = 0;
-  private reasonFollowAt: number = 0;
-  /** 打字机：已显示字符数 / 对应思考段 id / 推进 timer（仅运行中的思考卡启用） */
-  @State reasonTyped: number = 0;
-  @State reasonTypedFor: string = '';
+  /** 打字机节拍：60ms 一拍，每拍补 2~6 颗字（落后越多补越快），始终匀速向后打印 */
   private reasonTypeTimer: number = -1;
-  private reasonLiveId: string = '';
-  private reasonLiveText: string = '';
+  /** 打字机目标正文与长度（随流式增长） */
+  private reasonFullText: string = '';
+  /** 已显示到的字符数（显示与到达解耦：正文立刻进缓冲，显示匀速补） */
+  @State reasonShown: number = 0;
+  private reasonFullFor: string = '';
+
   /** 会话正文/用户气泡字号档位（设置页「字号大小」，响应式） */
   @StorageProp('contentFontSize') contentFontSize: string = '标准';
   /** 执行图标动效样式（设置页「执行图标」，13 种） */
@@ -212,9 +208,9 @@ export struct ConversationRowView {
   }
 
   aboutToDisappear(): void {
-    if (this.reasonPaceTimer >= 0) {
-      clearInterval(this.reasonPaceTimer);
-      this.reasonPaceTimer = -1;
+    if (this.reasonTypeTimer >= 0) {
+      clearInterval(this.reasonTypeTimer);
+      this.reasonTypeTimer = -1;
     }
   }
 
@@ -2381,6 +2377,17 @@ export struct ConversationRowView {
    * 某些档位下运行态没有传到行上（liveDetail 有值/组体限高/最后一步仍在跑），
    * 用这几个信号兜底，避免思考卡按已结束处理→高度随内容增长把页面顶上去。
    */
+  /** 是否最后一个思考段：运行中只有它出思考卡，之前的段落收成紧凑步骤行 */
+  private isLastReasoning(item: ConversationItem): boolean {
+    const items: ConversationItem[] = this.entry.items;
+    for (let index = items.length - 1; index >= 0; index--) {
+      if ((items[index].kind as string) === 'REASONING') {
+        return items[index].id === item.id;
+      }
+    }
+    return false;
+  }
+
   private cardIsLive(): boolean {
     if (this.entry.running) {
       return true;
@@ -2414,39 +2421,32 @@ export struct ConversationRowView {
 
 
   /**
-   * 逐行跟随节拍（对齐参考 reasoning-follow / ReasoningCard）：
-   * 平时 840ms 一拍向后走 2 行（有序的「一行一行打出来」）；落后超过 2 行时以 120ms/拍追赶，
-   * 单跳最多 40 行，保证最新一行始终跟着正文；触摸即暂停（reasonAuto=false），
-   * 「继续跟随」或恢复后从当前位置重新起拍。
+   * 打字机：正文先入缓冲（reasonFullText），显示层按固定节奏（60ms 一拍补 2~6 字）向后打印，
+   * 一行满了随内容增长自然向上滚一行 —— 稳定的逐行生成效果，不再一团一团跳。
+   * 缓冲无上限：模型写得再快也只影响缓冲长度，显示速度恒定；追平即停，新正文到达再拉起。
    */
-  private startReasonPacer(): void {
-    if (this.reasonPaceTimer >= 0) {
+  private feedReasonTyping(item: ConversationItem): void {
+    const full: string = this.stepDetail(item);
+    if (this.reasonFullFor !== item.id) {
+      this.reasonFullFor = item.id;
+      this.reasonFullText = full;
+      this.reasonShown = 0;
+    } else if (full !== this.reasonFullText) {
+      this.reasonFullText = full;
+    }
+    if (this.reasonTypeTimer >= 0) {
       return;
     }
-    this.reasonNextAt = 0;
-    this.reasonPaceTimer = setInterval(() => {
-      if (!this.cardIsLive() || !this.reasonAuto || this.reasonTouching) {
+    this.reasonTypeTimer = setInterval(() => {
+      const target: number = this.reasonFullText.length;
+      if (this.reasonShown >= target) {
+        clearInterval(this.reasonTypeTimer);
+        this.reasonTypeTimer = -1;
         return;
       }
-      const viewH: number = this.RUNNING_CARD_HEIGHT;
-      const end: number = Math.max(0, this.reasonContentH - viewH);
-      if (end <= 0) {
-        return;
-      }
-      if (Date.now() < this.reasonNextAt) {
-        return;
-      }
-      const off: number = this.reasonScroller.currentOffset().yOffset;
-      const backlog: number = end - off;
-      const lineH: number = this.rpx(48);
-      const lines: number = Math.min(40, Math.max(2, Math.ceil(backlog / lineH)));
-      const target: number = Math.min(end, off + lineH * lines);
-      try {
-        this.reasonScroller.scrollTo({ xOffset: 0, yOffset: target });
-      } catch (err) {
-      }
-      this.reasonNextAt = Date.now() + (backlog > lineH * 2 ? 120 : 840);
-    }, 60);
+      const rest: number = target - this.reasonShown;
+      this.reasonShown = this.reasonShown + Math.min(rest, Math.max(2, Math.ceil(rest / 24)));
+    }, 30);
   }
 
   @Builder
@@ -2479,7 +2479,8 @@ export struct ConversationRowView {
       } else {
         Scroll(this.reasonScroller) {
           Column() {
-            Text(this.stepDetail(item))
+            // 打字机：显示已揭示部分（reasonShown 由节拍器匀速推进）
+            Text(this.reasonFullText.substring(0, Math.min(this.reasonShown, this.reasonFullText.length)))
               .fontSize(13)
               .lineHeight(this.rpx(48))
               .fontColor(this.secondaryText())
@@ -2490,14 +2491,8 @@ export struct ConversationRowView {
           .width('100%')
           .alignItems(HorizontalAlign.Start)
           .onAreaChange((_old: Area, newVal: Area) => {
-            // 思考正文实测高度：节拍用它算「落后多少行」
-            const h: number = Number(newVal.height);
-            if (h > 0) {
-              this.reasonContentH = h;
-            }
-            if (this.cardIsLive()) {
-              this.startReasonPacer();
-            }
+            // 正文（可能一大段）先入缓冲；显示按固定节奏逐字补，实现稳定的逐行打印
+            this.feedReasonTyping(item);
           })
         }
         // 运行中固定高度（不再随内容变高把页面往上顶）；结束后按内容估算高度
@@ -2534,9 +2529,8 @@ export struct ConversationRowView {
             .fontSize(11)
             .fontColor(this.secondaryText())
             .onClick(() => {
-              // 恢复跟随：节拍从当前位置重新走起
+              // 恢复跟随：打字机节拍从当前进度继续推进
               this.reasonAuto = true;
-              this.reasonNextAt = 0;
               this.onToggleReasonFollow();
             })
         } else {
@@ -3156,10 +3150,10 @@ export struct ConversationRowView {
             .onClick(() => {
               this.onToggleReasonCard(item.id);
             })
-          } else if ((item.kind as string) === 'REASONING' && (this.stepOpen(item.id) || this.entry.running || this.workStepMode === 'verbose')) {
+          } else if ((item.kind as string) === 'REASONING' && (this.stepOpen(item.id) || (this.entry.running && this.isLastReasoning(item)) || this.workStepMode === 'verbose')) {
             // 有思考正文就用「思考阅读卡」（左上角带「思考」标题 + 完整内容/收起阅读底栏）。
-            // 之前只有「展开状态或运行中」才用卡片，结算后思考会变成一行紧凑步骤，样式就变了。
-            // 展开的思考：直接铺阅读卡（对齐小程序 reasoning 展开态）
+            // 运行中只让最后一段思考出卡：之前的段落收成紧凑步骤行。以前每段都出卡、
+            // 多张卡共用同一个滚动控制器和同一个节拍器，互相打架 —— 有的卡空白、有的只有一点。
             this.reasoningCard(item)
           } else {
             this.stepNode(item)
