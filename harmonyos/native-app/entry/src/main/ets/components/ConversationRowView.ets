@@ -68,7 +68,21 @@ export struct ConversationRowView {
   private readonly RUNNING_CARD_HEIGHT: number = 210;
   /** 思考卡内部滚动控制器 */
   private reasonScroller: Scroller = new Scroller();
+  /** 自动跟随（对齐参考 ReasoningCard）：触摸即暂停，左下「继续跟随」恢复 */
+  @State reasonAuto: boolean = true;
+  @State reasonTouching: boolean = false;
+  /** 步进节拍：平时 840ms 一拍向后走 2 行；落后超过 2 行按 120ms/拍追赶（单跳 ≤40 行） */
+  private reasonPaceTimer: number = -1;
+  private reasonNextAt: number = 0;
+  /** 思考正文实测高度（内层 Column），节拍用它换算「落后行数」 */
+  private reasonContentH: number = 0;
   private reasonFollowAt: number = 0;
+  /** 打字机：已显示字符数 / 对应思考段 id / 推进 timer（仅运行中的思考卡启用） */
+  @State reasonTyped: number = 0;
+  @State reasonTypedFor: string = '';
+  private reasonTypeTimer: number = -1;
+  private reasonLiveId: string = '';
+  private reasonLiveText: string = '';
   /** 会话正文/用户气泡字号档位（设置页「字号大小」，响应式） */
   @StorageProp('contentFontSize') contentFontSize: string = '标准';
   /** 执行图标动效样式（设置页「执行图标」，13 种） */
@@ -198,6 +212,10 @@ export struct ConversationRowView {
   }
 
   aboutToDisappear(): void {
+    if (this.reasonPaceTimer >= 0) {
+      clearInterval(this.reasonPaceTimer);
+      this.reasonPaceTimer = -1;
+    }
   }
 
   private primaryText(): string {
@@ -2394,6 +2412,77 @@ export struct ConversationRowView {
     return count;
   }
 
+
+  /**
+   * 逐行跟随节拍（对齐参考 reasoning-follow / ReasoningCard）：
+   * 平时 840ms 一拍向后走 2 行（有序的「一行一行打出来」）；落后超过 2 行时以 120ms/拍追赶，
+   * 单跳最多 40 行，保证最新一行始终跟着正文；触摸即暂停（reasonAuto=false），
+   * 「继续跟随」或恢复后从当前位置重新起拍。
+   */
+  private startReasonPacer(): void {
+    if (this.reasonPaceTimer >= 0) {
+      return;
+    }
+    this.reasonNextAt = 0;
+    this.reasonPaceTimer = setInterval(() => {
+      if (!this.cardIsLive() || !this.reasonAuto || this.reasonTouching) {
+        return;
+      }
+      const viewH: number = this.RUNNING_CARD_HEIGHT;
+      const end: number = Math.max(0, this.reasonContentH - viewH);
+      if (end <= 0) {
+        return;
+      }
+      if (Date.now() < this.reasonNextAt) {
+        return;
+      }
+      const off: number = this.reasonScroller.currentOffset().yOffset;
+      const backlog: number = end - off;
+      const lineH: number = this.rpx(48);
+      const lines: number = Math.min(40, Math.max(2, Math.ceil(backlog / lineH)));
+      const target: number = Math.min(end, off + lineH * lines);
+      try {
+        this.reasonScroller.scrollTo({ xOffset: 0, yOffset: target });
+      } catch (err) {
+      }
+      this.reasonNextAt = Date.now() + (backlog > lineH * 2 ? 120 : 840);
+    }, 60);
+  }
+
+  /** 思考卡正文：运行中的卡按打字机进度逐字显示，非运行卡整段显示 */
+  private reasonDisplay(item: ConversationItem): string {
+    const full: string = this.stepDetail(item);
+    if (!this.cardIsLive()) {
+      return full;
+    }
+    return full.substring(0, Math.min(this.reasonTyped, full.length));
+  }
+
+  /**
+   * 打字机推进：内容区域变化 = 有新正文；每 30ms 补几颗字（落后越多补得越快，始终在追），
+   * 追平即停，正文继续增长时由 onAreaChange 重新拉起。同一时间只有一段思考在打。
+   */
+  private ensureReasonTyping(item: ConversationItem): void {
+    const full: string = this.stepDetail(item);
+    if (this.reasonLiveId !== item.id) {
+      this.reasonLiveId = item.id;
+      this.reasonTyped = 0;
+    }
+    this.reasonLiveText = full;
+    if (this.reasonTypeTimer >= 0) {
+      return;
+    }
+    this.reasonTypeTimer = setInterval(() => {
+      if (this.reasonTyped >= this.reasonLiveText.length) {
+        clearInterval(this.reasonTypeTimer);
+        this.reasonTypeTimer = -1;
+        return;
+      }
+      const rest: number = this.reasonLiveText.length - this.reasonTyped;
+      this.reasonTyped = this.reasonTyped + Math.min(rest, Math.max(2, Math.ceil(rest / 24)));
+    }, 30);
+  }
+
   @Builder
   reasoningCard(item: ConversationItem) {
     Column() {
@@ -2424,7 +2513,8 @@ export struct ConversationRowView {
       } else {
         Scroll(this.reasonScroller) {
           Column() {
-            Text(this.stepDetail(item))
+            // 打字机：运行中的思考卡按 reveal 进度逐字显示（见 reasonDisplay / ensureReasonTyping）
+            Text(this.reasonDisplay(item))
               .fontSize(13)
               .lineHeight(this.rpx(48))
               .fontColor(this.secondaryText())
@@ -2434,23 +2524,15 @@ export struct ConversationRowView {
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)
-          .onAreaChange(() => {
-            // 运行中：卡片高度固定，正文只在卡内向上滚，页面高度不变 → 外层不用一直上推
-            // 用户点了「暂停跟随」后就不再自动滚，交给手动滑动阅读
-            if (!this.cardIsLive() || this.reasonFollowPaused) {
-              return;
+          .onAreaChange((_old: Area, newVal: Area) => {
+            // 思考正文实测高度：节拍用它算「落后多少行」
+            const h: number = Number(newVal.height);
+            if (h > 0) {
+              this.reasonContentH = h;
             }
-            const now: number = Date.now();
-            if (now - this.reasonFollowAt < 150) {
-              return;
+            if (this.cardIsLive()) {
+              this.startReasonPacer();
             }
-            this.reasonFollowAt = now;
-            setTimeout(() => {
-              try {
-                this.reasonScroller.scrollEdge(Edge.Bottom);
-              } catch (err) {
-              }
-            }, 40);
           })
         }
         // 运行中固定高度（不再随内容变高把页面往上顶）；结束后按内容估算高度
@@ -2467,8 +2549,15 @@ export struct ConversationRowView {
         })
         // 手指一按下就暂停「跟随滚动」，否则自动滚到底会和手动拖动打架（表现为拖不动）
         .onTouch((event: TouchEvent) => {
-          if (event.type === TouchType.Down && this.cardIsLive() && !this.reasonFollowPaused) {
-            this.onToggleReasonFollow();
+          if (event.type === TouchType.Down) {
+            this.reasonTouching = true;
+            // 触摸即暂停自动跟随：只改本地状态（不触发页面重投影/行重建），
+            // 卡内 SELF_FIRST 滚动可以正常拖动查看，不会被跟随节拍打断
+            if (this.cardIsLive() && this.reasonAuto) {
+              this.reasonAuto = false;
+            }
+          } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+            this.reasonTouching = false;
           }
         })
       }
@@ -2476,10 +2565,13 @@ export struct ConversationRowView {
       Row() {
         // 左下：生成中显示「暂停跟随 / 继续跟随」；结束后显示阅读状态（对齐插件）
         if (this.cardIsLive()) {
-          Text(this.reasonFollowPaused ? '继续跟随' : '暂停跟随')
+          Text(this.reasonAuto ? '暂停跟随' : '继续跟随')
             .fontSize(11)
             .fontColor(this.secondaryText())
             .onClick(() => {
+              // 恢复跟随：节拍从当前位置重新走起
+              this.reasonAuto = true;
+              this.reasonNextAt = 0;
               this.onToggleReasonFollow();
             })
         } else {
