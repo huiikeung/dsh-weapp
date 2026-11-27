@@ -1935,6 +1935,26 @@ export struct ConversationRowView {
     }
   }
 
+  /** 诊断：确认流式行到底走的是纯文本快速路径还是 Markdown 路径（每 200 字符/切换各一条） */
+  private liveLogShown: number = -1;
+  private logLivePath(live: boolean): void {
+    const len: number = this.entry.revealText.length;
+    if (live) {
+      if (this.liveLogShown < 0 || Math.abs(len - this.liveLogShown) >= 200) {
+        this.liveLogShown = len;
+        Logger.info('[LIVE] id=' + this.entry.id.slice(-8) + ' path=plain reveal=' + len.toString()
+          + ' text=' + this.entry.text.length.toString() + ' stream=' + (this.entry.streaming ? '1' : '0')
+          + ' running=' + (this.entry.running ? '1' : '0'));
+      }
+      return;
+    }
+    if (this.liveLogShown !== -2) {
+      this.liveLogShown = -2;
+      Logger.info('[LIVE] id=' + this.entry.id.slice(-8) + ' path=markdown stream=' + (this.entry.streaming ? '1' : '0')
+        + ' running=' + (this.entry.running ? '1' : '0') + ' text=' + this.entry.text.length.toString());
+    }
+  }
+
   @Builder
   assistantRow() {
     Column() {

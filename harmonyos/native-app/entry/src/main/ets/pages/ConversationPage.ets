@@ -3906,6 +3906,7 @@ export struct ConversationPage {
    */
   /** 打字机显现：40ms 一拍把流式正文逐段补出来（不管 delta 一次来多大，视觉上都是逐行/逐字增长） */
   private liveRevealTimer: number = -1;
+  private liveLogShown: number = -1;
 
   private startLiveReveal(): void {
     if (this.liveRevealTimer >= 0) {
@@ -3945,6 +3946,11 @@ export struct ConversationPage {
       return;
     }
     const missing: number = target.length - shown;
+    if (this.liveLogShown < 0 || Math.abs(shown - this.liveLogShown) >= 200) {
+      this.liveLogShown = shown;
+      Logger.info('[LIVE] path=plain id=' + live.id.slice(-8) + ' reveal=' + shown.toString()
+        + ' text=' + target.length.toString() + ' live=' + (live.liveAnswer ? '1' : '0'));
+    }
     // 落后越多追得越快：少量时 2 字/拍，落后多时最多 12 字/拍
     const step: number = Math.max(2, Math.min(12, Math.ceil(missing / 12)));
     live.revealText = target.substring(0, shown + step);

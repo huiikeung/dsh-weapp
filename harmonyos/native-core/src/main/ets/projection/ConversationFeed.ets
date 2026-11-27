@@ -534,8 +534,11 @@ export class ConversationFeed {
       //     最终答复后面往往紧跟工具行（下一轮或本轮收尾），会被折进「记录×N」，界面上就是
       //     「回复最后一段不见了」；退出重进时 items 里有用户气泡隔断，不折叠 → 内容又齐了。
       //     最终答复完整到达到 turn/end 之间的几百毫秒它仍在组内，turn/end 一到即独立出来。
+      // 后面已经出现新的用户消息 = 这轮被接续/打断：正文不能再并进过程组，
+      // 否则过程组收进折叠条后，这轮已经打出来的回答文本会整段消失（只剩一条折叠条）。
+      const interruptedByUser: boolean = ConversationFeed.hasUserAhead(items, itemIndex);
       if (kind === ConversationItemKind.ASSISTANT as string && open === null
-        && running && ConversationFeed.inLastTurn(items, itemIndex)
+        && running && ConversationFeed.inLastTurn(items, itemIndex) && !interruptedByUser
         && ConversationFeed.hasProcessAheadInTurn(items, itemIndex, item.turn)) {
         // 回合开头的叙述：它出现在任何工具之前，此时还没有过程组。以前只能当独立消息行排出去，
         // 后面工具来了、组才建起来，它却永远留在组上方（「第一段描述被拎出来」）。
@@ -545,7 +548,7 @@ export class ConversationFeed {
         groups.push(open);
         continue;
       }
-      if (kind === ConversationItemKind.ASSISTANT as string && open !== null
+      if (kind === ConversationItemKind.ASSISTANT as string && open !== null && !interruptedByUser
         && ((running && ConversationFeed.inLastTurn(items, itemIndex))
           || ConversationFeed.hasAssistantAheadInTurn(items, itemIndex, item.turn))) {
         // 回合中段的过程文字：收进当前过程组，独立成行（narration）
@@ -1071,6 +1074,16 @@ export class ConversationFeed {
    * running 是整个会话的运行态 —— 若用户在上一回合还在跑时又发了消息，上一回合的最终答复
    * 后面紧跟的是下一轮工具，不能被当成过程叙述折进组里；只有最后一轮（正在跑的那轮）才套运行中规则。
    */
+  /** 第 from 条之后是否还有用户消息（有 = 这一轮已经被新消息接续/打断） */
+  private static hasUserAhead(items: ConversationItem[], from: number): boolean {
+    for (let index = from + 1; index < items.length; index++) {
+      if (items[index].kind === ConversationItemKind.USER as string) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private static inLastTurn(items: ConversationItem[], from: number): boolean {
     for (let index = from + 1; index < items.length; index++) {
       if ((items[index].kind as string) === ConversationItemKind.USER as string) {
