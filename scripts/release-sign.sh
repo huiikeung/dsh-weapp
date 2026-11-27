@@ -20,14 +20,15 @@ HVIGOR="${HVIGOR:-/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvig
 SIGN_TOOL="$DEVECO_SDK_HOME/default/openharmony/toolchains/lib/hap-sign-tool.jar"
 
 PASS="$(head -1 "$MATERIAL_DIR/keystore-password.txt" | tr -d '\n')"
-VERSION="$(grep -m1 '"versionName"' "$SRC/AppScope/app.json5" | sed -E 's/.*"versionName"\s*:\s*"([^"]+)".*/\1/')"
+VERSION="$(sed -n 's/.*"versionName"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SRC/AppScope/app.json5" | head -1)"
 
 echo "== 1/4 准备构建目录（不含签名配置，出 unsigned 包）=="
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 rsync -a \
-  --exclude 'build' --exclude 'entry/build' --exclude 'native-core/build' \
-  --exclude '.hvigor' --exclude 'entry/.preview' --exclude 'build-profile.json5' \
+  --exclude 'native-app/build' --exclude 'native-app/entry/build' --exclude 'native-core/build' \
+  --exclude '.hvigor' --exclude 'native-app/.hvigor' --exclude 'native-app/entry/.preview' \
+  --exclude 'native-app/build-profile.json5' \
   "$ROOT/harmonyos/" "$BUILD_DIR/harmonyos/"
 cat > "$BUILD_DIR/harmonyos/native-app/build-profile.json5" <<'PROFILE'
 {
