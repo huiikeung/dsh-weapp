@@ -3243,6 +3243,14 @@ export struct ConversationPage {
           lastAssistantId = one.id;
         }
       }
+      // 正在流式输出的那条助手行不能内联卡片：否则「已编辑」卡会夹在
+      // 「执行图标行（正在生成…）」和鲸尾/页脚之间。等这轮收工再内联。
+      const runningAssistantIds: Set<string> = new Set<string>();
+      for (const one of rows) {
+        if (one.kind === 'ASSISTANT' && (one.running || one.streaming)) {
+          runningAssistantIds.add(one.id);
+        }
+      }
       const inlinedIds: Set<string> = new Set<string>();
       for (const filesRow of changesRows) {
         let assistantId: string | undefined = lastAssistantByTurn.get(filesRow.turnKey);
@@ -3250,6 +3258,10 @@ export struct ConversationPage {
           assistantId = lastAssistantId.length > 0 ? lastAssistantId : undefined;
         }
         if (assistantId === undefined) {
+          continue;
+        }
+        if (runningAssistantIds.has(assistantId)) {
+          // 这轮还在跑：不内联（独立行由 feed 的运行中规则隐藏），收工后再挂到回复下方
           continue;
         }
         inlinedIds.add(filesRow.id);
