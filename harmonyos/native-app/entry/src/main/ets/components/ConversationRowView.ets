@@ -77,7 +77,8 @@ export struct ConversationRowView {
   private reasonFullText: string = '';
   /** 已显示到的字符数（显示与到达解耦：正文立刻进缓冲，显示匀速补） */
   @State reasonShown: number = 0;
-  private reasonFullFor: string = '';
+  /** 打字机的目标条目（随投影更新；节拍每拍从它取最新正文） */
+  private reasonLiveItem: ConversationItem | null = null;
 
   /** 会话正文/用户气泡字号档位（设置页「字号大小」，响应式） */
   @StorageProp('contentFontSize') contentFontSize: string = '标准';
@@ -2426,27 +2427,48 @@ export struct ConversationRowView {
    * 缓冲无上限：模型写得再快也只影响缓冲长度，显示速度恒定；追平即停，新正文到达再拉起。
    */
   private feedReasonTyping(item: ConversationItem): void {
-    const full: string = this.stepDetail(item);
-    if (this.reasonFullFor !== item.id) {
-      this.reasonFullFor = item.id;
-      this.reasonFullText = full;
-      this.reasonShown = 0;
-    } else if (full !== this.reasonFullText) {
-      this.reasonFullText = full;
-    }
+    // 只存条目引用：节拍每拍直接从活动条目取最新正文 —— 不依赖 onAreaChange 喂缓冲，
+    // 否则「显示追平缓冲 → 画面不再变化 → onAreaChange 不再触发 → 新正文永远进不来（少一段）」。
+    this.reasonLiveItem = item;
     if (this.reasonTypeTimer >= 0) {
       return;
     }
-    this.reasonTypeTimer = setInterval(() => {
-      const target: number = this.reasonFullText.length;
-      if (this.reasonShown >= target) {
-        clearInterval(this.reasonTypeTimer);
-        this.reasonTypeTimer = -1;
-        return;
+    this.reasonTypeTimer = setInterval(() => { this.reasonTypeTick(); }, 30);
+  }
+
+  /** 打字机一拍：从活动条目取最新正文，匀速推进已显示长度；跟随模式下把底部带到可见区 */
+  private reasonTypeTick(): void {
+    const live: ConversationItem | null = this.reasonLiveItem;
+    if (live === null) {
+      return;
+    }
+    const target: string = this.stepDetail(live);
+    if (!this.cardIsLive()) {
+      // 回合结束：一次性放完整段（结束态整段可读，不再逐字）
+      this.reasonShown = target.length;
+      clearInterval(this.reasonTypeTimer);
+      this.reasonTypeTimer = -1;
+      return;
+    }
+    if (this.reasonShown >= target.length) {
+      // 已追平：跟随模式下把视口按在底部（新正文到达会立刻推进）
+      if (this.reasonAuto && !this.reasonTouching) {
+        try {
+          this.reasonScroller.scrollEdge(Edge.Bottom);
+        } catch (err) {
+        }
       }
-      const rest: number = target - this.reasonShown;
-      this.reasonShown = this.reasonShown + Math.min(rest, Math.max(2, Math.ceil(rest / 24)));
-    }, 30);
+      return;
+    }
+    const rest: number = target.length - this.reasonShown;
+    this.reasonShown = this.reasonShown + Math.min(rest, Math.max(2, Math.ceil(rest / 24)));
+    // 跟随底部：打字机每拍都把显示末尾带到可见区（一行一行向上滚的效果）
+    if (this.reasonAuto && !this.reasonTouching) {
+      try {
+        this.reasonScroller.scrollEdge(Edge.Bottom);
+      } catch (err) {
+      }
+    }
   }
 
   @Builder
