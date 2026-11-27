@@ -1234,6 +1234,16 @@ export class ConversationFeed {
     return ConversationFeed.runningActivityLabel('thinking', false);
   }
 
+  /** 第 from 条之后是否还有用户消息（有 = 这轮已经被接续/打断，可以收工折叠） */
+  private static hasUserAfter(entries: ConversationFeedEntry[], from: number): boolean {
+    for (let probe: number = from + 1; probe < entries.length; probe++) {
+      if (entries[probe].kind === 'USER') {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** 回合收工：连续已收工的过程组折叠成一条「已完成」行。 */
   private static mergeSettledTurn(entries: ConversationFeedEntry[],
     waitForNextInput: boolean = false, conversationRunning: boolean = false): void {
@@ -1244,14 +1254,18 @@ export class ConversationFeed {
       // 刚有进展的组不折叠：避免「执行过程中冒出好几个已完成」。
       const nowSeconds: number = Math.floor(Date.now() / 1000);
       const isFresh: boolean = entry.epochSeconds > 0 && nowSeconds - entry.epochSeconds < 3;
-      if (entry.kind !== 'PROCESS' || entry.running || isFresh) {
+      // 已经被新的用户消息「打断/接续」的过程组一律视为收工：即使投影里还带着 running，
+      // 也要收进总折叠条（否则打断点的思考/过程/工具会一直散在时间线上）。
+      const superseded: boolean = ConversationFeed.hasUserAfter(entries, index);
+      if (entry.kind !== 'PROCESS' || (entry.running && !superseded) || (isFresh && !superseded)) {
         merged.push(entry);
         index++;
         continue;
       }
       const run: ConversationFeedEntry[] = [entry];
       let scan: number = index + 1;
-      while (scan < entries.length && entries[scan].kind === 'PROCESS' && !entries[scan].running) {
+      while (scan < entries.length && entries[scan].kind === 'PROCESS'
+        && (!entries[scan].running || ConversationFeed.hasUserAfter(entries, scan))) {
         // 只合并同一轮的连续过程组：不同轮次的过程组挨在一起时（中间没有用户气泡、
         // 比如电脑端发起的回合、或用户消息被识别成上下文注入），以前会把两轮折叠进
         // 同一条「已完成」行，展开后上一轮和这一轮的步骤全混在一起、看起来在乱跳。
