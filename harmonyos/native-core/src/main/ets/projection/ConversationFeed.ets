@@ -524,12 +524,17 @@ export class ConversationFeed {
         continue;
         // 注：title 为 'tool' 的包装事件已在投影层忽略，这里不需要再过滤
       }
-      // 只有「本轮后面还有别的助手正文」才算回合中段叙述。
-      // 以前用「后面还有过程行」判断：本轮最后一个助手正文后面往往紧跟工具行（下一轮或本轮收尾），
-      // 于是最终答复被当成叙述折进「记录×N」，界面上就是「回复最后一段不见了」；
-      // 退出重进时 items 里有用户气泡隔断，不折叠 → 内容又齐了。
+      // 回合中段叙述的判定，和「回合是否结束」绑定：
+      //   · 运行中（running）：过程组后面的助手正文一律视为过程叙述，收进当前组 ——
+      //     以前只认「后面还有别的助手正文」，运行中最新那段描述后面还没有下一段，就被当成最终答复
+      //     拎到容器外，等后续工具 + 新描述到达才被折回组里（描述一会儿在外、一会儿被收走）。
+      //   · 回合已结束：保持「后面还有助手正文才算叙述」。以前用「后面还有过程行」判断，
+      //     最终答复后面往往紧跟工具行（下一轮或本轮收尾），会被折进「记录×N」，界面上就是
+      //     「回复最后一段不见了」；退出重进时 items 里有用户气泡隔断，不折叠 → 内容又齐了。
+      //     最终答复完整到达到 turn/end 之间的几百毫秒它仍在组内，turn/end 一到即独立出来。
       if (kind === ConversationItemKind.ASSISTANT as string && open !== null
-        && ConversationFeed.hasAssistantAheadInTurn(items, itemIndex, item.turn)) {
+        && ((running && ConversationFeed.inLastTurn(items, itemIndex))
+          || ConversationFeed.hasAssistantAheadInTurn(items, itemIndex, item.turn))) {
         // 回合中段的过程文字：收进当前过程组，独立成行（narration）
         ConversationFeed.appendToGroup(open, item);
         continue;
@@ -1038,6 +1043,20 @@ export class ConversationFeed {
    * 这里再加上回合号约束：跨回合的行一律不算「后面还有过程」。
    */
   /** 同一回合内、本条之后是否还有别的助手正文（有 = 本条只是过程叙述）。 */
+  /**
+   * 这一条是否属于「最后一个回合」：它之后没有再出现 USER 行。
+   * running 是整个会话的运行态 —— 若用户在上一回合还在跑时又发了消息，上一回合的最终答复
+   * 后面紧跟的是下一轮工具，不能被当成过程叙述折进组里；只有最后一轮（正在跑的那轮）才套运行中规则。
+   */
+  private static inLastTurn(items: ConversationItem[], from: number): boolean {
+    for (let index = from + 1; index < items.length; index++) {
+      if ((items[index].kind as string) === ConversationItemKind.USER as string) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   private static hasAssistantAheadInTurn(items: ConversationItem[], from: number, turn: number | undefined): boolean {
     for (let index = from + 1; index < items.length; index++) {
       const item: ConversationItem = items[index];
