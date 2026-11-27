@@ -165,13 +165,6 @@ export class ConversationFeedEntry {
   turnKey: string = '';
   /** 活动分类（决定过程组图标，对齐小程序 toolIconFile / dsh processToolIcon） */
   activityKind: string = 'tools';
-  /**
-   * 助手正文身份（对齐 dsh-interactive-reader：叙述永远不是过程内容、永远不折叠，身份只决定按钮行归谁）：
-   *   'narration' = 过程叙述 —— 不渲染复制/引用/用量行；
-   *   'answer'    = 最终答复 —— 渲染按钮行；
-   *   'pending'   = 运行中最后一段正文，身份未定 —— 不渲染按钮行，回合结束再定。
-   */
-  bodyPhase: string = 'answer';
   /** 运行中细节（文件路径 / 命令），单独展示在标题后（对齐小程序 .process-live-detail） */
   liveDetail: string = '';
   /** 过程内叙述文字（对齐小程序 narration 节点） */
@@ -206,18 +199,6 @@ export class ConversationFeedEntry {
   liveFoldCount: number = 0;
   /** 组体是否限高滚动 */
   processBodyCapped: boolean = false;
-  /**
-   * 阅读档运行中：本组是「正在跑的那一轮」里、已被后续叙述/新组隔开的前序组 —— 整组折成一条摘要
-   *（对齐 dsh-interactive-reader：narration 之前每个 run 各自收成 live fold）。
-   * 回合结束后由 mergeSettledTurn 接手折成「已完成」行，本标记随之清零。
-   */
-  liveFoldSettled: boolean = false;
-  /** 阅读档运行中：本组是本轮第一个过程组 —— 总折叠条挂在它上面 */
-  liveFoldTurnHead: boolean = false;
-  /** 本轮全部过程的总摘要「思考×N · 输出×N · 工具×N · 记录×N」（只填到本轮头一组上） */
-  liveFoldTurnLabel: string = '';
-  /** 本轮全部过程组的 id（总折叠条展开/收起用，只填到本轮头一组上） */
-  liveFoldTurnGroupIds: string[] = [];
   /** 组标题隐藏（完全展开档 / 简洁档运行中只留活动组） */
   headingHidden: boolean = false;
   /** 组标题换行显示（简洁档） */
@@ -543,12 +524,16 @@ export class ConversationFeed {
         continue;
         // 注：title 为 'tool' 的包装事件已在投影层忽略，这里不需要再过滤
       }
-      // 叙述（助手正文）永远不进过程组：它是阅读内容，独立成行、原位显示，永不折叠
-      //（对齐 dsh-interactive-reader：narration is never process content and never folds）。
-      // 叙述同时把本轮切成多个过程组：遇到叙述就关组，后面的步骤另起新组。
-      // 以前「后面还有助手正文」的叙述会被塞进当前组，组一折叠它就跟着消失 ——
-      // 这就是「运行工具之间的一些描述直接不显示」。
-      // 叙述身份（过程叙述 / 最终答复）由 bodyPhase 单独标记，只决定复制/引用/用量行归谁。
+      // 只有「本轮后面还有别的助手正文」才算回合中段叙述。
+      // 以前用「后面还有过程行」判断：本轮最后一个助手正文后面往往紧跟工具行（下一轮或本轮收尾），
+      // 于是最终答复被当成叙述折进「记录×N」，界面上就是「回复最后一段不见了」；
+      // 退出重进时 items 里有用户气泡隔断，不折叠 → 内容又齐了。
+      if (kind === ConversationItemKind.ASSISTANT as string && open !== null
+        && ConversationFeed.hasAssistantAheadInTurn(items, itemIndex, item.turn)) {
+        // 回合中段的过程文字：收进当前过程组，独立成行（narration）
+        ConversationFeed.appendToGroup(open, item);
+        continue;
+      }
       open = null;
       if (kind === ConversationItemKind.STATUS as string) {
         const group: ConversationFeedEntry = ConversationFeed.newProcessGroup(item);
@@ -580,9 +565,6 @@ export class ConversationFeed {
       }
       // turn/end 一到就立刻把流式行收口（对齐小程序 turn/end：row.streaming=false、标题清空）。
       // 否则 assistant/message 稍晚或丢失时，界面会一直显示「正在生成」，看起来回合结束不即时。
-      if (kind === ConversationItemKind.ASSISTANT as string) {
-        message.bodyPhase = ConversationFeed.bodyPhaseOf(items, itemIndex, item.turn, running);
-      }
       const holdingStream: boolean = item.title === ConversationFeed.streamingAssistantTitle;
       message.streaming = holdingStream && running;
       if (holdingStream && !running) {
@@ -918,135 +900,6 @@ export class ConversationFeed {
         ConversationFeed.foldOf(folds, entry.id, policy.readingSummary && entry.running),
         false, processRunning);
     }
-    ConversationFeed.foldSettledGroupsOfRunningTurn(entries, policy, processRunning);
-  }
-
-  /**
-   * 阅读档运行中：叙述把本轮切成多个过程组。「叙述一出现，它上面的过程就收起」——
-   * 每个后面（同轮）紧跟叙述的过程组整组折成一条「思考×N · 工具×N」摘要，点开按原顺序回看。
-   * 不看 running：本轮最后一个组即便还标着运行，只要叙述已经出现在它下面，它就已被隔开、该收起
-   *（以前只折「非运行组」，最后一个组收不到；而 liveFoldCount 只折思考之前的，工具步骤仍摊着）。
-   * 只含记录（没有思考/工具）的组不折，避免出现无意义的折叠条。回合结束后由 mergeSettledTurn 接手。
-   */
-  private static foldSettledGroupsOfRunningTurn(entries: ConversationFeedEntry[], policy: WorkStepPolicy,
-    processRunning: boolean): void {
-    if (!policy.readingSummary || !processRunning) {
-      return;
-    }
-    for (let index = 0; index < entries.length; index++) {
-      const entry: ConversationFeedEntry = entries[index];
-      if (entry.kind !== 'PROCESS' || entry.items.length === 0) {
-        continue;
-      }
-      // 组后面、同轮内是否出现叙述正文（遇到 USER / 不同轮次即止）
-      let narrationAfter: boolean = false;
-      for (let probe = index + 1; probe < entries.length; probe++) {
-        const next: ConversationFeedEntry = entries[probe];
-        if (next.kind === 'USER') {
-          break;
-        }
-        if (entry.turnKey.length > 0 && next.turnKey.length > 0 && next.turnKey !== entry.turnKey) {
-          break;
-        }
-        if (next.kind === ConversationItemKind.ASSISTANT as string && next.text.trim().length > 0) {
-          narrationAfter = true;
-          break;
-        }
-      }
-      if (!narrationAfter) {
-        continue;
-      }
-      let foldable: boolean = false;
-      for (const item of entry.items) {
-        const kind: string = item.kind as string;
-        if (kind === ConversationItemKind.REASONING as string || kind === ConversationItemKind.TOOL as string
-          || kind === ConversationItemKind.JSON_TOOL as string) {
-          foldable = true;
-          break;
-        }
-      }
-      if (!foldable) {
-        continue;
-      }
-      entry.liveFoldSettled = true;
-      entry.liveFoldCount = entry.items.length;
-      // 组体保持可见（展开时由 displayItems 决定显示全部还是空），阅读档不渲染组头
-      entry.expanded = true;
-      entry.processBodyVisible = true;
-    }
-    ConversationFeed.markTurnHeads(entries, processRunning);
-  }
-
-  /**
-   * 本轮总折叠条：挂在「正在跑的那一轮」第一个过程组上，摘要统计本轮全部过程组（含当前运行组），
-   * 展开时一键打开本轮所有折叠组。对齐 dsh-interactive-reader 的 ClosedProcessSummary 位置
-   *（它结束后在轮顶显示一条总摘要；运行中我们把它放在第一条小折叠行上方）。
-   */
-  private static markTurnHeads(entries: ConversationFeedEntry[], processRunning: boolean): void {
-    if (!processRunning) {
-      return;
-    }
-    let runningTurn: string = '';
-    for (const entry of entries) {
-      if (entry.kind === 'PROCESS' && entry.running) {
-        runningTurn = entry.turnKey;
-        break;
-      }
-    }
-    if (runningTurn.length === 0) {
-      return;
-    }
-    let head: ConversationFeedEntry | null = null;
-    const ids: string[] = [];
-    let reasoning: number = 0;
-    let body: number = 0;
-    let tool: number = 0;
-    let extra: number = 0;
-    let hasSettled: boolean = false;
-    for (const entry of entries) {
-      if (entry.kind !== 'PROCESS' || entry.turnKey !== runningTurn) {
-        continue;
-      }
-      if (head === null) {
-        head = entry;
-      }
-      ids.push(entry.id);
-      if (entry.liveFoldSettled) {
-        hasSettled = true;
-      }
-      for (const item of entry.items) {
-        const kind: string = item.kind as string;
-        if (kind === ConversationItemKind.REASONING as string) {
-          reasoning++;
-        } else if (kind === ConversationItemKind.ASSISTANT as string) {
-          body++;
-        } else if (kind === ConversationItemKind.TOOL as string || kind === ConversationItemKind.JSON_TOOL as string) {
-          tool++;
-        } else {
-          extra++;
-        }
-      }
-    }
-    // 本轮还没有任何收起的组（刚开始、没出叙述）时不需要总折叠条：运行组自己的折叠条就够
-    if (head === null || !hasSettled) {
-      return;
-    }
-    const parts: string[] = [];
-    if (reasoning > 0) {
-      parts.push('思考×' + reasoning.toString());
-    }
-    if (body > 0) {
-      parts.push('输出×' + body.toString());
-    }
-    if (tool > 0) {
-      parts.push('工具×' + tool.toString());
-    }
-    if (extra > 0) {
-      parts.push('记录×' + extra.toString());
-    }
-    head.liveFoldTurnHead = true;
-    head.liveFoldTurnLabel = parts.length > 0 ? parts.join(' · ') : '此前步骤';
-    head.liveFoldTurnGroupIds = ids;
   }
 
   private static foldOf(folds: Map<string, boolean>, id: string, fallback: boolean): boolean {
@@ -1085,10 +938,6 @@ export class ConversationFeed {
     // 「新的思考出现」= 上一段链条结束，把该点之前的步骤收进折叠条，
     // 容器内只保留最新这段（从最后一次思考开始）的过程。
     entry.liveFoldCount = 0;
-    entry.liveFoldSettled = false;
-    entry.liveFoldTurnHead = false;
-    entry.liveFoldTurnLabel = '';
-    entry.liveFoldTurnGroupIds = [];
     if (policy.readingSummary && entry.running && entry.items.length > 1) {
       let lastReasoning: number = -1;
       for (let index = 0; index < entry.items.length; index++) {
@@ -1189,22 +1038,6 @@ export class ConversationFeed {
    * 这里再加上回合号约束：跨回合的行一律不算「后面还有过程」。
    */
   /** 同一回合内、本条之后是否还有别的助手正文（有 = 本条只是过程叙述）。 */
-  /**
-   * 助手正文身份：后面（同轮）还有助手正文或过程步骤 → 不是最终答复。
-   *   · 回合已结束：能确定它是不是最终答复；
-   *   · 回合运行中：后面还有步骤的正文已是过程叙述；最后一段正文身份未定，记为 pending，
-   *     回合一结束重新投影即可定性。
-   */
-  private static bodyPhaseOf(items: ConversationItem[], from: number, turn: number | undefined, running: boolean): string {
-    if (ConversationFeed.hasAssistantAheadInTurn(items, from, turn)) {
-      return 'narration';
-    }
-    if (ConversationFeed.hasProcessAheadInTurn(items, from, turn)) {
-      return running ? 'narration' : 'answer';
-    }
-    return running ? 'pending' : 'answer';
-  }
-
   private static hasAssistantAheadInTurn(items: ConversationItem[], from: number, turn: number | undefined): boolean {
     for (let index = from + 1; index < items.length; index++) {
       const item: ConversationItem = items[index];
@@ -1377,40 +1210,18 @@ export class ConversationFeed {
         continue;
       }
       const run: ConversationFeedEntry[] = [entry];
-      const groupTurn: string = entry.turnKey;
       let scan: number = index + 1;
-      // 同一轮里，过程组之间夹着的叙述行（助手正文）一起收进回合：回合结束后整轮只留一条总折叠行，
-      // 展开后「组 / 叙述 / 组 / 叙述」按原顺序逐段显示（对齐 dsh-interactive-reader：叙述原位、永不折叠）。
-      // 只收「过程叙述」（bodyPhase=narration）：最终答复留在回合行下方，带复制/引用/用量行。
-      // 只合并同一轮：不同轮次的过程组挨在一起时（中间没有用户气泡、比如电脑端发起的回合），
-      // 以前会把两轮折叠进同一条「已完成」行，展开后上一轮和这一轮的步骤全混在一起、看起来在乱跳。
-      while (scan < entries.length) {
-        const next: ConversationFeedEntry = entries[scan];
-        if (next.kind === 'USER') {
-          break;
-        }
-        if (next.kind === 'ASSISTANT') {
-          if (next.bodyPhase !== 'narration' || (next.turnKey.length > 0 && groupTurn.length > 0 && next.turnKey !== groupTurn)) {
-            break;
-          }
-          run.push(next);
-          scan++;
-          continue;
-        }
-        if (next.kind !== 'PROCESS' || next.running) {
-          break;
-        }
-        const nextTurn: string = next.turnKey;
+      while (scan < entries.length && entries[scan].kind === 'PROCESS' && !entries[scan].running) {
+        // 只合并同一轮的连续过程组：不同轮次的过程组挨在一起时（中间没有用户气泡、
+        // 比如电脑端发起的回合、或用户消息被识别成上下文注入），以前会把两轮折叠进
+        // 同一条「已完成」行，展开后上一轮和这一轮的步骤全混在一起、看起来在乱跳。
+        const nextTurn: string = entries[scan].turnKey;
+        const groupTurn: string = entry.turnKey;
         if (nextTurn.length > 0 && groupTurn.length > 0 && nextTurn !== groupTurn) {
           break;
         }
-        run.push(next);
+        run.push(entries[scan]);
         scan++;
-      }
-      // 这一串必须以过程组结尾：结尾若是叙述，把它留在外面（它紧挨最终答复，收进去会和答复挤在一起）
-      while (run.length > 1 && run[run.length - 1].kind === 'ASSISTANT') {
-        run.pop();
-        scan--;
       }
       // 这一串过程组后面还有没有新的用户消息：有 = 回合确实收工了
       let hasUserAfter: boolean = false;
@@ -1430,23 +1241,17 @@ export class ConversationFeed {
         index = scan;
         continue;
       }
-      let aiLabel: boolean = false;
-      let expandable: boolean = false;
-      let lastEpoch: number = 0;
       const turn: ConversationFeedEntry = new ConversationFeedEntry();
       turn.id = 'turn-' + entry.id;
       turn.kind = 'TURN';
       // 回合行标题沿用最后一个组的状态标题（已完成 / 执行失败），摘要只放用时，
       // 工具次数挪到展开后的 expandedSummary（对齐小程序 turnProcess 行）。
-      // 标题 / 错误 / AI 标识 / 可展开 / 时间：只按过程组算（run 里夹着的叙述不参与），
-      // 否则以叙述开头或结尾的回合会取到叙述的 title / 时间。
-      const processGroups: ConversationFeedEntry[] = run.filter((one: ConversationFeedEntry) => one.kind === 'PROCESS');
-      turn.title = processGroups[processGroups.length - 1].title;
-      turn.isError = processGroups.some((group: ConversationFeedEntry) => group.isError);
+      turn.title = run[run.length - 1].title;
+      turn.isError = run.some((group: ConversationFeedEntry) => group.isError);
       // AI 生成内容标识挂在每轮第一条助手侧行上；过程组被折进回合行后，标记要带到回合行上，否则标识会丢
-      turn.aiLabelVisible = aiLabel;
-      turn.expandable = expandable;
-      turn.epochSeconds = lastEpoch;
+      turn.aiLabelVisible = run.some((group: ConversationFeedEntry) => group.aiLabelVisible);
+      turn.expandable = run.some((group: ConversationFeedEntry) => group.expandable);
+      turn.epochSeconds = run[run.length - 1].epochSeconds;
       turn.turnKey = entry.turnKey;
       let tools: number = 0;
       let contexts: number = 0;
@@ -1457,16 +1262,8 @@ export class ConversationFeed {
         }
       }
       for (const group of run) {
-        if (group.kind === 'ASSISTANT') {
-          // 过程叙述：作为回合的 child 原位保留，展开回合时按顺序显示在对应的组之间
-          group.aiLabelVisible = false;
-          group.footerVisible = false;
-          turn.children.push(group);
-          continue;
-        }
-        aiLabel = aiLabel || group.aiLabelVisible;
-        expandable = expandable || group.expandable;
-        lastEpoch = group.epochSeconds;
+        // 这些组所属回合已收工（决定 detailed 档是否折叠成标题）
+        group.turnClosed = true;
         // AI 生成标识已经提升到回合行（上面 turn.aiLabelVisible = run.some(...)），
         // 展开回合时这些子组会作为同级行重新渲染，不能再各带一次标识，否则会出现两条
         group.aiLabelVisible = false;
@@ -1492,7 +1289,6 @@ export class ConversationFeed {
         contexts = contexts + group.contextCount;
         turn.items = turn.items.concat(group.items);
       }
-
       turn.toolCount = tools;
       turn.contextCount = contexts;
       turn.summary = duration;
@@ -1532,10 +1328,8 @@ export class ConversationFeed {
       if (entry.kind !== ConversationItemKind.ASSISTANT as string) {
         continue;
       }
-      // 页脚（复制 / 引用 / 用量 / 时间）只挂在最终答复上（对齐 dsh-interactive-reader：
-      // copy/fork 只留在 final answer）。过程叙述（narration）和运行中身份未定的末段（pending）不挂，
-      // 否则一段叙述一行按钮，整轮看起来很啰嗦。空回复（只有图片/附件）仍挂（有时间可看）。
-      if (entry.streaming || entry.bodyPhase !== 'answer') {
+      // 运行中的流式行不挂页脚；空回复（只有图片/附件）也挂（有时间可看）
+      if (entry.streaming) {
         continue;
       }
       entry.footerVisible = true;

@@ -175,12 +175,6 @@ export struct ConversationRowView {
   /** 阅读档折叠条是否展开（状态存在会话页，行重建后也能保持） */
   @Prop liveFoldOpen: boolean = false;
   onToggleLiveFold: () => void = () => {};
-  /** 本轮全部折叠组是否都已展开（总折叠条箭头用） */
-  @Prop liveFoldTurnOpen: boolean = false;
-  /** 本条所在轮是否正在运行（叙述行左侧画竖线串进过程链） */
-  @Prop liveChainActive: boolean = false;
-  /** 点总折叠条：一键展开/收起本轮全部折叠组 */
-  onToggleLiveFoldTurn: () => void = () => {};
   private innerPauseUntil: number = 0;
 
   /** 上次渲染看到的步骤数：用于判断「新增了一步」并让限高框滚到底 */
@@ -3156,9 +3150,7 @@ export struct ConversationRowView {
   /** 阅读档实时折叠：要渲染的步骤（折叠时跳过已收进折叠条的前缀） */
   private displayItems(): ConversationItem[] {
     const items: ConversationItem[] = this.entry.items;
-    // 前序折叠组（liveFoldSettled）：叙述之前、本轮已收工的组，整组收进折叠条
-    const liveFoldActive: boolean = this.entry.running || this.entry.liveFoldSettled;
-    if (this.workStepMode === 'reading' && liveFoldActive && this.entry.liveFoldCount > 0
+    if (this.workStepMode === 'reading' && this.entry.running && this.entry.liveFoldCount > 0
       && !this.liveFoldOpen) {
       return items.slice(this.entry.liveFoldCount);
     }
@@ -3221,36 +3213,6 @@ export struct ConversationRowView {
     .padding({ top: this.rpx(6), bottom: this.rpx(6) })
     .onClick(() => {
       this.liveFoldOpen = !this.liveFoldOpen;
-    })
-  }
-
-  /**
-   * 本轮总折叠条（挂在本轮第一个过程组上）：「思考×N · 输出×N · 工具×N · 记录×N ›」，
-   * 点开一键展开本轮所有折叠组；是整条过程链上唯一带状态的位置。
-   */
-  @Builder
-  turnFoldHead() {
-    Row({ space: this.rpx(8) }) {
-      Text(this.entry.liveFoldTurnLabel)
-        .fontSize(13.2)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.entry.isError ? DANGER : this.secondaryText())
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-      Image($r('app.media.chev_right_gray'))
-        .flexShrink(0)
-        .width(this.rpx(20))
-        .height(this.rpx(20))
-        .objectFit(ImageFit.Contain)
-        .rotate({ angle: this.liveFoldTurnOpen ? 90 : 0 })
-        .opacity(0.7)
-    }
-    .width('100%')
-    .padding({ top: this.rpx(8), bottom: this.rpx(8) })
-    .constraintSize({ minHeight: this.rpx(56) })
-    .alignItems(VerticalAlign.Center)
-    .onClick(() => {
-      this.onToggleLiveFoldTurn();
     })
   }
 
@@ -3339,13 +3301,8 @@ export struct ConversationRowView {
     Column() {
       // 阅读档：顶部计数行 → 步骤 → 执行图标行（保持原来的位置：贴底、在鲸尾行上方）
       if (this.workStepMode === 'reading') {
-        // 总折叠条：本轮全部过程的总计数，只挂在本轮第一个过程组上（运行中、且已有收起的组）。
-        // 各小过程不再各占一行「工具×N ›」—— 否则页面越跑越长；点总折叠条一键展开全部过程。
-        if (this.entry.liveFoldTurnHead) {
-          this.turnFoldHead()
-        } else if (this.workStepMode === 'reading' && !this.liveChainActive && this.entry.running
-          && this.entry.liveFoldCount > 0) {
-          // 没有总折叠条时（本轮还没出叙述、还没收起的组）才显示运行组自己的折叠条
+        // 折叠条（容器外顶部）：累计「之前链条」的思考×N · 工具×N · 记录×N，点击展开/收起
+        if (this.workStepMode === 'reading' && this.entry.running && this.entry.liveFoldCount > 0) {
           this.readingHead()
         }
         if (this.bodyVisible()) {

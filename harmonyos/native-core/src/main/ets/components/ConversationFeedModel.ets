@@ -93,14 +93,6 @@ export class ConversationFeedEntryModel {
   processBodyVisible: boolean = false;
   liveFoldCount: number = 0;
   processBodyCapped: boolean = false;
-  /** 阅读档运行中：本轮已被后续叙述隔开的前序组 —— 整组折成一条摘要（见 ConversationFeed.foldSettledGroupsOfRunningTurn） */
-  liveFoldSettled: boolean = false;
-  /** 本轮第一个过程组：总折叠条挂它上面 */
-  liveFoldTurnHead: boolean = false;
-  liveFoldTurnLabel: string = '';
-  liveFoldTurnGroupIds: string[] = [];
-  /** 助手正文身份：narration 过程叙述 / answer 最终答复 / pending 运行中未定（见 ConversationFeed.bodyPhaseOf） */
-  bodyPhase: string = 'answer';
   headingHidden: boolean = false;
   titleWrap: boolean = false;
   turnClosed: boolean = false;
@@ -334,21 +326,6 @@ export class ConversationFeedEntryModel {
     if (this.liveFoldCount !== entry.liveFoldCount) {
       this.liveFoldCount = entry.liveFoldCount;
     }
-    if (this.liveFoldSettled !== entry.liveFoldSettled) {
-      this.liveFoldSettled = entry.liveFoldSettled;
-    }
-    if (this.liveFoldTurnHead !== entry.liveFoldTurnHead) {
-      this.liveFoldTurnHead = entry.liveFoldTurnHead;
-    }
-    if (this.liveFoldTurnLabel !== entry.liveFoldTurnLabel) {
-      this.liveFoldTurnLabel = entry.liveFoldTurnLabel;
-    }
-    if (this.liveFoldTurnGroupIds !== entry.liveFoldTurnGroupIds) {
-      this.liveFoldTurnGroupIds = entry.liveFoldTurnGroupIds;
-    }
-    if (this.bodyPhase !== entry.bodyPhase) {
-      this.bodyPhase = entry.bodyPhase;
-    }
     if (this.processBodyVisible !== entry.processBodyVisible) {
       this.processBodyVisible = entry.processBodyVisible;
     }
@@ -447,11 +424,6 @@ export class ConversationFeedEntryModel {
     next.processAutoOpen = entry.processAutoOpen;
     next.processBodyVisible = entry.processBodyVisible;
     next.liveFoldCount = entry.liveFoldCount;
-    next.liveFoldSettled = entry.liveFoldSettled;
-    next.liveFoldTurnHead = entry.liveFoldTurnHead;
-    next.liveFoldTurnLabel = entry.liveFoldTurnLabel;
-    next.liveFoldTurnGroupIds = entry.liveFoldTurnGroupIds;
-    next.bodyPhase = entry.bodyPhase;
     next.processBodyCapped = entry.processBodyCapped;
     next.headingHidden = entry.headingHidden;
     next.titleWrap = entry.titleWrap;
