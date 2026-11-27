@@ -62,3 +62,6 @@ harmonyos/native-app/entry/src/main/cpp/libtailscale_stub/
 
 # JiuwenSwarm runtime file operation logs
 .agent_history/
+
+# 本地发布产物（.app 包，不入库）
+local-artifacts/
