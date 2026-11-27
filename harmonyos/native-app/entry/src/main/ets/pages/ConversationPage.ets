@@ -3252,12 +3252,6 @@ export struct ConversationPage {
         if (assistantId === undefined) {
           continue;
         }
-        // 只有「时间线最后一条助手回复」才内联变更卡片。
-        // 被新消息打断的旧回合若也内联，卡片会挂在打断点那儿（散在时间线中间）；
-        // 这类旧回合不内联 → 保持独立行，由 feed 统一排到时间线末尾（最新结束的下面）。
-        if (assistantId !== lastAssistantId) {
-          continue;
-        }
         inlinedIds.add(filesRow.id);
         if (filesRow.kind === 'FILES') {
           // 助手产出的文件（截图等）：内联成附件图片卡片，不并进「已编辑」卡片
