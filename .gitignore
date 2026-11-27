@@ -65,3 +65,6 @@ harmonyos/native-app/entry/src/main/cpp/libtailscale_stub/
 
 # 本地发布产物（.app 包，不入库）
 local-artifacts/
+
+# 本机签名配置（含本机绝对路径与加密口令，不随仓库分发）
+harmonyos/native-app/build-profile.json5
