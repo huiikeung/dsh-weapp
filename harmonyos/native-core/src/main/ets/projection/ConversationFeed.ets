@@ -165,6 +165,13 @@ export class ConversationFeedEntry {
   turnKey: string = '';
   /** 活动分类（决定过程组图标，对齐小程序 toolIconFile / dsh processToolIcon） */
   activityKind: string = 'tools';
+  /**
+   * 助手正文身份（对齐 dsh-interactive-reader：叙述永远不是过程内容、永远不折叠，身份只决定按钮行归谁）：
+   *   'narration' = 过程叙述 —— 不渲染复制/引用/用量行；
+   *   'answer'    = 最终答复 —— 渲染按钮行；
+   *   'pending'   = 运行中最后一段正文，身份未定 —— 不渲染按钮行，回合结束再定。
+   */
+  bodyPhase: string = 'answer';
   /** 运行中细节（文件路径 / 命令），单独展示在标题后（对齐小程序 .process-live-detail） */
   liveDetail: string = '';
   /** 过程内叙述文字（对齐小程序 narration 节点） */
@@ -524,28 +531,11 @@ export class ConversationFeed {
         continue;
         // 注：title 为 'tool' 的包装事件已在投影层忽略，这里不需要再过滤
       }
-      // 回合中段叙述的判定，和「回合是否结束」绑定：
-      //   · 运行中（running）：过程组后面的助手正文一律视为过程叙述，收进当前组 ——
-      //     以前只认「后面还有别的助手正文」，运行中最新那段描述后面还没有下一段，就被当成最终答复
-      //     拎到容器外，等后续工具 + 新描述到达才被折回组里（描述一会儿在外、一会儿被收走）。
-      //   · 回合已结束：保持「后面还有助手正文才算叙述」。以前用「后面还有过程行」判断，
-      //     最终答复后面往往紧跟工具行（下一轮或本轮收尾），会被折进「记录×N」，界面上就是
-      //     「回复最后一段不见了」；退出重进时 items 里有用户气泡隔断，不折叠 → 内容又齐了。
-      //     最终答复完整到达到 turn/end 之间的几百毫秒它仍在组内，turn/end 一到即独立出来。
-      if (kind === ConversationItemKind.ASSISTANT as string && open === null
-        && running && ConversationFeed.inLastTurn(items, itemIndex)
-        && ConversationFeed.hasProcessAheadInTurn(items, itemIndex, item.turn)) {
-        // 回合开头的叙述：它出现在任何工具之前，此时还没有过程组。以前只能当独立消息行排出去，
-        // 后面工具来了、组才建起来，它却永远留在组上方（「第一段描述被拎出来」）。
-        // 最后一轮运行中、且本轮后面确实还有过程步骤时，直接用它开组：后续工具并入同一组。
-        open = ConversationFeed.newProcessGroup(item);
-        ConversationFeed.appendToGroup(open, item);
-        groups.push(open);
-        continue;
-      }
+      // 只有「本轮后面还有别的助手正文」才算回合中段叙述，收进当前过程组。
+      // 叙述的「身份」（过程叙述 / 最终答复）由 bodyPhase 单独标记：叙述永远不折叠，
+      // 身份只决定复制/引用/用量行归谁（对齐 dsh-interactive-reader）。
       if (kind === ConversationItemKind.ASSISTANT as string && open !== null
-        && ((running && ConversationFeed.inLastTurn(items, itemIndex))
-          || ConversationFeed.hasAssistantAheadInTurn(items, itemIndex, item.turn))) {
+        && ConversationFeed.hasAssistantAheadInTurn(items, itemIndex, item.turn)) {
         // 回合中段的过程文字：收进当前过程组，独立成行（narration）
         ConversationFeed.appendToGroup(open, item);
         continue;
@@ -581,6 +571,9 @@ export class ConversationFeed {
       }
       // turn/end 一到就立刻把流式行收口（对齐小程序 turn/end：row.streaming=false、标题清空）。
       // 否则 assistant/message 稍晚或丢失时，界面会一直显示「正在生成」，看起来回合结束不即时。
+      if (kind === ConversationItemKind.ASSISTANT as string) {
+        message.bodyPhase = ConversationFeed.bodyPhaseOf(items, itemIndex, item.turn, running);
+      }
       const holdingStream: boolean = item.title === ConversationFeed.streamingAssistantTitle;
       message.streaming = holdingStream && running;
       if (holdingStream && !running) {
@@ -1055,17 +1048,19 @@ export class ConversationFeed {
    */
   /** 同一回合内、本条之后是否还有别的助手正文（有 = 本条只是过程叙述）。 */
   /**
-   * 这一条是否属于「最后一个回合」：它之后没有再出现 USER 行。
-   * running 是整个会话的运行态 —— 若用户在上一回合还在跑时又发了消息，上一回合的最终答复
-   * 后面紧跟的是下一轮工具，不能被当成过程叙述折进组里；只有最后一轮（正在跑的那轮）才套运行中规则。
+   * 助手正文身份：后面（同轮）还有助手正文或过程步骤 → 不是最终答复。
+   *   · 回合已结束：能确定它是不是最终答复；
+   *   · 回合运行中：后面还有步骤的正文已是过程叙述；最后一段正文身份未定，记为 pending，
+   *     回合一结束重新投影即可定性。
    */
-  private static inLastTurn(items: ConversationItem[], from: number): boolean {
-    for (let index = from + 1; index < items.length; index++) {
-      if ((items[index].kind as string) === ConversationItemKind.USER as string) {
-        return false;
-      }
+  private static bodyPhaseOf(items: ConversationItem[], from: number, turn: number | undefined, running: boolean): string {
+    if (ConversationFeed.hasAssistantAheadInTurn(items, from, turn)) {
+      return 'narration';
     }
-    return true;
+    if (ConversationFeed.hasProcessAheadInTurn(items, from, turn)) {
+      return running ? 'narration' : 'answer';
+    }
+    return running ? 'pending' : 'answer';
   }
 
   private static hasAssistantAheadInTurn(items: ConversationItem[], from: number, turn: number | undefined): boolean {
@@ -1358,8 +1353,10 @@ export class ConversationFeed {
       if (entry.kind !== ConversationItemKind.ASSISTANT as string) {
         continue;
       }
-      // 运行中的流式行不挂页脚；空回复（只有图片/附件）也挂（有时间可看）
-      if (entry.streaming) {
+      // 页脚（复制 / 引用 / 用量 / 时间）只挂在最终答复上（对齐 dsh-interactive-reader：
+      // copy/fork 只留在 final answer）。过程叙述（narration）和运行中身份未定的末段（pending）不挂，
+      // 否则一段叙述一行按钮，整轮看起来很啰嗦。空回复（只有图片/附件）仍挂（有时间可看）。
+      if (entry.streaming || entry.bodyPhase !== 'answer') {
         continue;
       }
       entry.footerVisible = true;
