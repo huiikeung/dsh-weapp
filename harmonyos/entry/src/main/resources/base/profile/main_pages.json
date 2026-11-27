@@ -1,9 +1,0 @@
-{
-  "src": [
-    "pages/Index",
-    "pages/ConversationPage",
-    "pages/WorkspacePage",
-    "pages/TrajectoryPage",
-    "pages/SettingsPage"
-  ]
-}
