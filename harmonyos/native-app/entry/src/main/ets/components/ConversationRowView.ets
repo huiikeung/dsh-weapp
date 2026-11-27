@@ -78,11 +78,6 @@ export struct ConversationRowView {
   private reasonContentH: number = 0;
   private reasonFollowAt: number = 0;
   /** 打字机：已显示字符数 / 对应思考段 id / 推进 timer（仅运行中的思考卡启用） */
-  @State reasonTyped: number = 0;
-  @State reasonTypedFor: string = '';
-  private reasonTypeTimer: number = -1;
-  private reasonLiveId: string = '';
-  private reasonLiveText: string = '';
   /** 会话正文/用户气泡字号档位（设置页「字号大小」，响应式） */
   @StorageProp('contentFontSize') contentFontSize: string = '标准';
   /** 执行图标动效样式（设置页「执行图标」，13 种） */
@@ -2449,40 +2444,6 @@ export struct ConversationRowView {
     }, 60);
   }
 
-  /** 思考卡正文：运行中的卡按打字机进度逐字显示，非运行卡整段显示 */
-  private reasonDisplay(item: ConversationItem): string {
-    const full: string = this.stepDetail(item);
-    if (!this.cardIsLive()) {
-      return full;
-    }
-    return full.substring(0, Math.min(this.reasonTyped, full.length));
-  }
-
-  /**
-   * 打字机推进：内容区域变化 = 有新正文；每 30ms 补几颗字（落后越多补得越快，始终在追），
-   * 追平即停，正文继续增长时由 onAreaChange 重新拉起。同一时间只有一段思考在打。
-   */
-  private ensureReasonTyping(item: ConversationItem): void {
-    const full: string = this.stepDetail(item);
-    if (this.reasonLiveId !== item.id) {
-      this.reasonLiveId = item.id;
-      this.reasonTyped = 0;
-    }
-    this.reasonLiveText = full;
-    if (this.reasonTypeTimer >= 0) {
-      return;
-    }
-    this.reasonTypeTimer = setInterval(() => {
-      if (this.reasonTyped >= this.reasonLiveText.length) {
-        clearInterval(this.reasonTypeTimer);
-        this.reasonTypeTimer = -1;
-        return;
-      }
-      const rest: number = this.reasonLiveText.length - this.reasonTyped;
-      this.reasonTyped = this.reasonTyped + Math.min(rest, Math.max(2, Math.ceil(rest / 24)));
-    }, 30);
-  }
-
   @Builder
   reasoningCard(item: ConversationItem) {
     Column() {
@@ -2513,8 +2474,7 @@ export struct ConversationRowView {
       } else {
         Scroll(this.reasonScroller) {
           Column() {
-            // 打字机：运行中的思考卡按 reveal 进度逐字显示（见 reasonDisplay / ensureReasonTyping）
-            Text(this.reasonDisplay(item))
+            Text(this.stepDetail(item))
               .fontSize(13)
               .lineHeight(this.rpx(48))
               .fontColor(this.secondaryText())

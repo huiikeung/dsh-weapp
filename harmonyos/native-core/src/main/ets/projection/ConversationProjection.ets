@@ -71,6 +71,10 @@ export class ConversationProjector {
   private records: SessionEvent[] = [];
   private sequenceMap: Map<number, SessionEvent> = new Map();
   private streamIndexes: Map<string, number> = new Map();
+  /** 每个 attempt 的内容分段号：叙述→工具→叙述 切换类型时另起新流（同 attempt 两段叙述不再被追加合并） */
+  private chunkSegment: Map<string, number> = new Map();
+  /** 每个 attempt 最后一次到达的分片类型 */
+  private lastChunkType: Map<string, string> = new Map();
   private finalizedKeys: Set<string> = new Set();
   /** 流式正文的完整累积文本：只把「完整行」提交上屏，避免逐字符重排导致的闪烁 */
   private streamBuffers: Map<string, string> = new Map<string, string>();
@@ -109,7 +113,7 @@ export class ConversationProjector {
     }
   }
   get hasAssistantChunks(): boolean { return this.streamIndexes.size > 0; }
-  reset(): void { this.mutableItems = []; this.records = []; this.sequenceMap.clear(); this.streamIndexes.clear(); this.finalizedKeys.clear(); this.toolItemIds.clear(); this.toolDepths.clear(); this.lastSequence = -1; }
+  reset(): void { this.mutableItems = []; this.records = []; this.sequenceMap.clear(); this.streamIndexes.clear(); this.finalizedKeys.clear(); this.toolItemIds.clear(); this.toolDepths.clear(); this.chunkSegment.clear(); this.lastChunkType.clear(); this.lastSequence = -1; }
   rebuild(events: SessionEvent[]): void { this.reset(); const sorted = events.slice().sort((a: SessionEvent,b: SessionEvent) => a.seq-b.seq); for (const event of sorted) this.fold(event); }
   fold(record: SessionEvent): ConversationProjectionOperation[] {
     if (!Number.isSafeInteger(record.seq) || record.seq < 0) return [];
@@ -185,7 +189,15 @@ export class ConversationProjector {
         if (streamName.length === 0 || streamName.toLowerCase() === 'tool') continue;
       }
       const kind = type === 'text-delta' ? ConversationItemKind.ASSISTANT : type === 'reasoning-delta' ? ConversationItemKind.REASONING : (name?.toLowerCase() === 'run_code' ? ConversationItemKind.JSON_TOOL : ConversationItemKind.TOOL);
-      const suffix = str(row.chunk, 'index') ?? str(row.chunk, 'id') ?? '0';
+      // 内容类型切换（叙述→工具→叙述…）时分段号 +1：同 attempt 的两段叙述不再共用一条流，
+      // 否则第二段叙述的增量会追加到第一段上，显示成「上一段结尾：新描述」。
+      const lastType: string = this.lastChunkType.get(attemptId) ?? '';
+      if (type !== lastType) {
+        this.chunkSegment.set(attemptId, (this.chunkSegment.get(attemptId) ?? 0) + 1);
+        this.lastChunkType.set(attemptId, type);
+      }
+      const base: string = str(row.chunk, 'index') ?? str(row.chunk, 'id') ?? '0';
+      const suffix: string = base + '-' + (this.chunkSegment.get(attemptId) ?? 0).toString();
       const key = 'live-' + attemptId + '-' + type + '-' + suffix;
       const text = str(row.chunk, type === 'tool-call-delta' ? 'argumentsDelta' : 'text') ?? '';
       this.append(key, kind, kind === ConversationItemKind.ASSISTANT ? (this.labels.streamingAssistant ?? 'flukit · 正在生成…') : kind === ConversationItemKind.REASONING ? (this.labels.streamingReasoning ?? 'Think') : (name ?? this.labels.assemblingTool ?? 'Tool'), text, row.time, out);
