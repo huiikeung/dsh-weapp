@@ -532,6 +532,17 @@ export class ConversationFeed {
       //     最终答复后面往往紧跟工具行（下一轮或本轮收尾），会被折进「记录×N」，界面上就是
       //     「回复最后一段不见了」；退出重进时 items 里有用户气泡隔断，不折叠 → 内容又齐了。
       //     最终答复完整到达到 turn/end 之间的几百毫秒它仍在组内，turn/end 一到即独立出来。
+      if (kind === ConversationItemKind.ASSISTANT as string && open === null
+        && running && ConversationFeed.inLastTurn(items, itemIndex)
+        && ConversationFeed.hasProcessAheadInTurn(items, itemIndex, item.turn)) {
+        // 回合开头的叙述：它出现在任何工具之前，此时还没有过程组。以前只能当独立消息行排出去，
+        // 后面工具来了、组才建起来，它却永远留在组上方（「第一段描述被拎出来」）。
+        // 最后一轮运行中、且本轮后面确实还有过程步骤时，直接用它开组：后续工具并入同一组。
+        open = ConversationFeed.newProcessGroup(item);
+        ConversationFeed.appendToGroup(open, item);
+        groups.push(open);
+        continue;
+      }
       if (kind === ConversationItemKind.ASSISTANT as string && open !== null
         && ((running && ConversationFeed.inLastTurn(items, itemIndex))
           || ConversationFeed.hasAssistantAheadInTurn(items, itemIndex, item.turn))) {
