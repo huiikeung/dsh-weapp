@@ -3169,12 +3169,14 @@ export struct ConversationRowView {
   @Builder
   processRow() {
     Column() {
-      // 阅读档：折叠条 → 组头 → 组体。描述文字（思考卡/叙述）与步骤始终显示在组头下方 —— 留在过程内，
-      // 不再「运行中把组体浮到组头上方」（那会让描述文字看起来飘在过程外面）。
+      // 阅读档：顶部计数行 → 步骤 → 执行图标行（保持原来的位置：贴底、在鲸尾行上方）
       if (this.workStepMode === 'reading') {
-        // 折叠条：之前链条的计数（思考×N · 工具×N · 记录×N），点击展开/收起
+        // 折叠条（容器外顶部）：累计「之前链条」的思考×N · 工具×N · 记录×N，点击展开/收起
         if (this.workStepMode === 'reading' && this.entry.running && this.entry.liveFoldCount > 0) {
           this.readingHead()
+        }
+        if (this.bodyVisible()) {
+          this.bodyBlock()
         }
         if (this.entry.running) {
           Column() {
@@ -3188,12 +3190,13 @@ export struct ConversationRowView {
             }
           })
         }
-        if (this.bodyVisible()) {
-          this.bodyBlock()
-        }
       } else {
 
-      // 组头在上、组体在下：描述文字（思考卡/叙述）与步骤始终显示在组头下方 —— 留在过程内。
+      // 运行中：组体在上、组头贴底（对齐 .process-block.running 的 order: body 0 / head 1）
+      if (this.entry.running && this.bodyVisible()) {
+        this.bodyBlock()
+      }
+
       if (!this.entry.headingHidden) {
         Column() {
           this.groupHead(this.entry.title, this.entry.summary, this.entry.isError,
@@ -3207,7 +3210,7 @@ export struct ConversationRowView {
         })
       }
 
-      if (this.bodyVisible()) {
+      if (!this.entry.running && this.bodyVisible()) {
         this.bodyBlock()
       }
       }
