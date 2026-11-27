@@ -206,6 +206,12 @@ export class ConversationFeedEntry {
   liveFoldCount: number = 0;
   /** 组体是否限高滚动 */
   processBodyCapped: boolean = false;
+  /**
+   * 阅读档运行中：本组是「正在跑的那一轮」里、已被后续叙述/新组隔开的前序组 —— 整组折成一条摘要
+   *（对齐 dsh-interactive-reader：narration 之前每个 run 各自收成 live fold）。
+   * 回合结束后由 mergeSettledTurn 接手折成「已完成」行，本标记随之清零。
+   */
+  liveFoldSettled: boolean = false;
   /** 组标题隐藏（完全展开档 / 简洁档运行中只留活动组） */
   headingHidden: boolean = false;
   /** 组标题换行显示（简洁档） */
@@ -909,6 +915,53 @@ export class ConversationFeed {
         ConversationFeed.foldOf(folds, entry.id, policy.readingSummary && entry.running),
         false, processRunning);
     }
+    ConversationFeed.foldSettledGroupsOfRunningTurn(entries, policy, processRunning);
+  }
+
+  /**
+   * 阅读档运行中：叙述把本轮切成多个过程组，叙述之前的组已不在运行（running=false），
+   * 以前它们整组步骤全部摊开、不出折叠条（liveFoldCount 只对运行组算），回合结束才收 ——
+   * 运行中越跑越长。这里把「正在跑的那一轮」里所有非运行组整组折成一条「思考×N · 工具×N」摘要，
+   * 点开可回看；对齐 dsh-interactive-reader 的 live fold（narration 之前每个 run 各自收起）。
+   * 只含记录（没有思考/工具）的组不折，避免出现无意义的折叠条。
+   */
+  private static foldSettledGroupsOfRunningTurn(entries: ConversationFeedEntry[], policy: WorkStepPolicy,
+    processRunning: boolean): void {
+    if (!policy.readingSummary || !processRunning) {
+      return;
+    }
+    let runningTurn: string = '';
+    for (const entry of entries) {
+      if (entry.kind === 'PROCESS' && entry.running) {
+        runningTurn = entry.turnKey;
+        break;
+      }
+    }
+    if (runningTurn.length === 0) {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.kind !== 'PROCESS' || entry.running || entry.turnKey !== runningTurn || entry.items.length === 0) {
+        continue;
+      }
+      let foldable: boolean = false;
+      for (const item of entry.items) {
+        const kind: string = item.kind as string;
+        if (kind === ConversationItemKind.REASONING as string || kind === ConversationItemKind.TOOL as string
+          || kind === ConversationItemKind.JSON_TOOL as string) {
+          foldable = true;
+          break;
+        }
+      }
+      if (!foldable) {
+        continue;
+      }
+      entry.liveFoldSettled = true;
+      entry.liveFoldCount = entry.items.length;
+      // 组体保持可见（展开时由 displayItems 决定显示全部还是空），阅读档不渲染组头
+      entry.expanded = true;
+      entry.processBodyVisible = true;
+    }
   }
 
   private static foldOf(folds: Map<string, boolean>, id: string, fallback: boolean): boolean {
@@ -947,6 +1000,7 @@ export class ConversationFeed {
     // 「新的思考出现」= 上一段链条结束，把该点之前的步骤收进折叠条，
     // 容器内只保留最新这段（从最后一次思考开始）的过程。
     entry.liveFoldCount = 0;
+    entry.liveFoldSettled = false;
     if (policy.readingSummary && entry.running && entry.items.length > 1) {
       let lastReasoning: number = -1;
       for (let index = 0; index < entry.items.length; index++) {

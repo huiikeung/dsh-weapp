@@ -93,6 +93,8 @@ export class ConversationFeedEntryModel {
   processBodyVisible: boolean = false;
   liveFoldCount: number = 0;
   processBodyCapped: boolean = false;
+  /** 阅读档运行中：本轮已被后续叙述隔开的前序组 —— 整组折成一条摘要（见 ConversationFeed.foldSettledGroupsOfRunningTurn） */
+  liveFoldSettled: boolean = false;
   headingHidden: boolean = false;
   titleWrap: boolean = false;
   turnClosed: boolean = false;
@@ -326,6 +328,9 @@ export class ConversationFeedEntryModel {
     if (this.liveFoldCount !== entry.liveFoldCount) {
       this.liveFoldCount = entry.liveFoldCount;
     }
+    if (this.liveFoldSettled !== entry.liveFoldSettled) {
+      this.liveFoldSettled = entry.liveFoldSettled;
+    }
     if (this.processBodyVisible !== entry.processBodyVisible) {
       this.processBodyVisible = entry.processBodyVisible;
     }
@@ -424,6 +429,7 @@ export class ConversationFeedEntryModel {
     next.processAutoOpen = entry.processAutoOpen;
     next.processBodyVisible = entry.processBodyVisible;
     next.liveFoldCount = entry.liveFoldCount;
+    next.liveFoldSettled = entry.liveFoldSettled;
     next.processBodyCapped = entry.processBodyCapped;
     next.headingHidden = entry.headingHidden;
     next.titleWrap = entry.titleWrap;

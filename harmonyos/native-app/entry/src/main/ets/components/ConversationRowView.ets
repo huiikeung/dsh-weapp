@@ -3150,7 +3150,9 @@ export struct ConversationRowView {
   /** 阅读档实时折叠：要渲染的步骤（折叠时跳过已收进折叠条的前缀） */
   private displayItems(): ConversationItem[] {
     const items: ConversationItem[] = this.entry.items;
-    if (this.workStepMode === 'reading' && this.entry.running && this.entry.liveFoldCount > 0
+    // 前序折叠组（liveFoldSettled）：叙述之前、本轮已收工的组，整组收进折叠条
+    const liveFoldActive: boolean = this.entry.running || this.entry.liveFoldSettled;
+    if (this.workStepMode === 'reading' && liveFoldActive && this.entry.liveFoldCount > 0
       && !this.liveFoldOpen) {
       return items.slice(this.entry.liveFoldCount);
     }
@@ -3302,7 +3304,9 @@ export struct ConversationRowView {
       // 阅读档：顶部计数行 → 步骤 → 执行图标行（保持原来的位置：贴底、在鲸尾行上方）
       if (this.workStepMode === 'reading') {
         // 折叠条（容器外顶部）：累计「之前链条」的思考×N · 工具×N · 记录×N，点击展开/收起
-        if (this.workStepMode === 'reading' && this.entry.running && this.entry.liveFoldCount > 0) {
+        // 折叠条：运行组（最后一次思考之前）或前序折叠组（整组），有被折叠内容就显示
+        if (this.workStepMode === 'reading' && (this.entry.running || this.entry.liveFoldSettled)
+          && this.entry.liveFoldCount > 0) {
           this.readingHead()
         }
         if (this.bodyVisible()) {
