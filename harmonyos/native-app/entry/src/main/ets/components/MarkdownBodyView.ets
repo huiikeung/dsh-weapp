@@ -193,6 +193,19 @@ export struct MarkdownBodyView {
     this.parseNow();
   }
 
+  /**
+   * LazyForEach 复用行时不走 aboutToAppear，@Prop 变更也不触发 @Watch（ArkUI 复用路径的已知行为）：
+   * 流式期间行 key 带 text.length、不断重建，被复用的实例会停在上一帧的 blocks，
+   * 表现就是「叙述前面或后面被截一段，退出重进才完整」。复用时按新 text 强制重解析一次。
+   */
+  aboutToReuse(params: Record<string, Object>): void {
+    const next: string = params['text'] as string;
+    if (typeof next === 'string' && next !== this.text) {
+      this.text = next;
+    }
+    this.parseNow();
+  }
+
   onThemeChanged(): void {
     this.themeGeneration += 1;
   }

@@ -10938,6 +10938,29 @@ export struct ConversationPage {
                 this.entries = this.entries.slice();
                 this.scheduleTimelineUpdate();
               },
+              // 本条所在轮是否正在运行：叙述行据此在左侧画过程链竖线
+              liveChainActive: this.runActive() && this.connection === 'connected'
+                && this.entries.some((one: ConversationFeedEntryModel) => one.kind === 'PROCESS' && one.running
+                  && one.turnKey.length > 0 && one.turnKey === entry.turnKey),
+              // 总折叠条：本轮所有折叠组都已展开时箭头朝下
+              liveFoldTurnOpen: entry.liveFoldTurnGroupIds.length > 0
+                && entry.liveFoldTurnGroupIds.every((id: string) => this.liveFoldOpenIds.has(id)),
+              onToggleLiveFoldTurn: () => {
+                const ids: string[] = entry.liveFoldTurnGroupIds;
+                if (ids.length === 0) {
+                  return;
+                }
+                const allOpen: boolean = ids.every((id: string) => this.liveFoldOpenIds.has(id));
+                for (const id of ids) {
+                  if (allOpen) {
+                    this.liveFoldOpenIds.delete(id);
+                  } else {
+                    this.liveFoldOpenIds.add(id);
+                  }
+                }
+                this.entries = this.entries.slice();
+                this.scheduleTimelineUpdate();
+              },
               onToggleReasonFull: (id: string) => {
                 this.onToggleReasonFull(id);
               },
