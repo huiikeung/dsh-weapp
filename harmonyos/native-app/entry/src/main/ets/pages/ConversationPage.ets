@@ -7475,7 +7475,7 @@ export struct ConversationPage {
       })
     }
     .width('100%')
-    .padding({ left: 14, right: 14, bottom: 16 })
+    .padding({ left: 14, right: 14, top: 12, bottom: 16 })
     .alignItems(HorizontalAlign.Center)
   }
 
@@ -7920,8 +7920,10 @@ export struct ConversationPage {
           dragBar: true,
           showClose: false,
           preferType: SheetType.BOTTOM,
-          backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2C2E34' : '#FFFFFF'),
-          systemMaterial: this.teamSheetMaterial()
+          // 弹窗底透明：玻璃与圆角由弹窗里的输入卡自己出（与原输入框同一套），
+          // 这样「弹窗」两边也留出和输入框一致的间隙，而不是整屏铺满。
+          backgroundColor: Color.Transparent,
+          systemMaterial: undefined
         })
 
       // 长按语音的全屏特效：盖在对话与输入条之上，但不拦触摸（手指还压在下面的输入条上）
