@@ -33,7 +33,7 @@ import { MarkdownBodyView } from '../components/MarkdownBodyView';
 import { ConversationComposer, MetricMenuPair, RefChipItem, RefDirItem, RefSessionItem, SkillItem } from '../components/ConversationComposer';
 import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
 import { NavBackButton } from '../components/NavBackButton';
-import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, HdsTabs, HdsBarWidthRangeOptions, HdsTabsFloatingStyle, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
+import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, HdsTabs, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
 import { ConversationProgress } from '../components/ConversationProgress';
 import { TrajectoryPanel } from '../components/TrajectoryPanel';
 import { FluKeCoin } from '../components/FluKeCoin';
@@ -371,6 +371,8 @@ export struct ConversationPage {
   /** 部署级默认 Agent 预设（运行模式）：新会话没有 per-session 值时用它 */
   @StorageLink('defaultAgentPreset') defaultAgentPreset: string = '';
   /** 新会话左上角「模式切换」：弹窗开关与当前显示文案 */
+  /** 展开态输入：系统半模态弹窗（bindSheet）是否打开 */
+  @State private inputSheetOpen: boolean = false;
   @State private modeChipOpen: boolean = false;
   @State private modeChipLabel: string = '标准模式';
   /** 每会话运行模式缓存（sessionId → preset id）：网关每会话回执/事件写入 */
@@ -462,10 +464,8 @@ export struct ConversationPage {
   @State private dockHeight: number = 220;
   /** 排队消息 / 任务 / 目标卡片区实测高度：时间线末尾让出同样的高度，鲸尾行不被压住 */
   @State private dockStackH: number = 0;
-  /** 输入卡实测高度（composer 上报）：玻璃背板用它精确对齐 */
+  /** 输入卡实测高度（composer 上报）：时间线末尾留白/视口裁切用它 */
   @State dockCardHeight: number = 0;
-  /** 胶囊高度：单独用状态驱动并参与补间，保证它和输入卡同一条动画收缩 */
-  @State private dockBarHeight: number = 52;
   /** 最近一次「展开态」输入卡高度（展开/收起切换时作为动画目标值） */
   private lastExpandedCardHeight: number = 96;
   /** 指标行高度（实测：13vp 文字 + 8vp 上边距 ≈ 26vp） */
@@ -4810,7 +4810,6 @@ export struct ConversationPage {
       this.getUIContext().getFocusController().clearFocus();
       this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
         this.composerFocused = false;
-        this.dockBarHeight = 52;
       });
       this.autoStick = true;
       setTimeout(() => {
@@ -5897,7 +5896,6 @@ export struct ConversationPage {
     this.hint = '编辑目标中：发送即保存，返回键取消';
     // 展开输入条并聚焦（键盘随焦点弹出）
     this.composerFocused = true;
-    this.dockBarHeight = this.lastExpandedCardHeight;
     setTimeout(() => {
       try {
         this.getUIContext().getFocusController().requestFocus('composer-draft-area');
@@ -5917,7 +5915,6 @@ export struct ConversationPage {
     this.draft = this.goalEditBackup;
     this.goalEditBackup = '';
     this.composerFocused = false;
-    this.dockBarHeight = 52;
     if (save && text.length > 0 && text !== this.goal.objective) {
       this.mutateGoal('goal-edit', text);
     }
@@ -7181,44 +7178,7 @@ export struct ConversationPage {
       .hitTestBehavior(HitTestMode.None)
   }
 
-  /**
-   * 沉浸光感玻璃胶囊（只作背板）：
-   * 系统材质只在「底部 TabBar」合法作用域内渲染，所以这里用 HdsTabs 悬浮 TabBar 提供材质；
-   * 但 TabBar 是固定高度的浏览器 chrome，把输入区放进去会被裁（展开态多行会互相叠字），
-   * 因此 TabBar 里只放一个 1×1 的透明页签，真实输入区叠在它上面单独渲染（见 build 里的两层）。
-   * 胶囊高度 = 输入区实测高度，两者像素对齐。
-   */
-  @Builder
-  dockAsFloatingGlass() {
-    HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
-      TabContent() {
-        // 内容区不用：只借 TabBar 的位置与材质
-        Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
-      }
-      .tabBar(this.emptyTabItem())
-    }
-    .barMode(BarMode.Fixed)
-    .scrollable(false)
-    // 小艺同款三条件：横向 + 底部 + 浮在内容之上（缺一材质不生效）
-    .vertical(false)
-    .barOverlap(true)
-    // 材质走 HDS 管线：systemMaterialEffect = IMMERSIVE + ADAPTIVE
-    .barFloatingStyle(this.dockFloatingStyle())
-    // 胶囊高度用状态驱动、参与补间：和输入卡在同一个 animateTo 里变，
-    // 收缩是一整条变形，不会「先出现展开高度的椭圆、再跳到胶囊」
-    .barHeight(this.dockBarHeight)
-    .width('100%')
-    .height('100%')
-    // 背板只负责渲染材质：不能抢触摸，也不能抢焦点 —— 否则点输入框时焦点被 Tabs 拿走，
-    // TextArea 立刻 onBlur，输入条刚展开又塌回去
-    .hitTestBehavior(HitTestMode.None)
-    .focusable(false)
-    .enabled(false)
-  }
-
-
-
-  /** 空的页签内容：胶囊只当背板用 */
+  /** 空的页签内容：玻璃背板只当底板用 */
   @Builder
   emptyTabItem() {
     Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
@@ -7401,15 +7361,11 @@ export struct ConversationPage {
     this.permissionMenuOpen = false;
     this.modelMenuOpen = false;
     this.metricPopover = '';
-    // 有草稿/附件时输入条保持展开：这里只收键盘（清焦点），高度不塌回 52
-    const keepExpanded: boolean = this.draft.trim().length > 0 || this.pickedAttachments.length > 0;
-    // 收键盘 + 收起输入条同时开始：两者都用 200ms 补间，视觉上是同步的一次过渡
+    // 收键盘 + 收起输入条同时开始：同一条补间，视觉上是同步的一次过渡
+    // （有草稿/附件时 composer.expanded() 仍成立，输入条自然保持展开）
     this.getUIContext().getFocusController().clearFocus();
     this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
       this.composerFocused = false;
-      if (!keepExpanded) {
-        this.dockBarHeight = 52;
-      }
     });
   }
 
@@ -7472,20 +7428,41 @@ export struct ConversationPage {
     return { materialType: hdsMaterial.MaterialType.IMMERSIVE, materialLevel: currentGlassMaterialLevel() };
   }
 
-  /** 悬浮胶囊样式：官方 HdsTabsFloatingStyle 类型 */
-  private dockFloatingStyle(): HdsTabsFloatingStyle {
-    const widthOpt: HdsBarWidthRangeOptions = {
-      smallWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-      mediumWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-      largeWidth: this.pageW > 0 ? this.pageW - 28 : 320
-    };
-    return {
-      adaptToHandedness: true,
-      barSideMargin: 14,
-      barBottomMargin: this.dockBarBottomMargin(),
-      barWidth: widthOpt,
-      systemMaterialEffect: this.dockGlassMaterial()
-    };
+  /** 原生弹窗里的输入区：文本域 + 最下一行按钮（发送） */
+  @Builder
+  inputSheetContent() {
+    Column({ space: 10 }) {
+      TextArea({ text: this.draft, placeholder: this.composerPlaceholder() })
+        .id('sheet-draft-area')
+        .fontSize(16)
+        .fontColor(this.textColor())
+        .placeholderColor(this.subColor())
+        .backgroundColor(Color.Transparent)
+        .height(168)
+        .onChange((value: string) => {
+          this.draft = value;
+        })
+      Row({ space: 10 }) {
+        Blank()
+        Button('发送')
+          .height(38)
+          .padding({ left: 22, right: 22 })
+          .fontSize(15)
+          .fontColor('#FFFFFF')
+          .backgroundColor('#2E6BE6')
+          .borderRadius(19)
+          .enabled(this.draft.trim().length > 0)
+          .onClick(() => {
+            this.inputSheetOpen = false;
+            this.onSend();
+          })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+    }
+    .width('100%')
+    .padding({ left: 18, right: 18, top: 6, bottom: 18 })
+    .alignItems(HorizontalAlign.Start)
   }
 
   @Builder
@@ -7538,6 +7515,10 @@ export struct ConversationPage {
           }
           ConversationComposer({
             isDark: this.isDark,
+            useNativeSheet: true,
+            onOpenSheet: () => {
+              this.inputSheetOpen = true;
+            },
             menuCloseSignal: this.menuCloseSignal,
             leftMenuCloseSignal: this.leftMenuCloseSignal,
             onLeftMenuVisible: (open: boolean) => {
@@ -7616,13 +7597,12 @@ export struct ConversationPage {
               if (Math.abs(quantized - this.dockCardHeight) >= 2) {
                 this.dockCardHeight = quantized;
               }
-              // 展开态（聚焦或有草稿/附件）都跟随（多行输入长高）；收起态目标固定 52，由补间负责
-              // 有草稿未聚焦时也要跟随：进页面恢复草稿直接渲染展开卡，胶囊高度必须同步对齐
+              // 展开态（聚焦或有草稿/附件）都跟随（多行输入长高）
+              // 有草稿未聚焦时也要跟随：进页面恢复草稿直接渲染展开卡
               if (this.composerExpanded() && Math.abs(quantized - this.lastExpandedCardHeight) >= 2) {
-                // 封顶 320：防止偶发异常实测把胶囊撑成巨大的椭圆
+                // 封顶 320：防止偶发异常实测值
                 const bounded: number = Math.min(Math.max(quantized, 52), 320);
                 this.lastExpandedCardHeight = bounded;
-                this.dockBarHeight = bounded;
               }
             },
             metricPairsFor: (kind: string): MetricMenuPair[] => {
@@ -7647,15 +7627,10 @@ export struct ConversationPage {
               if (focused && Date.now() < this.suppressFocusExpandUntil) {
                 effective = false;
               }
-              // 展开/收起用补间过渡：卡片高度和胶囊高度一起变，避免瞬间跳变看着卡
-              // 250ms 与系统键盘收起动画同时长，两条动画同起同落，不会出现「键盘落完、卡片还在缩」
-              // 有草稿/附件时失焦只收键盘，输入条保持展开高度（与 collapseComposer 同一判定）
-              const keepExpanded: boolean = this.draft.trim().length > 0 || this.pickedAttachments.length > 0;
-              // 胶囊高度封顶：lastExpandedCardHeight 可能残留旧的大值（发完清空后没有新的实测来纠正）
-              const target: number = Math.min(Math.max(this.lastExpandedCardHeight, 52), 320);
+              // 展开/收起用补间过渡，250ms 与系统键盘收起动画同时长
+              // （有草稿/附件时 composer.expanded() 仍成立，输入条保持展开高度）
               this.getUIContext().animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
                 this.composerFocused = effective;
-                this.dockBarHeight = (effective || keepExpanded) ? target : 52;
               });
             },
             onDraft: (value: string) => {
@@ -7907,23 +7882,8 @@ export struct ConversationPage {
 
       // 会话页顶部双 Tab 指示点：切换时淡入、停止后淡出（对齐 iOS 翻页小圆点）
       this.sessionPageDots()
-      // 底部浮层：底下时间线内容以模糊方式透出（对齐顶部模糊遮罩）
-      // 轨迹 Tab 不显示输入条：避免在只读轨迹页误触发送
-      // 第一层：系统沉浸光感背板（ArkUI 原生 Tabs 悬浮 TabBar + FloatingTabBarStyle.systemMaterial）
-      // 只在收起态显示：展开态用修改前那张卡片（半透明底 + 细亮边），
-      // 两个轮廓叠在一起会在卡片圆角处露出胶囊的弧线。
-      Column() {
-        // 新版布局（设置开关）三块各自出玻璃，不再要这层整体胶囊背板
-        if (this.sessionTab === 0 && !this.composerCompactStyle) {
-          this.dockAsFloatingGlass()
-        }
-      }
-      .width('100%')
-      .height('100%')
-      // 胶囊常驻不隐藏：之前按高度阈值隐藏，收起过程里会出现「底部一截透明、然后胶囊才出现」
-      // 的断层。现在胶囊跟着输入卡实测高度连续收缩，是一次连续变形，不会闪也不会留透明带。
-      .visibility(Visibility.Visible)
-      .hitTestBehavior(HitTestMode.None)
+      // 输入条玻璃不再走这层页面背板：收起态椭圆胶囊由 ConversationComposer 里的
+      // HdsGlassSurface（原生沉浸光感材质，文字直接写在组件上）渲染，与内容像素对齐。
 
       // 第二层：真实输入区，叠在背板之上
       Column() {
@@ -7935,6 +7895,20 @@ export struct ConversationPage {
       .height('100%')
       .justifyContent(FlexAlign.End)
       .hitTestBehavior(HitTestMode.Transparent)
+
+      // 原生弹窗输入（展开态）：系统半模态 bindSheet + 沉浸光感材质
+      Column()
+        .width(1)
+        .height(1)
+        .opacity(0.01)
+        .bindSheet($$this.inputSheetOpen, this.inputSheetContent(), {
+          height: 340,
+          dragBar: true,
+          showClose: false,
+          preferType: SheetType.BOTTOM,
+          backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2C2E34' : '#FFFFFF'),
+          systemMaterial: this.teamSheetMaterial()
+        })
 
       // 长按语音的全屏特效：盖在对话与输入条之上，但不拦触摸（手指还压在下面的输入条上）
       // 中间浮层显示实时转写文字（与 Bot 对话页同一套 HUD 样式）

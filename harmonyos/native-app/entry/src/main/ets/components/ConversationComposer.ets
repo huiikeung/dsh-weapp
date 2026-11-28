@@ -189,6 +189,9 @@ export struct ConversationComposer {
 
   onDraft: (value: string) => void = () => {};
   onSend: () => void = () => {};
+  /** 展开态改用系统半模态弹窗承载（页面置 true：点击折叠条直接开原生弹窗） */
+  @Prop useNativeSheet: boolean = false;
+  onOpenSheet: () => void = () => {};
   onStop: () => void = () => {};
   onAddAttachment: () => void = () => {};
   /** 「+」弹层：相册图片 / 文件 */
@@ -3169,6 +3172,10 @@ export struct ConversationComposer {
       if (this.voiceMode) {
         this.onToggleVoiceMode();
       }
+      if (this.useNativeSheet) {
+        this.onOpenSheet();
+        return;
+      }
       this.draftFocusAllowed = true;
       this.softKeyboardOnFocus = true;
       this.leftMenuOpen = false;
@@ -3448,6 +3455,11 @@ export struct ConversationComposer {
                   // 语音态下轻点：切回文字输入（对齐小程序 voice surface 的 tap 行为）
                   if (this.voiceMode) {
                     this.onToggleVoiceMode();
+                  }
+                  if (this.useNativeSheet) {
+                    // 展开态交给系统半模态弹窗（原生沉浸材质），不在这里原地展开
+                    this.onOpenSheet();
+                    return;
                   }
                   this.onFocusChange(true);
                   // 点击折叠态占位：展开后延迟拉起键盘（节点刚转可见，
