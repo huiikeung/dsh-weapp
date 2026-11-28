@@ -466,6 +466,8 @@ export struct ConversationPage {
   @State dockCardHeight: number = 0;
   /** 胶囊高度：单独用状态驱动并参与补间，保证它和输入卡同一条动画收缩 */
   @State private dockBarHeight: number = 52;
+  /** 底部胶囊：沉浸光感单胶囊形态（返回 + 说点什么，不叠输入框） */
+  @State private glassDockMode: boolean = true;
   /** 最近一次「展开态」输入卡高度（展开/收起切换时作为动画目标值） */
   private lastExpandedCardHeight: number = 96;
   /** 指标行高度（实测：13vp 文字 + 8vp 上边距 ≈ 26vp） */
@@ -7488,6 +7490,59 @@ export struct ConversationPage {
     };
   }
 
+  /** 底部沉浸光感胶囊（临时形态）：只剩一条光感胶囊，按钮直接落在胶囊上，不再叠输入框 */
+  @Builder
+  glassDockBar() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Row({ space: 4 }) {
+        // 最左：返回
+        Row() {
+          Text('‹')
+            .fontSize(30)
+            .fontWeight(FontWeight.Regular)
+            .fontColor(this.textColor())
+            .margin({ bottom: 2 })
+        }
+        .width(46)
+        .height(48)
+        .justifyContent(FlexAlign.Center)
+        .alignItems(VerticalAlign.Center)
+        .borderRadius(24)
+        .onClick(() => {
+          this.pageStack.pop();
+        })
+        Text('说点什么')
+          .fontSize(15)
+          .fontColor(this.subColor())
+          .layoutWeight(1)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .onClick(() => {
+            this.glassDockMode = false;
+          })
+      }
+      .width('100%')
+      .height(56)
+      .padding({ left: 6, right: 20 })
+      .alignItems(VerticalAlign.Center)
+      .borderRadius(28)
+      // 沉浸光感：更透的底色 + 更强的背景模糊，让下方时间线透出来
+      .backgroundColor(this.isDark ? 'rgba(44,46,52,0.46)' : 'rgba(255,255,255,0.44)')
+      .backdropBlur(this.isDark ? 44 : 34)
+      .border({ width: 0.7, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.86)' })
+      .shadow({ radius: 22, color: this.isDark ? 'rgba(0,0,0,0.32)' : 'rgba(16,19,24,0.12)', offsetY: 8 })
+      .margin({ left: 16 + this.wideInset(), right: 16 + this.wideInset() })
+    }
+    .width('100%')
+    .padding({ bottom: this.dockBottomPad() })
+    .onAreaChange((_old: Area, area: Area) => {
+      const height: number = Number(area.height);
+      if (height > 0 && Math.abs(height - this.dockHeight) > 1) {
+        this.dockHeight = height;
+      }
+    })
+  }
+
   @Builder
   bottomDockLayer() {
     Stack({ alignContent: Alignment.Bottom }) {
@@ -7914,7 +7969,7 @@ export struct ConversationPage {
       // 两个轮廓叠在一起会在卡片圆角处露出胶囊的弧线。
       Column() {
         // 新版布局（设置开关）三块各自出玻璃，不再要这层整体胶囊背板
-        if (this.sessionTab === 0 && !this.composerCompactStyle) {
+        if (this.sessionTab === 0 && !this.composerCompactStyle && !this.glassDockMode) {
           this.dockAsFloatingGlass()
         }
       }
@@ -7928,7 +7983,11 @@ export struct ConversationPage {
       // 第二层：真实输入区，叠在背板之上
       Column() {
         if (this.sessionTab === 0) {
-          this.bottomDockLayer()
+          if (this.glassDockMode) {
+            this.glassDockBar()
+          } else {
+            this.bottomDockLayer()
+          }
         }
       }
       .width('100%')
