@@ -3869,8 +3869,8 @@ export struct ConversationPage {
 
   // ==================== 主题 ====================
   private pageBg(): string {
-    // 浅色对齐 Bot 模式（系统白 #FFFFFF）；深色保持纯黑（不用 BotLavender）
-    return this.isDark ? '#000000' : '#FFFFFF';
+    // 浅色恢复原来的浅灰底 #F2F2F4（让白色胶囊输入条和光圈浮出层次）；深色保持纯黑
+    return this.isDark ? '#000000' : '#F2F2F4';
   }
 
   /** 状态栏内容色跟随页面背景：深色纯黑 → 白，浅色灰底 → 黑。
