@@ -3525,19 +3525,26 @@ export struct ConversationComposer {
         ? { left: 14, right: 14, top: 12, bottom: 12 }
         : { left: 8, right: 8, top: 8, bottom: 8 })
       // 收起态：不铺底色、不画描边，玻璃由底部系统 TabBar 材质渲染（一条细玻璃条）；
-      // 展开态：自绘磨砂玻璃 —— 半径 40 / 饱和度 1.35 / 半透明深底，背后内容明显糊掉但仍透出光影。
-      .borderRadius(this.expanded() ? 28 : 26)
+      // 展开态：鸿蒙原生弹窗观感 —— 大圆角(32) + 系统级背景模糊 + 柔和投影的半透明卡片。
+      .borderRadius(this.expanded() ? 32 : 26)
       // 背景 = 按高度启用的模糊 + 可补间的底色：
       // 收起态（卡片 52）必须不叠任何自绘模糊 —— 那条胶囊的玻璃完全由底部 HdsTabs 系统材质出，
       // 叠一层 backdropBlur 会把「沉浸光感」糊掉（上一版就是这样丢的效果）。
       // 只有卡片真长到展开高度时才开模糊，避免糊住胶囊。
       // 收起态一律不要自绘模糊（胶囊玻璃只由底部 HdsTabs 系统材质出）：
       // 只按 cardHeight 判定的话，展开→收起后实测值可能还是旧的大值，胶囊就被糊了一层
-      .backdropBlur(this.expanded() && this.cardHeight >= 92 ? 22 : 0)
+      // 原生弹窗玻璃：系统 BlurStyle 材质（COMPONENT_ULTRA_THICK）出磨砂底，
+      // 再叠一层半透明底色保证亮/暗背景下都够「实」，不靠自绘 backdropBlur。
+      .backgroundBlurStyle(this.expanded() && this.cardHeight >= 92
+        ? BlurStyle.COMPONENT_ULTRA_THICK
+        : BlurStyle.NONE)
       .backgroundColor(this.expanded()
-        ? (this.isDark ? 'rgba(30,30,32,0.72)' : 'rgba(255,255,255,0.72)')
+        ? (this.isDark ? 'rgba(30,30,32,0.62)' : 'rgba(255,255,255,0.62)')
         : Color.Transparent)
-      .border({ width: this.expanded() ? 1 : 0, color: '#66FFFFFF' })
+      .border({ width: this.expanded() ? 0.5 : 0, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.70)' })
+      .shadow(this.expanded()
+        ? { radius: 26, color: this.isDark ? 'rgba(0,0,0,0.42)' : 'rgba(16,19,24,0.14)', offsetY: 10 }
+        : { radius: 0, color: Color.Transparent, offsetY: 0 })
 
       }
       .width('100%')
