@@ -191,6 +191,8 @@ export struct ConversationComposer {
   onSend: () => void = () => {};
   /** 展开态改用系统半模态弹窗承载（页面置 true：点击折叠条直接开原生弹窗） */
   @Prop useNativeSheet: boolean = false;
+  /** 由半模态弹窗承载时强制展开（弹窗里只显示展开卡） */
+  @Prop @Watch('onForceExpandedChanged') forceExpanded: boolean = false;
   onOpenSheet: () => void = () => {};
   onStop: () => void = () => {};
   onAddAttachment: () => void = () => {};
@@ -289,6 +291,19 @@ export struct ConversationComposer {
   onInsideTouch: () => void = () => {};
   /** 卡片高度回调 */
   onCardHeightChange: (height: number) => void = () => {};
+  private onForceExpandedChanged(): void {
+    if (!this.forceExpanded) {
+      return;
+    }
+    // 弹窗升起后自动聚焦并拉起键盘（节点刚可见，分两次重试）
+    setTimeout(() => {
+      this.getUIContext().getFocusController().requestFocus('composer-draft-area');
+    }, 120);
+    setTimeout(() => {
+      this.getUIContext().getFocusController().requestFocus('composer-draft-area');
+    }, 360);
+  }
+
   aboutToAppear(): void {
     this.resolveDraftToken(this.draft);
   }
@@ -418,6 +433,9 @@ export struct ConversationComposer {
     // 页面随后把 composerFocused 置 false；如果这里不同时锁住，卡片会随菜单一起消失。
     // 注意用本地状态（permissionMenuShown / modelRootShown 等）而不是页面回传的 @Prop，
     // 后者要晚一帧才到，赶不上失焦。
+    if (this.forceExpanded) {
+      return true;
+    }
     return this.focused || this.hasDraft() || this.attachmentCount > 0
       || this.modelRootShown || this.modelListShown || this.permissionOpen
       || this.permissionMenuShown || this.attachMenuOpen || this.modelPopupShown

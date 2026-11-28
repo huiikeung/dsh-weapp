@@ -7428,41 +7428,55 @@ export struct ConversationPage {
     return { materialType: hdsMaterial.MaterialType.IMMERSIVE, materialLevel: currentGlassMaterialLevel() };
   }
 
-  /** 原生弹窗里的输入区：文本域 + 最下一行按钮（发送） */
+  /** 原生弹窗里的输入区：与原输入框同一套组件（展开卡 + 底部按钮行），只加两边/底部间隙 */
   @Builder
   inputSheetContent() {
-    Column({ space: 10 }) {
-      TextArea({ text: this.draft, placeholder: this.composerPlaceholder() })
-        .id('sheet-draft-area')
-        .fontSize(16)
-        .fontColor(this.textColor())
-        .placeholderColor(this.subColor())
-        .backgroundColor(Color.Transparent)
-        .height(168)
-        .onChange((value: string) => {
+    Column() {
+      ConversationComposer({
+        isDark: this.isDark,
+        forceExpanded: true,
+        draft: this.draft,
+        placeholder: this.composerPlaceholder(),
+        connected: this.connection === 'connected',
+        running: this.running,
+        sending: this.sending,
+        permissionTitle: this.permissionTitle(),
+        permissionIcon: this.permissionIconGlyph(),
+        permissionLabels: this.permissionMenuLabels(),
+        permissionValues: this.permissionMenuValues(),
+        permissionCurrent: this.sessionPermission(),
+        modelTitle: this.currentModelLabel(),
+        modelBadge: this.currentModelBadge(),
+        effortLabel: this.effortLabel(),
+        effort: this.effortName(this.currentEffort()),
+        modelMenuItems: this.modelMenuItems(),
+        modelProviders: this.modelProviderItems(),
+        currentProvider: this.currentModelProvider(),
+        modelMenuCurrent: this.currentModelId(),
+        teamEnabled: this.teamEnabled,
+        attachmentCount: this.pickedAttachments.length,
+        attachments: this.pickedAttachments,
+        onDraft: (value: string) => {
           this.draft = value;
-        })
-      Row({ space: 10 }) {
-        Blank()
-        Button('发送')
-          .height(38)
-          .padding({ left: 22, right: 22 })
-          .fontSize(15)
-          .fontColor('#FFFFFF')
-          .backgroundColor('#2E6BE6')
-          .borderRadius(19)
-          .enabled(this.draft.trim().length > 0)
-          .onClick(() => {
-            this.inputSheetOpen = false;
-            this.onSend();
-          })
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
+        },
+        onSend: () => {
+          this.inputSheetOpen = false;
+          this.onSend();
+        },
+        onToggleTeam: (next: boolean) => {
+          this.toggleTeamEnabled(next);
+        },
+        onInsideTouch: () => {
+          this.lastInsideComposerTouchAt = Date.now();
+        },
+        onRemoveAttachment: (uri: string) => {
+          this.pickedAttachments = this.pickedAttachments.filter((item: PickedAttachment) => item.uri !== uri);
+        }
+      })
     }
     .width('100%')
-    .padding({ left: 18, right: 18, top: 6, bottom: 18 })
-    .alignItems(HorizontalAlign.Start)
+    .padding({ left: 14, right: 14, bottom: 16 })
+    .alignItems(HorizontalAlign.Center)
   }
 
   @Builder
@@ -7902,7 +7916,7 @@ export struct ConversationPage {
         .height(1)
         .opacity(0.01)
         .bindSheet($$this.inputSheetOpen, this.inputSheetContent(), {
-          height: 340,
+          height: SheetSize.FIT_CONTENT,
           dragBar: true,
           showClose: false,
           preferType: SheetType.BOTTOM,
