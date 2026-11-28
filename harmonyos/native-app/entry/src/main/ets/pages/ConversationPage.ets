@@ -3869,8 +3869,9 @@ export struct ConversationPage {
 
   // ==================== 主题 ====================
   private pageBg(): string {
-    // 浅色模式按参考截图改为浅灰底（不再是纯白），让白色胶囊输入条和光圈浮出层次；深色仍为纯黑
-    return this.isDark ? '#000000' : '#F2F2F4';
+    // 与 Bot 模式（BotChatPage.conversationSurface）完全一致：
+    //   浅色 = 系统白 #FFFFFF；深色 = BotLavender #17161F
+    return this.isDark ? '#17161F' : '#FFFFFF';
   }
 
   /** 状态栏内容色跟随页面背景：深色纯黑 → 白，浅色灰底 → 黑。
@@ -7224,45 +7225,6 @@ export struct ConversationPage {
     Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
   }
 
-  /**
-   * 独立小号沉浸光感背板（置底按钮用）。
-   * 普通组件的 systemMaterial 在内容区不生效（“out of scope”），只能借 HdsTabs 底部悬浮 Bar 出材质，
-   * 与输入条胶囊同一套 systemMaterialEffect；按钮本体做透明可点层叠在上面。
-   */
-  @Builder
-  hdsGlassBackplate(w: number, h: number) {
-    HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
-      TabContent() {
-        Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
-      }
-      .tabBar(this.emptyTabItem())
-    }
-    .barMode(BarMode.Fixed)
-    .scrollable(false)
-    // 小艺同款三条件：横向 + 底部 + 浮在内容之上（缺一材质不生效）
-    .vertical(false)
-    .barOverlap(true)
-    .barFloatingStyle({
-      adaptToHandedness: false,
-      barSideMargin: 0,
-      barBottomMargin: 0,
-      barWidth: { smallWidth: w, mediumWidth: w, largeWidth: w },
-      systemMaterialEffect: this.dockGlassMaterial()
-    })
-    .barHeight(h)
-    .width(w)
-    .height(h)
-    // TabBar 默认带一层不透明底色：在圆里就是背后那块「带四个直角的深色矩形」，先清掉
-    .barBackgroundColor('#00000000')
-    // 再按高度把整块（含材质）裁成圆形
-    .borderRadius(h / 2)
-    .clip(true)
-    // 只当背板：不抢触摸、不抢焦点
-    .hitTestBehavior(HitTestMode.None)
-    .focusable(false)
-    .enabled(false)
-  }
-
   /** 输入区是否处于展开态（与 ConversationComposer.expanded() 同一套判定） */
   private composerExpanded(): boolean {
     // 与 ConversationComposer.expanded() 保持一致：草稿/附件算展开（收键盘不塌回单栏）
@@ -8204,6 +8166,8 @@ export struct ConversationPage {
         scrollEffectStyle: { contentStyle: TITLE_BAR_CONTENT }
       }
     })
+    // 隐藏系统返回键：headerBar 里自绘返回钮（HdsGlassSurface，与右侧三个圆钮/输入条胶囊同一套玻璃）
+    .hideBackButton(true)
     .bindToScrollable([this.scroller])
     .onShown(() => {
       // 从设置等二级页返回时，那些页面把键盘避让改成 NONE；这里恢复 RESIZE，否则输入法弹出时输入框不跟随
@@ -10014,9 +9978,8 @@ export struct ConversationPage {
   }
 
   /**
-   * 顶栏按钮直径：要和系统返回键（标题栏里 45vp 的那个圆）看起来一样大。
-   * HdsGlassSurface 的 HdsTabs 背板有最小尺寸（nominal 48 → 实际渲染 54vp），
-   * 所以这里按 40 给，渲染出来约 45vp，和返回键同大。
+   * 顶栏按钮直径：自绘返回键与右侧三个圆钮统一 40vp（旧布局 36）。
+   * HdsGlassSurface 重写后背板严格跟随内容尺寸，无最小尺寸放大。
    */
   private headerBtnSize(embedded: boolean): number {
     return embedded ? 40 : 36;
@@ -10026,12 +9989,16 @@ export struct ConversationPage {
   headerBar(embedded: boolean = false) {
     // 标题/模式字号已调小；右侧三个圆钮之间收紧，标题与返回钮的间距靠标题自身 margin
     Row({ space: 2 }) {
-      // 内嵌进原生标题栏时使用系统返回键（液态玻璃 + 自动 pop），不再自己画；
-      // 非内嵌（旧布局）时保留自定义返回钮
-      if (!embedded) {
-        NavBackButton({ isDark: this.isDark, diameter: 36 })
-          .id('conversation-back')
-      }
+      // 返回键与右侧三个圆钮同一套 HdsGlassSurface 玻璃背板（含光感跟随）；
+      // 内嵌时已隐藏系统返回键（.hideBackButton(true)），四种圆钮尺寸一致
+      NavBackButton({
+        isDark: this.isDark,
+        diameter: this.headerBtnSize(embedded),
+        onBack: () => {
+          this.pageStack.pop();
+        }
+      })
+        .id('conversation-back')
 
       Column({ space: 2 }) {
         Text(this.activeSessionTitle())
@@ -10200,8 +10167,8 @@ export struct ConversationPage {
     .height(embedded ? 56 : 56 + this.topSafe())
     // 左缘与输入条一致（输入条容器 padding 14）：返回按钮和输入框左边缘对齐
     .padding({
-      // 内嵌时系统返回键占左侧约 48vp，标题从这里开始，避免压住返回键
-      left: embedded ? 56 : 14,
+      // 自绘返回键从左缘 14 开始，与输入条左缘对齐
+      left: 14,
       right: 14,
       top: embedded ? 0 : (this.topSafe() > 2 ? this.topSafe() - 2 : 0)
     })
@@ -11237,11 +11204,13 @@ export struct ConversationPage {
       }
 
       if (!this.autoStick && this.entries.length > 0) {
-        // 回到底部：圆形按钮，玻璃背板走 HdsTabs 悬浮 Bar（与输入条同一套 systemMaterialEffect），
+        // 回到底部：圆形按钮，玻璃背板走 HdsGlassSurface（与输入条胶囊同一套材质 + 光感跟随），
         // 本体只做透明可点层 + 箭头。
         Row() {
           Stack({ alignContent: Alignment.Center }) {
-            this.hdsGlassBackplate(40, 40)
+            HdsGlassSurface() {
+              Row().width(40).height(40).backgroundColor(Color.Transparent)
+            }
             Button({ type: ButtonType.Circle }) {
               // 向下箭头：右 + 下 1.8vp 描边旋转 45°
               Row()
