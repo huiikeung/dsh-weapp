@@ -7521,16 +7521,23 @@ export struct ConversationPage {
             this.glassDockMode = false;
           })
       }
-      .width('100%')
-      .height(56)
+      // 胶囊长度：页面宽度 - 两侧留白（不铺满整宽）
+      .width(this.pageW > 0 ? this.pageW - (32 + this.wideInset() * 2) : '100%')
+      .height(52)
       .padding({ left: 6, right: 20 })
       .alignItems(VerticalAlign.Center)
-      .borderRadius(28)
-      // 沉浸光感：更透的底色 + 更强的背景模糊，让下方时间线透出来
-      .backgroundColor(this.isDark ? 'rgba(44,46,52,0.46)' : 'rgba(255,255,255,0.44)')
-      .backdropBlur(this.isDark ? 44 : 34)
-      .border({ width: 0.7, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.86)' })
-      .shadow({ radius: 22, color: this.isDark ? 'rgba(0,0,0,0.32)' : 'rgba(16,19,24,0.12)', offsetY: 8 })
+      .borderRadius(26)
+      // 玻璃兜底：部分设备/系统档位下 systemMaterial 会渲染成完全透明，
+      // 这里先铺一层半透明底 + 背景模糊，保证任何情况下都是「玻璃胶囊」。
+      .backgroundColor(this.isDark ? 'rgba(38,40,46,0.52)' : 'rgba(255,255,255,0.66)')
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+      // 系统「沉浸光感」材质：支持时由系统渲染光感/折射/按压反馈
+      .systemMaterial(new uiMaterial.ImmersiveMaterial({
+        style: uiMaterial.ImmersiveStyle.REGULAR,
+        interactive: true,
+        applyShadow: true,
+        lightEffect: { color: Color.White }
+      }))
       .margin({ left: 16 + this.wideInset(), right: 16 + this.wideInset() })
     }
     .width('100%')
